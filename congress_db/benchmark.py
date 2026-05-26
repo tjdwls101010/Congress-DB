@@ -13,6 +13,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Callable, Sequence, TypeVar
 
+from .progress import ProgressReporter
+
 T = TypeVar("T")
 R = TypeVar("R")
 
@@ -73,7 +75,18 @@ def measure_workers(
     가장 낮은 worker count를 고른다.
     """
     sample = list(items[:n] if items is not None else range(n))  # type: ignore[arg-type]
-    runs = tuple(_measure_one(api_callable, sample, worker) for worker in levels)
+    overall = ProgressReporter(
+        "worker benchmark",
+        len(levels),
+        step=1,
+    )
+    overall.start()
+    runs_list: list[WorkerRun] = []
+    for worker in levels:
+        runs_list.append(_measure_one(api_callable, sample, worker))
+        overall.advance()
+    runs = tuple(runs_list)
+    overall.finish()
     selected = _select_worker(runs, max_error_rate, min_throughput_ratio)
     return BenchmarkResult(
         measured_at=datetime.now(UTC).isoformat(timespec="seconds"),
@@ -92,15 +105,23 @@ def _measure_one(
     start = time.perf_counter()
     success_count = 0
     errors: list[str] = []
+    progress = ProgressReporter(
+        f"benchmark workers={worker_count}",
+        len(items),
+    )
+    progress.start()
     with ThreadPoolExecutor(max_workers=worker_count) as pool:
         futures = [pool.submit(api_callable, item, worker_count) for item in items]
         for future in as_completed(futures):
             try:
                 future.result()
                 success_count += 1
+                progress.advance()
             except Exception as exc:  # noqa: BLE001 - benchmark records boundary failures
                 if len(errors) < 5:
                     errors.append(str(exc))
+                progress.advance(errors=1)
+    progress.finish()
 
     seconds = time.perf_counter() - start
     call_count = len(items)

@@ -1,6 +1,6 @@
 .PHONY: db-up db-down db-migrate db-shell db-reset test \
         seed-catalog verify-catalog render-catalog ingest-members ingest-bills \
-        ingest-votes ingest-meetings
+        ingest-votes ingest-meetings validate-minutes-dom ingest-utterances
 
 # .env가 있으면 변수 자동 로드 (없어도 통과)
 -include .env
@@ -69,3 +69,11 @@ ingest-votes:
 # meetings + agenda_items + meeting_bills 적재 (기본 캘리브레이션 500건)
 ingest-meetings:
 	uv run python -m scripts.ingest_meetings
+
+# utterances 적재 (기본 캘리브레이션 500건)
+ingest-utterances:
+	uv run python -m scripts.ingest_utterances
+
+# 회의록 DOM 구조 다층 샘플 검증
+validate-minutes-dom:
+	uv run python -m scripts.validate_minutes_dom
