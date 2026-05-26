@@ -3,3 +3,14 @@
 # Python
 __pycache__/
 *.py[cod]
+*.egg-info/
+.venv/
+
+# Env
+.env
+.env.local
+
+# Test caches
+.pytest_cache/
+.coverage
+htmlcov/
