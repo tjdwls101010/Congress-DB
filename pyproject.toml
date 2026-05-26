@@ -1,0 +1,19 @@
+[project]
+name = "congress-db"
+version = "0.1.0"
+description = "22대 국회 통합 데이터베이스"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "psycopg[binary,pool]>=3.2",
+    "python-dotenv>=1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"

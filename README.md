@@ -1,0 +1,52 @@
+# Congress-DB
+
+22대 국회(2024-05-30~) 의정 활동을 한 의원 ID로 통합 조회하는 Postgres 16 DB.
+
+상세 도메인은 [CONTEXT.md](CONTEXT.md), 요구사항은 [docs/PRD.md](docs/PRD.md),
+화면/경로는 [docs/IA.md](docs/IA.md), 스키마는 [docs/ERD.md](docs/ERD.md) 참고.
+
+## 환경 셋업
+
+전제: macOS + [OrbStack](https://orbstack.dev/), [uv](https://docs.astral.sh/uv/),
+Python 3.11+.
+
+```bash
+# 1) 의존성 설치
+uv sync
+
+# 2) 환경 변수 — .env.example 복사 후 필요시 포트만 조정
+cp .env.example .env
+
+# 3) Postgres 컨테이너 기동 (healthy 대기 포함)
+make db-up
+
+# 4) 테스트
+make test
+```
+
+호스트의 5432가 다른 Postgres에 점유돼 있으면 `.env`의 `POSTGRES_PORT`와
+`DATABASE_URL`의 포트를 5433 같은 빈 포트로 같이 바꿔준다.
+
+## 주요 Make 타겟
+
+| 타겟 | 동작 |
+|---|---|
+| `make db-up` | Postgres 16 컨테이너 기동 (healthy 대기) |
+| `make db-down` | 컨테이너만 중지 (데이터 유지) |
+| `make db-reset` | 컨테이너 + 볼륨 삭제 후 재기동 (완전 리셋) |
+| `make db-shell` | psql 셸 접속 |
+| `make test` | `uv run pytest -v` |
+
+## 구조
+
+```
+congress_db/      # Python 패키지 (현재: db.py 만)
+db/
+  migrations/     # 향후 스키마 변경 SQL (현재 비어 있음)
+tests/            # pytest 통합 테스트
+docs/             # PRD / IA / ERD
+docker-compose.yml
+Makefile
+pyproject.toml    # uv 관리
+.env.example
+```
