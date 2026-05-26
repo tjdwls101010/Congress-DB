@@ -1,4 +1,5 @@
-.PHONY: db-up db-down db-migrate db-shell db-reset test
+.PHONY: db-up db-down db-migrate db-shell db-reset test \
+        seed-catalog verify-catalog render-catalog
 
 # .env가 있으면 변수 자동 로드 (없어도 통과)
 -include .env
@@ -39,3 +40,15 @@ db-shell:
 # 테스트 실행
 test:
 	uv run pytest -v
+
+# api_catalog seed (PRD 확정 10개 endpoint UPSERT)
+seed-catalog:
+	uv run python -m scripts.seed_api_catalog
+
+# api_catalog verify (10개 endpoint 실제 호출 + 결과 기록)
+verify-catalog:
+	uv run python -m scripts.verify_api_catalog
+
+# docs/API-CATALOG.md 자동 생성
+render-catalog:
+	uv run python -m scripts.render_api_catalog
