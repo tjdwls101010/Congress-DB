@@ -1,5 +1,5 @@
 .PHONY: db-up db-down db-migrate db-shell db-reset test \
-        seed-catalog verify-catalog render-catalog
+        seed-catalog verify-catalog render-catalog ingest-members
 
 # .env가 있으면 변수 자동 로드 (없어도 통과)
 -include .env
@@ -52,3 +52,7 @@ verify-catalog:
 # docs/API-CATALOG.md 자동 생성
 render-catalog:
 	uv run python -m scripts.render_api_catalog
+
+# members 적재 (국회의원 인적사항 API -> members)
+ingest-members:
+	uv run python -m scripts.ingest_members
