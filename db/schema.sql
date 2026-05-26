@@ -3,8 +3,7 @@
 -- 10 core tables + 1 catalog table = 11 tables.
 -- 자연키 우선, FK는 ON DELETE RESTRICT (참조 무결성 우선).
 -- CREATE TABLE IF NOT EXISTS로 idempotent 적용 (변경은 db-reset 또는 향후 migrations/).
-
-BEGIN;
+-- 적용은 psql -1 (single-transaction)으로 wrap — 이 파일에는 BEGIN/COMMIT 없음.
 
 -- =========================================================================
 -- 1. members — 의원 (자연키 PK)
@@ -206,5 +205,3 @@ CREATE TABLE IF NOT EXISTS meeting_bills (
 );
 
 CREATE INDEX IF NOT EXISTS idx_mb_bill ON meeting_bills (bill_id);
-
-COMMIT;

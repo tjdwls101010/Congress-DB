@@ -24,7 +24,7 @@ db-migrate:
 	@docker compose exec -T db psql \
 		-U $${POSTGRES_USER:-congress} \
 		-d $${POSTGRES_DB:-congress} \
-		-v ON_ERROR_STOP=1 < db/schema.sql
+		-1 -v ON_ERROR_STOP=1 < db/schema.sql
 	@echo "Schema applied."
 
 # 컨테이너 + 볼륨 삭제 후 재기동 (완전 리셋, schema 재적용)
