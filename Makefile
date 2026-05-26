@@ -1,6 +1,10 @@
-.PHONY: db-up db-down db-shell db-reset test
+.PHONY: db-up db-down db-migrate db-shell db-reset test
 
-# Postgres 컨테이너 기동 (백그라운드 + healthy 대기)
+# .env가 있으면 변수 자동 로드 (없어도 통과)
+-include .env
+export
+
+# Postgres 컨테이너 기동 + healthy 대기 + schema 자동 적용
 db-up:
 	docker compose up -d
 	@echo "Waiting for Postgres to become healthy..."
@@ -8,12 +12,22 @@ db-up:
 		sleep 1; \
 	done
 	@echo "Postgres is ready."
+	@$(MAKE) db-migrate
 
 # 컨테이너 중지 (데이터 유지)
 db-down:
 	docker compose down
 
-# 컨테이너 + 볼륨 삭제 후 재기동 (완전 리셋)
+# db/schema.sql 적용 (CREATE TABLE IF NOT EXISTS → 멱등)
+db-migrate:
+	@echo "Applying db/schema.sql..."
+	@docker compose exec -T db psql \
+		-U $${POSTGRES_USER:-congress} \
+		-d $${POSTGRES_DB:-congress} \
+		-v ON_ERROR_STOP=1 < db/schema.sql
+	@echo "Schema applied."
+
+# 컨테이너 + 볼륨 삭제 후 재기동 (완전 리셋, schema 재적용)
 db-reset:
 	docker compose down -v
 	$(MAKE) db-up
