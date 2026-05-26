@@ -21,21 +21,8 @@ from congress_db.api_catalog import update_verification_result
 from congress_db.api_client import fetch_with_age_attempts
 from congress_db.endpoints import PIPELINE_ENDPOINTS, EndpointSpec
 
-
-# verify 시 endpoint별로 추가로 박아야 하는 파라미터.
-# - CONF_DATE는 YYYY 형식(연도) — legacy fetch_meetings.py에서 확인.
-# - BILL_NO/BILL_ID는 22대 첫 법안 샘플. "endpoint가 작동하는가" 검증이 목적이므로
-#   sample이 어떤 값인지는 무관, 실제로 존재하는 값이기만 하면 됨.
-_SAMPLE_PASSED_BILL_ID = "PRC_O2C5J0H9H1H0P1O0M1N9M3G4G6M5N6"  # 22대 본회의 통과 법안 (verify 시점)
-
-VERIFY_EXTRAS: dict[str, dict[str, str]] = {
-    "nzbyfwhwaoanttzje": {"CONF_DATE": "2024"},
-    "ncwgseseafwbuheph": {"CONF_DATE": "2024"},
-    "BPMBILLSUMMARY":    {"BILL_NO": "2219057"},
-    # 표결·의안별 회의록은 본회의 통과까지 간 법안이어야 row 발생.
-    "nojepdqqaweusdfbi": {"BILL_ID": _SAMPLE_PASSED_BILL_ID},
-    "VCONFBILLCONFLIST": {"BILL_ID": _SAMPLE_PASSED_BILL_ID},
-}
+# 검증 시 박는 sample 파라미터는 각 EndpointSpec.verify_sample에 정의돼 있다 —
+# single source of truth. 이 스크립트는 호출만 한다.
 
 
 @dataclass
@@ -49,10 +36,9 @@ class VerifyOutcome:
 
 def verify_one(spec: EndpointSpec) -> VerifyOutcome:
     """단일 endpoint를 호출하고 결과를 정규화."""
-    extras = VERIFY_EXTRAS.get(spec.endpoint)
     response = fetch_with_age_attempts(
         spec.endpoint,
-        extras,
+        spec.verify_sample,
         p_size=1,
         sleep_between=0.1,
     )
