@@ -36,15 +36,15 @@ def _count_pipeline_rows() -> int:
 def test_seed_inserts_all_pipeline_endpoints() -> None:
     n = seed_pipeline_endpoints()
 
-    assert n == len(PIPELINE_ENDPOINTS) == 10
-    assert _count_pipeline_rows() == 10
+    assert n == len(PIPELINE_ENDPOINTS) == 11
+    assert _count_pipeline_rows() == 11
 
 
 def test_seed_is_idempotent() -> None:
     seed_pipeline_endpoints()
     seed_pipeline_endpoints()
 
-    assert _count_pipeline_rows() == 10
+    assert _count_pipeline_rows() == 11
 
 
 def test_seed_preserves_usage_note_per_spec() -> None:
@@ -104,4 +104,4 @@ def test_fetch_pipeline_catalog_rows_returns_only_pipeline_endpoints() -> None:
 
     inf_ids = {r["inf_id"] for r in rows}
     assert "UNUSED_API" not in inf_ids
-    assert len(rows) == 10
+    assert len(rows) == 11

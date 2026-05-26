@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""api_catalog verify CLI — 10개 endpoint를 실제 호출해서 결과를 DB에 기록.
+"""api_catalog verify CLI — PRD 확정 endpoint를 실제 호출해서 결과를 DB에 기록.
 
 사용법::
 

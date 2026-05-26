@@ -1,4 +1,4 @@
-"""PRD 확정 사용 OpenAPI 10개 정의.
+"""PRD 확정 사용 OpenAPI 11개 정의.
 
 이 모듈은 single source of truth로, `api_catalog` 적재·검증·향후 적재 스크립트
 모두 이 상수를 import해서 사용한다. 새 endpoint를 쓰기 시작하면 여기 추가
@@ -113,6 +113,13 @@ PIPELINE_ENDPOINTS: tuple[EndpointSpec, ...] = (
         endpoint="VCONFCFRMCONFLIST",
         name="인사청문회 회의록",
         usage_note="meetings 적재 (ERACO=제22대, 22대 64건)",
+        verify_sample=None,
+    ),
+    EndpointSpec(
+        inf_id="OND1KZ0009677M13515",
+        endpoint="ncocpgfiaoituanbr",
+        name="의안별 표결현황",
+        usage_note="votes 적재 후보 BILL_ID 목록 (AGE=22, 22대 표결 의안 1,595건)",
         verify_sample=None,
     ),
     EndpointSpec(
