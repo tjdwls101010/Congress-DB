@@ -315,7 +315,7 @@ PRD의 "외부 API 사용 목록" 표에 있는 OpenAPI endpoint만 적재한다
 | `last_failed_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | |
 | `resolved_at` | TIMESTAMPTZ | |
 
-**인덱스**: `(status, last_failed_at)`, `(source, item_key)`, unresolved partial unique `(source, stage, item_key) WHERE status IN ('pending', 'retrying', 'blocked')`.
+**인덱스**: `run_id`, `(status, last_failed_at)`, `(source, item_key)`, unresolved partial unique `(source, stage, item_key) WHERE status IN ('pending', 'retrying', 'blocked')`.
 
 ---
 
@@ -366,6 +366,7 @@ CREATE INDEX idx_sg_respondents_gin ON session_groups USING gin (respondents jso
 CREATE INDEX idx_ingest_runs_mode_started ON ingest_runs(mode, started_at DESC);
 CREATE INDEX idx_ingest_runs_status_started ON ingest_runs(status, started_at DESC);
 CREATE INDEX idx_ingest_cursors_updated_run ON ingest_cursors(updated_run_id);
+CREATE INDEX idx_dead_letters_run_id ON dead_letters(run_id);
 CREATE INDEX idx_dead_letters_status_last_failed ON dead_letters(status, last_failed_at);
 CREATE INDEX idx_dead_letters_source_item ON dead_letters(source, item_key);
 CREATE UNIQUE INDEX idx_dead_letters_unresolved_unique

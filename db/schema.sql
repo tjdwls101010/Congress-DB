@@ -1,6 +1,6 @@
 -- Congress-DB initial schema (Postgres 16)
 -- Source: docs/ERD.md
--- 10 core tables + 1 catalog table = 11 tables.
+-- 10 core tables + 1 catalog table + 3 ingest operational tables = 14 tables.
 -- 자연키 우선, FK는 ON DELETE RESTRICT (참조 무결성 우선).
 -- CREATE TABLE IF NOT EXISTS로 idempotent 적용 (변경은 db-reset 또는 향후 migrations/).
 -- 적용은 psql -1 (single-transaction)으로 wrap — 이 파일에는 BEGIN/COMMIT 없음.
@@ -217,3 +217,82 @@ CREATE TABLE IF NOT EXISTS meeting_bills (
 );
 
 CREATE INDEX IF NOT EXISTS idx_mb_bill ON meeting_bills (bill_id);
+
+-- =========================================================================
+-- 12. ingest_runs — 수집 실행 기록
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS ingest_runs (
+    id              BIGSERIAL PRIMARY KEY,
+    mode            TEXT NOT NULL
+                    CHECK (mode IN ('backfill', 'incremental', 'dead_letter_retry')),
+    status          TEXT NOT NULL
+                    CHECK (status IN (
+                        'running', 'success', 'degraded_success',
+                        'failed', 'blocked'
+                    )),
+    started_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finished_at     TIMESTAMPTZ,
+    overlap_days    INT CHECK (overlap_days IS NULL OR overlap_days >= 0),
+    window_start    TIMESTAMPTZ,
+    window_end      TIMESTAMPTZ,
+    summary         JSONB NOT NULL DEFAULT '{}'::jsonb,
+    error           TEXT,
+    CHECK (finished_at IS NULL OR finished_at >= started_at),
+    CHECK (window_start IS NULL OR window_end IS NULL OR window_end >= window_start)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ingest_runs_mode_started
+    ON ingest_runs (mode, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ingest_runs_status_started
+    ON ingest_runs (status, started_at DESC);
+
+-- =========================================================================
+-- 13. ingest_cursors — source별 증분 기준점
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS ingest_cursors (
+    source          TEXT PRIMARY KEY,
+    cursor_kind     TEXT NOT NULL,
+    cursor_value    TIMESTAMPTZ,
+    overlap_days    INT NOT NULL DEFAULT 30 CHECK (overlap_days >= 0),
+    updated_run_id  BIGINT REFERENCES ingest_runs (id) ON DELETE RESTRICT,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ingest_cursors_updated_run
+    ON ingest_cursors (updated_run_id);
+
+-- =========================================================================
+-- 14. dead_letters — 실패 item 보존
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS dead_letters (
+    id               BIGSERIAL PRIMARY KEY,
+    run_id           BIGINT NOT NULL REFERENCES ingest_runs (id) ON DELETE RESTRICT,
+    source           TEXT NOT NULL,
+    stage            TEXT NOT NULL,
+    item_key         TEXT NOT NULL,
+    payload          JSONB NOT NULL DEFAULT '{}'::jsonb,
+    error            TEXT NOT NULL,
+    attempts         INT NOT NULL DEFAULT 1 CHECK (attempts > 0),
+    status           TEXT NOT NULL
+                     CHECK (status IN (
+                         'pending', 'retrying', 'resolved', 'ignored', 'blocked'
+                     )),
+    first_failed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_failed_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    resolved_at      TIMESTAMPTZ,
+    CHECK (last_failed_at >= first_failed_at),
+    CHECK (
+        (status IN ('resolved', 'ignored') AND resolved_at IS NOT NULL)
+        OR (status NOT IN ('resolved', 'ignored'))
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_dead_letters_run_id
+    ON dead_letters (run_id);
+CREATE INDEX IF NOT EXISTS idx_dead_letters_status_last_failed
+    ON dead_letters (status, last_failed_at);
+CREATE INDEX IF NOT EXISTS idx_dead_letters_source_item
+    ON dead_letters (source, item_key);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dead_letters_unresolved_unique
+    ON dead_letters (source, stage, item_key)
+    WHERE status IN ('pending', 'retrying', 'blocked');
