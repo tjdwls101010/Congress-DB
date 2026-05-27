@@ -41,6 +41,7 @@ def _pk_columns(table: str) -> list[str]:
         ("members",          ["mona_cd"]),
         ("bills",            ["bill_id"]),
         ("meetings",         ["mnts_id"]),
+        ("bill_lead_proposers", ["bill_id", "mona_cd"]),
         ("bill_coproposers", ["bill_id", "mona_cd"]),
         ("votes",            ["id"]),
         ("agenda_items",     ["id"]),
@@ -89,7 +90,7 @@ def test_meeting_type_accepts_each_valid_value(valid_type: str) -> None:
 
 
 # -------------------------------------------------------------------------
-# FK 제약: bills.rst_mona_cd → members.mona_cd
+# FK 제약: bills.rst_mona_cd → members.mona_cd (단일 대표발의 편의 FK)
 # -------------------------------------------------------------------------
 
 def test_bills_fk_rejects_nonexistent_member() -> None:

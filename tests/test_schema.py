@@ -11,6 +11,7 @@ EXPECTED_TABLES = frozenset(
     {
         "members",
         "bills",
+        "bill_lead_proposers",
         "bill_coproposers",
         "votes",
         "meetings",
@@ -37,7 +38,7 @@ def _public_tables() -> set[str]:
 
 
 def test_all_expected_tables_exist() -> None:
-    """ERD에 정의된 10개 테이블이 public 스키마에 모두 있다."""
+    """ERD에 정의된 테이블이 public 스키마에 모두 있다."""
     tables = _public_tables()
     missing = EXPECTED_TABLES - tables
     assert not missing, f"Missing tables: {sorted(missing)}"

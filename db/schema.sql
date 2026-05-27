@@ -113,7 +113,19 @@ CREATE INDEX IF NOT EXISTS idx_bills_propose_dt  ON bills (propose_dt DESC);
 CREATE INDEX IF NOT EXISTS idx_bills_proc_result ON bills (proc_result);
 
 -- =========================================================================
--- 5. bill_coproposers — 공동발의 N:M (PK: bill_id + mona_cd)
+-- 5. bill_lead_proposers — 대표발의 N:M (PK: bill_id + mona_cd)
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS bill_lead_proposers (
+    bill_id   TEXT NOT NULL REFERENCES bills   (bill_id)   ON DELETE RESTRICT,
+    mona_cd   TEXT NOT NULL REFERENCES members (mona_cd)   ON DELETE RESTRICT,
+    order_no  SMALLINT,
+    PRIMARY KEY (bill_id, mona_cd)
+);
+
+CREATE INDEX IF NOT EXISTS idx_lead_proposers_mona ON bill_lead_proposers (mona_cd);
+
+-- =========================================================================
+-- 6. bill_coproposers — 공동발의 N:M (PK: bill_id + mona_cd)
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS bill_coproposers (
     bill_id   TEXT NOT NULL REFERENCES bills (bill_id)   ON DELETE RESTRICT,
@@ -125,7 +137,7 @@ CREATE TABLE IF NOT EXISTS bill_coproposers (
 CREATE INDEX IF NOT EXISTS idx_coproposers_mona ON bill_coproposers (mona_cd);
 
 -- =========================================================================
--- 6. votes — 본회의 표결 (시점 정당 박힘, UNIQUE(bill_id, mona_cd))
+-- 7. votes — 본회의 표결 (시점 정당 박힘, UNIQUE(bill_id, mona_cd))
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS votes (
     id                BIGSERIAL PRIMARY KEY,
@@ -144,7 +156,7 @@ CREATE INDEX IF NOT EXISTS idx_votes_bill ON votes (bill_id);
 CREATE INDEX IF NOT EXISTS idx_votes_date ON votes (vote_date DESC);
 
 -- =========================================================================
--- 7. session_groups — Q&A 그룹 (FK → meetings, members)
+-- 8. session_groups — Q&A 그룹 (FK → meetings, members)
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS session_groups (
     id                    BIGSERIAL PRIMARY KEY,
@@ -161,7 +173,7 @@ CREATE INDEX IF NOT EXISTS idx_sg_meeting    ON session_groups (meeting_id);
 CREATE INDEX IF NOT EXISTS idx_sg_questioner ON session_groups (questioner_mona_cd);
 
 -- =========================================================================
--- 8. utterances — 발언 (FK → meetings, members, session_groups)
+-- 9. utterances — 발언 (FK → meetings, members, session_groups)
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS utterances (
     id                  BIGSERIAL PRIMARY KEY,
@@ -180,7 +192,7 @@ CREATE INDEX IF NOT EXISTS idx_utterances_speaker       ON utterances (speaker_m
 CREATE INDEX IF NOT EXISTS idx_utterances_session_group ON utterances (session_group_id) WHERE session_group_id IS NOT NULL;
 
 -- =========================================================================
--- 9. agenda_items — 회의 안건 (FK → meetings, bills)
+-- 10. agenda_items — 회의 안건 (FK → meetings, bills)
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS agenda_items (
     id          BIGSERIAL PRIMARY KEY,
@@ -195,7 +207,7 @@ CREATE INDEX IF NOT EXISTS idx_agenda_meeting ON agenda_items (meeting_id);
 CREATE INDEX IF NOT EXISTS idx_agenda_bill    ON agenda_items (bill_id) WHERE bill_id IS NOT NULL;
 
 -- =========================================================================
--- 10. meeting_bills — 회의↔법안 N:M junction
+-- 11. meeting_bills — 회의↔법안 N:M junction
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS meeting_bills (
     meeting_id  INT  NOT NULL REFERENCES meetings (mnts_id) ON DELETE RESTRICT,
