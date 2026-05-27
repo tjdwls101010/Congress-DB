@@ -40,6 +40,9 @@ class SessionGroupValidationResult:
     total_chars_mismatch: int
     respondents_format_invalid: int
     respondent_empty_groups: int
+    groups_with_50_plus_utterances: int
+    groups_with_100_plus_utterances: int
+    max_group_utterance_count: int
     type_metrics: tuple[SessionGroupTypeMetric, ...]
 
 
@@ -79,6 +82,9 @@ def _load_validation_result(cur: object) -> SessionGroupValidationResult:
         total_chars_mismatch=integrity["total_chars_mismatch"],
         respondents_format_invalid=integrity["respondents_format_invalid"],
         respondent_empty_groups=integrity["respondent_empty_groups"],
+        groups_with_50_plus_utterances=integrity["groups_with_50_plus_utterances"],
+        groups_with_100_plus_utterances=integrity["groups_with_100_plus_utterances"],
+        max_group_utterance_count=integrity["max_group_utterance_count"],
         type_metrics=tuple(type_metrics),
     )
 
@@ -234,6 +240,15 @@ def _load_integrity(cur: object) -> dict[str, int]:
         "respondent_empty_groups": """
             SELECT COUNT(*) FROM session_groups WHERE jsonb_array_length(respondents) = 0
         """,
+        "groups_with_50_plus_utterances": """
+            SELECT COUNT(*) FROM session_groups WHERE utterance_count >= 50
+        """,
+        "groups_with_100_plus_utterances": """
+            SELECT COUNT(*) FROM session_groups WHERE utterance_count >= 100
+        """,
+        "max_group_utterance_count": """
+            SELECT COALESCE(MAX(utterance_count), 0) FROM session_groups
+        """,
     }
     result: dict[str, int] = {}
     for key, sql in queries.items():
@@ -264,6 +279,12 @@ def _render_markdown(result: SessionGroupValidationResult) -> str:
         f"- Session groups: {result.group_count}",
         f"- Linked utterances: {result.utterance_link_count}",
         f"- Groups with no detected respondents: {result.respondent_empty_groups}",
+        "",
+        "## Semantic Review Candidates",
+        "",
+        f"- Groups with 50+ utterances: {result.groups_with_50_plus_utterances}",
+        f"- Groups with 100+ utterances: {result.groups_with_100_plus_utterances}",
+        f"- Largest group utterance count: {result.max_group_utterance_count}",
         "",
         "## Integrity",
         "",

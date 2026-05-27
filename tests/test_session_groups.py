@@ -107,6 +107,56 @@ def test_detect_sessions_from_stream_builds_questioner_groups() -> None:
     assert (groups[1].seq_start, groups[1].seq_end) == (5, 7)
 
 
+def test_detect_sessions_treats_audit_banjang_as_presider() -> None:
+    groups = detect_sessions_from_stream(
+        meeting_id=930101,
+        meeting_type="국정감사",
+        title="테스트 국정감사",
+        utterances=[
+            SessionUtterance(1, "감사반장", "반장", None, "김테스트 위원님 질의해 주십시오."),
+            SessionUtterance(2, "김테스트", "위원", "TEST_SG_MEMBER_1", "질의입니다."),
+            SessionUtterance(3, "홍길동", "증인", None, "답변입니다."),
+        ],
+    )
+
+    assert len(groups) == 1
+    assert groups[0].questioner_mona_cd == "TEST_SG_MEMBER_1"
+    assert groups[0].respondents[0].title == "증인"
+
+
+def test_detect_sessions_finds_named_questioner_after_interjections() -> None:
+    groups = detect_sessions_from_stream(
+        meeting_id=930101,
+        meeting_type="국정감사",
+        title="테스트 국정감사",
+        utterances=[
+            SessionUtterance(1, "감사반장", "반장", None, "가상일 위원님 질의하십시오."),
+            SessionUtterance(2, "김테스트", "위원", "TEST_SG_MEMBER_1", "잠깐만요."),
+            SessionUtterance(3, "감사반장", "반장", None, "질의하십시오."),
+            SessionUtterance(4, "가상일", "위원", "TEST_SG_MEMBER_2", "질의입니다."),
+            SessionUtterance(5, "홍길동", "증인", None, "답변입니다."),
+        ],
+    )
+
+    assert len(groups) == 1
+    assert groups[0].questioner_mona_cd == "TEST_SG_MEMBER_2"
+    assert (groups[0].seq_start, groups[0].seq_end) == (4, 5)
+
+
+def test_detect_sessions_skips_groups_without_respondents() -> None:
+    groups = detect_sessions_from_stream(
+        meeting_id=930101,
+        meeting_type="상임위",
+        title="테스트 위원회",
+        utterances=[
+            SessionUtterance(1, "위원장", "위원장", None, "김테스트 위원님?"),
+            SessionUtterance(2, "김테스트", "위원", "TEST_SG_MEMBER_1", "없습니다."),
+        ],
+    )
+
+    assert groups == []
+
+
 def test_should_skip_session_detection_for_plenary_and_subcommittee_titles() -> None:
     assert should_skip_session_detection("본회의", "테스트 본회의") is True
     assert should_skip_session_detection("상임위", "법안심사제1소위원회") is True

@@ -20,9 +20,11 @@ PRESIDER_SUFFIXES = (
     "위원장대리",
     "소위원장",
     "소위원장대리",
+    "반장",
+    "반장대리",
 )
 QUESTIONER_TITLES = frozenset({"위원", "의원"})
-NON_RESPONDENT_TITLES = frozenset({"위원", "의원", "반장", "의사국장"})
+NON_RESPONDENT_TITLES = frozenset({"위원", "의원", "반장", "반장대리", "의사국장"})
 SKIP_TITLE_RE = re.compile(r"(?:소위원회|조세소위|법안심사.*소위|예산결산.*소위|안건조정위원회)")
 SKIP_MEETING_TYPES = frozenset({"본회의", "소위원회"})
 
@@ -149,11 +151,14 @@ def detect_sessions_from_stream(
         ]
         if not range_utterances:
             continue
+        respondents = _respondents(range_utterances)
+        if not respondents:
+            continue
         groups.append(
             SessionGroup(
                 meeting_id=meeting_id,
                 questioner_mona_cd=questioner_mona_cd,
-                respondents=_respondents(range_utterances),
+                respondents=respondents,
                 seq_start=seq_start,
                 seq_end=seq_end,
                 utterance_count=len(range_utterances),
@@ -204,14 +209,53 @@ def _find_nominations(utterances: Sequence[SessionUtterance]) -> list[tuple[int,
         if not _is_chair(utterance.speaker_title):
             continue
 
-        next_questioner = _next_questioner(utterances, index + 1)
-        if next_questioner is None:
+        nomination = _questioner_nomination(utterances, index)
+        if nomination is not None:
+            nominations.append(nomination)
+
+    return sorted(
+        [(sequence, mona_cd) for sequence, mona_cd in nominations if mona_cd],
+        key=lambda item: item[0],
+    )
+
+
+def _questioner_nomination(
+    utterances: Sequence[SessionUtterance],
+    chair_index: int,
+) -> tuple[int, str] | None:
+    chair_utterance = utterances[chair_index]
+    next_questioner = _next_questioner(utterances, chair_index + 1)
+    if (
+        next_questioner is not None
+        and next_questioner.speaker_name in chair_utterance.content
+        and next_questioner.speaker_mona_cd
+    ):
+        return chair_utterance.sequence, next_questioner.speaker_mona_cd
+
+    named_questioner = _named_questioner_after_interjections(
+        chair_utterance,
+        utterances[chair_index + 1 :],
+    )
+    if named_questioner is None:
+        return None
+    return named_questioner.sequence, named_questioner.speaker_mona_cd or ""
+
+
+def _named_questioner_after_interjections(
+    chair_utterance: SessionUtterance,
+    following: Sequence[SessionUtterance],
+) -> SessionUtterance | None:
+    by_mona_cd: dict[str, SessionUtterance] = {}
+    for utterance in following:
+        if not utterance.speaker_mona_cd or utterance.speaker_title not in QUESTIONER_TITLES:
             continue
+        if utterance.speaker_name not in chair_utterance.content:
+            continue
+        by_mona_cd.setdefault(utterance.speaker_mona_cd, utterance)
 
-        if next_questioner.speaker_name in utterance.content:
-            nominations.append((utterance.sequence, next_questioner.speaker_mona_cd or ""))
-
-    return [(sequence, mona_cd) for sequence, mona_cd in nominations if mona_cd]
+    if len(by_mona_cd) != 1:
+        return None
+    return next(iter(by_mona_cd.values()))
 
 
 def _merge_consecutive(nominations: list[tuple[int, str]]) -> list[tuple[int, str]]:

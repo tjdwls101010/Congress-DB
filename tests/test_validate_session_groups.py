@@ -23,6 +23,9 @@ def test_render_session_group_report_summarizes_generation_rate(tmp_path) -> Non
         total_chars_mismatch=0,
         respondents_format_invalid=0,
         respondent_empty_groups=3,
+        groups_with_50_plus_utterances=4,
+        groups_with_100_plus_utterances=1,
+        max_group_utterance_count=128,
         type_metrics=(
             SessionGroupTypeMetric(
                 meeting_type="상임위",
@@ -41,5 +44,7 @@ def test_render_session_group_report_summarizes_generation_rate(tmp_path) -> Non
 
     text = output.read_text()
     assert "Applicable meetings with groups: 6 (75.0%)" in text
+    assert "Groups with 100+ utterances: 1" in text
+    assert "Largest group utterance count: 128" in text
     assert "Invalid respondents JSONB: 0" in text
     assert "| 상임위 | 8 | 0 | 8 | 6 | 42 | 75.0% |" in text
