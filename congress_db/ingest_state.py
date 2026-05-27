@@ -76,6 +76,25 @@ def finish_run(
         return cur.fetchone() is not None
 
 
+def update_run_summary(
+    conn: psycopg.Connection,
+    run_id: int,
+    summary: Mapping[str, Any],
+) -> bool:
+    """실행 중인 run의 summary를 갱신한다."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE ingest_runs
+            SET summary = %s
+            WHERE id = %s
+            RETURNING id
+            """,
+            (Jsonb(dict(summary)), run_id),
+        )
+        return cur.fetchone() is not None
+
+
 def upsert_cursor(
     conn: psycopg.Connection,
     *,

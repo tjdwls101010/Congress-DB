@@ -44,7 +44,16 @@ class IngestBillsResult:
     selected_worker_count: int
     summary_success_count: int
     summary_error_count: int
+    summary_failures: tuple["BillSummaryFailure", ...]
     age_param_used: dict[str, str] | None
+
+
+@dataclass(frozen=True)
+class BillSummaryFailure:
+    """법안 summary fetch 최종 실패."""
+
+    bill_no: str
+    error: str
 
 
 @dataclass(frozen=True)
@@ -60,6 +69,7 @@ class _SummaryResult:
     summaries: dict[str, str | None]
     success_count: int
     error_count: int
+    failures: tuple[BillSummaryFailure, ...]
 
 
 _BILL_FIELDS: tuple[str, ...] = (
@@ -220,6 +230,7 @@ def ingest_bills(
         selected_worker_count=benchmark.selected_worker_count,
         summary_success_count=summary_result.success_count,
         summary_error_count=summary_result.error_count,
+        summary_failures=summary_result.failures,
         age_param_used=bill_list.age_param_used,
     )
 
@@ -284,6 +295,7 @@ def _benchmark_summary_workers(
 
 def _fetch_summaries(bill_nos: list[str], worker_count: int) -> _SummaryResult:
     summaries: dict[str, str | None] = {}
+    failures: list[BillSummaryFailure] = []
     error_count = 0
     progress = ProgressReporter("bill summaries", len(bill_nos))
     progress.start()
@@ -294,15 +306,17 @@ def _fetch_summaries(bill_nos: list[str], worker_count: int) -> _SummaryResult:
             try:
                 summaries[bill_no] = future.result()
                 progress.advance()
-            except Exception:
+            except Exception as exc:
                 summaries[bill_no] = None
                 error_count += 1
+                failures.append(BillSummaryFailure(bill_no=bill_no, error=str(exc)))
                 progress.advance(errors=1)
     progress.finish()
     return _SummaryResult(
         summaries=summaries,
         success_count=len(bill_nos) - error_count,
         error_count=error_count,
+        failures=tuple(failures),
     )
 
 

@@ -174,7 +174,11 @@ def ingest_session_groups(
     meeting_ids: Sequence[int] | None = None,
 ) -> IngestSessionGroupsResult:
     """감지된 Q&A 그룹을 `session_groups`와 `utterances`에 적재한다."""
-    target_meeting_ids = list(meeting_ids or _load_target_meeting_ids(calibration_limit))
+    target_meeting_ids = (
+        list(_load_target_meeting_ids(calibration_limit))
+        if meeting_ids is None
+        else list(meeting_ids)
+    )
     print(f"[ingest-session-groups] target meetings={len(target_meeting_ids)}", flush=True)
 
     detected_by_meeting: dict[int, list[SessionGroup]] = {}
