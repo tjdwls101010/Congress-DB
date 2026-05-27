@@ -1,6 +1,6 @@
 # ERD — Congress-DB (Postgres 16)
 
-10개 핵심 테이블 + 카탈로그 1개. 모든 식별자는 자연키 우선 (`MONA_CD`, `BILL_ID`, `mnts_id`). FK는 ON DELETE RESTRICT (참조 무결성 우선).
+10개 핵심 테이블 + 카탈로그 1개 + 수집 운영 테이블 3개. 모든 식별자는 자연키 우선 (`MONA_CD`, `BILL_ID`, `mnts_id`). FK는 ON DELETE RESTRICT (참조 무결성 우선).
 
 ## Mermaid 다이어그램
 
@@ -22,6 +22,8 @@ erDiagram
     members ||--o{ session_groups : "questioner_mona_cd"
     session_groups ||--o{ utterances : "session_group_id (nullable)"
     bills ||--o{ agenda_items : "bill_id (nullable)"
+    ingest_runs ||--o{ dead_letters : "run_id"
+    ingest_runs ||--o{ ingest_cursors : "updated_run_id"
 ```
 
 ## 테이블 정의
@@ -256,10 +258,74 @@ PRD의 "외부 API 사용 목록" 표에 있는 OpenAPI endpoint만 적재한다
 
 ---
 
+### 12. `ingest_runs` — 수집 실행 기록
+
+백필, 증분 동기화, dead letter 재처리 실행 단위를 기록한다. PM gate와 운영 상태 판단의 기준이다.
+
+| 컬럼 | 타입 | 비고 |
+|---|---|---|
+| `id` | BIGSERIAL | **PK** |
+| `mode` | TEXT NOT NULL | `backfill` / `incremental` / `dead_letter_retry` |
+| `status` | TEXT NOT NULL | `running` / `success` / `degraded_success` / `failed` / `blocked` |
+| `started_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | |
+| `finished_at` | TIMESTAMPTZ | |
+| `overlap_days` | INT | incremental 기본 30 |
+| `window_start` | TIMESTAMPTZ | source window가 공통으로 표현 가능할 때 |
+| `window_end` | TIMESTAMPTZ | |
+| `summary` | JSONB | stage별 row count, touched meeting count, worker count 등 |
+| `error` | TEXT | run-level failure 요약 |
+
+**인덱스**: `(mode, started_at DESC)`, `(status, started_at DESC)`.
+
+---
+
+### 13. `ingest_cursors` — source별 증분 기준점
+
+하나의 global cursor를 쓰지 않는다. 법안·표결·회의는 날짜 의미가 다르므로 source별로 분리한다.
+
+| 컬럼 | 타입 | 비고 |
+|---|---|---|
+| `source` | TEXT | **PK**. 예: `members`, `bills`, `votes`, `meetings`, `utterances`, `session_groups` |
+| `cursor_kind` | TEXT NOT NULL | `full_refresh`, `propose_or_proc_dt`, `vote_date`, `conf_date`, `meeting_id_set` 등 |
+| `cursor_value` | TIMESTAMPTZ | 마지막 성공 기준점. source별 의미는 `cursor_kind`로 해석 |
+| `overlap_days` | INT NOT NULL DEFAULT 30 | |
+| `updated_run_id` | BIGINT REFERENCES ingest_runs(id) | |
+| `updated_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | |
+
+**인덱스**: `updated_run_id`.
+
+---
+
+### 14. `dead_letters` — 실패 item 보존
+
+재시도 후에도 실패한 API item 또는 회의록 스크래핑 대상을 저장한다. 성공 재처리 후에도 삭제하지 않고 `resolved`로 상태를 바꾼다.
+
+| 컬럼 | 타입 | 비고 |
+|---|---|---|
+| `id` | BIGSERIAL | **PK** |
+| `run_id` | BIGINT REFERENCES ingest_runs(id) | 실패를 만든 run |
+| `source` | TEXT NOT NULL | `bills.summary`, `votes.rows`, `minutes.html` 등 |
+| `stage` | TEXT NOT NULL | fetch/parse/upsert/validate 등 |
+| `item_key` | TEXT NOT NULL | BILL_ID, BILL_NO, mnts_id 등 재처리 키 |
+| `payload` | JSONB | 재처리에 필요한 최소 입력 |
+| `error` | TEXT NOT NULL | 마지막 오류 요약 |
+| `attempts` | INT NOT NULL DEFAULT 1 | |
+| `status` | TEXT NOT NULL | `pending` / `retrying` / `resolved` / `ignored` / `blocked` |
+| `first_failed_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | |
+| `last_failed_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | |
+| `resolved_at` | TIMESTAMPTZ | |
+
+**인덱스**: `(status, last_failed_at)`, `(source, item_key)`, unresolved partial unique `(source, stage, item_key) WHERE status IN ('pending', 'retrying', 'blocked')`.
+
+---
+
 ## 부가 제약 및 설계 결정
 
 - **Postgres 16**, OrbStack의 Docker 컨테이너에서 실행.
 - **한국어 키워드 검색**: 1차 Supabase 전 검증에서는 `pg_trgm` GIN 인덱스를 사용한다. 대상 컬럼은 `bills.bill_name`, `bills.summary`, `utterances.content`. PGroonga는 검색 품질 평가 후 필요한 경우 재검토한다.
+- **백필과 증분 동기화는 같은 적재 Module 사용**. 실행 mode와 source window만 다르다.
+- **증분 동기화는 source별 cursor + 30일 overlap**. 하나의 global cursor는 사용하지 않는다.
+- **일부 실패는 `degraded_success`로 기록**하고 dead letter를 남긴다. 성공 재처리된 dead letter도 삭제하지 않는다.
 - **`source_api` 컬럼은 meetings에만**. 어느 회의록이 어느 API에서 왔는지 추적 가능 (`api_catalog`와 매핑). 같은 `mnts_id`가 여러 회의 API에서 발견되면 정합성 확인 후 `multi`로 저장한다.
 - **idempotent upsert**: 모든 insert는 `INSERT ... ON CONFLICT ... DO UPDATE`. 재실행 안전.
 - **삭제 정책**: API에서 사라진 데이터는 즉시 삭제하지 않고 `soft_deleted_at` 추가 검토(첫 10% 로드 후 결정).
@@ -278,6 +344,8 @@ CREATE INDEX idx_coproposers_mona ON bill_coproposers(mona_cd);
 CREATE INDEX idx_votes_mona ON votes(mona_cd);
 CREATE INDEX idx_votes_bill ON votes(bill_id);
 CREATE INDEX idx_meetings_date ON meetings(conf_date DESC);
+CREATE INDEX idx_meetings_type ON meetings(meeting_type);
+CREATE INDEX idx_meetings_comm ON meetings(comm_name);
 CREATE INDEX idx_meetings_type_date ON meetings(meeting_type, conf_date DESC);
 CREATE INDEX idx_agenda_bill ON agenda_items(bill_id) WHERE bill_id IS NOT NULL;
 CREATE INDEX idx_mb_bill ON meeting_bills(bill_id);
@@ -293,4 +361,14 @@ CREATE INDEX idx_bills_bill_name_trgm ON bills USING gin (bill_name gin_trgm_ops
 CREATE INDEX idx_bills_summary_trgm ON bills USING gin (summary gin_trgm_ops) WHERE summary IS NOT NULL;
 CREATE INDEX idx_utterances_content_trgm ON utterances USING gin (content gin_trgm_ops);
 CREATE INDEX idx_sg_respondents_gin ON session_groups USING gin (respondents jsonb_path_ops);
+
+-- 수집 운영
+CREATE INDEX idx_ingest_runs_mode_started ON ingest_runs(mode, started_at DESC);
+CREATE INDEX idx_ingest_runs_status_started ON ingest_runs(status, started_at DESC);
+CREATE INDEX idx_ingest_cursors_updated_run ON ingest_cursors(updated_run_id);
+CREATE INDEX idx_dead_letters_status_last_failed ON dead_letters(status, last_failed_at);
+CREATE INDEX idx_dead_letters_source_item ON dead_letters(source, item_key);
+CREATE UNIQUE INDEX idx_dead_letters_unresolved_unique
+  ON dead_letters(source, stage, item_key)
+  WHERE status IN ('pending', 'retrying', 'blocked');
 ```
