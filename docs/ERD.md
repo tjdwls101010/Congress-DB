@@ -260,7 +260,7 @@ PRD의 "외부 API 사용 목록" 표에 있는 OpenAPI endpoint만 적재한다
 
 - **Postgres 16**, OrbStack의 Docker 컨테이너에서 실행.
 - **한국어 FTS**: 10% 로드 시점에 trigram(`pg_trgm`) / pgroonga 비교 후 결정. 잠정 컬럼 후보: `bills.summary`, `bills.bill_name`, `utterances.content`.
-- **`source_api` 컬럼은 meetings에만**. 어느 회의록이 어느 API에서 왔는지 추적 가능 (`api_catalog`와 매핑).
+- **`source_api` 컬럼은 meetings에만**. 어느 회의록이 어느 API에서 왔는지 추적 가능 (`api_catalog`와 매핑). 같은 `mnts_id`가 여러 회의 API에서 발견되면 정합성 확인 후 `multi`로 저장한다.
 - **idempotent upsert**: 모든 insert는 `INSERT ... ON CONFLICT ... DO UPDATE`. 재실행 안전.
 - **삭제 정책**: API에서 사라진 데이터는 즉시 삭제하지 않고 `soft_deleted_at` 추가 검토(첫 10% 로드 후 결정).
 - **`vote_summaries` 만들지 않음**. votes에서 직접 계산. 성능 이슈 시 materialized view로 추가.

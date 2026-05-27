@@ -19,6 +19,9 @@
 - **`BPMBILLSUMMARY`는 BILL_NO 단위 1:1 호출**. legacy SQLite에 endpoint 컬럼이
   비어 있는 데이터 결함이 있어 endpoint slug는 코드에서 직접 박음.
 - **국정감사/국정조사/인사청문회는 ERACO='제22대'** (다른 endpoint와 형식 다름).
+- **본회의/위원회 회의록의 `list_total_count`는 고유 회의 수가 아니라 `SUB_NAME`
+  안건 row 수에 가깝다.** 캘리브레이션 적재는 raw row 수가 아니라 고유 `mnts_id`
+  수를 기준으로 멈춘다.
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 .PHONY: db-up db-down db-migrate db-shell db-reset test \
         seed-catalog verify-catalog render-catalog ingest-members ingest-bills \
-        ingest-votes
+        ingest-votes ingest-meetings
 
 # .env가 있으면 변수 자동 로드 (없어도 통과)
 -include .env
@@ -65,3 +65,7 @@ ingest-bills:
 # votes 적재 (기본 10%)
 ingest-votes:
 	uv run python -m scripts.ingest_votes
+
+# meetings + agenda_items + meeting_bills 적재 (기본 캘리브레이션 500건)
+ingest-meetings:
+	uv run python -m scripts.ingest_meetings
