@@ -372,17 +372,17 @@ def _render_markdown(
     meetings: Sequence[EvalMeeting],
     labels_path: Path,
 ) -> str:
-    status = "complete" if result.is_complete else "pending human labels"
+    status = "complete" if result.is_complete else "pending labeled review"
     lines = [
         "# Session Group Evaluation",
         "",
         "This report measures Q&A `session_group` semantic accuracy on sampled",
-        "meetings. The CSV label file is the review surface; the code only",
-        "calculates metrics after a human marks labels.",
+        "meetings. The CSV label file is the review surface; the code calculates",
+        "metrics after a reviewer or agent marks labels.",
         "",
         "## Status",
         "",
-        f"- Labeling status: {status}",
+        f"- Labeled review status: {status}",
         f"- Label file: `{labels_path}`",
         f"- Pending auto candidates: {result.pending_count}",
         "",
@@ -399,7 +399,7 @@ def _render_markdown(
         "- Mark an auto-generated row `correct` if the questioner and start point form a real Q&A meaning unit.",
         "- Mark it `incorrect` if it is a procedural/noisy group rather than a Q&A meaning unit.",
         "- Add a new row with `missing` if the meeting has a real Q&A group that automation missed.",
-        "- Leave `label` blank for rows not yet reviewed.",
+        "- Leave `label` blank for rows not yet reviewed. PM review is only needed for disputed examples.",
         "",
         "## Sampled Meetings",
         "",
