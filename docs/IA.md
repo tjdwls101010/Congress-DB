@@ -112,7 +112,7 @@ WHERE sg.meeting_id = ?
 ORDER BY sg.seq_start;
 ```
 
-### S4. 본문 키워드 검색 (FTS)
+### S4. 본문 키워드 검색 (pg_trgm)
 
 > "전세사기 관련 발언 / 법안"
 
@@ -122,10 +122,10 @@ SELECT bill_no, bill_name, propose_dt FROM bills
 WHERE bill_name ILIKE '%전세사기%' OR summary ILIKE '%전세사기%'
 ORDER BY propose_dt DESC;
 
--- 발언 검색 (FTS — 10% 시점에 인덱스 결정)
+-- 발언 검색
 SELECT m.title, m.conf_date, u.speaker_name, u.content
 FROM utterances u JOIN meetings m ON u.meeting_id = m.mnts_id
-WHERE u.content @@ websearch_to_tsquery('simple', '전세사기')
+WHERE u.content ILIKE '%전세사기%'
 ORDER BY m.conf_date DESC LIMIT 50;
 ```
 
@@ -169,7 +169,7 @@ SELECT u.meeting_id, m.title, m.conf_date,
        u.sequence, u.speaker_name, u.speaker_title, u.content
 FROM utterances u
   JOIN meetings m ON u.meeting_id = m.mnts_id
-WHERE u.content @@ websearch_to_tsquery('simple', ?)
+WHERE u.content ILIKE ('%' || ? || '%')
 ORDER BY m.conf_date DESC, u.meeting_id, u.sequence
 LIMIT 50;
 ```
@@ -205,11 +205,11 @@ ORDER BY b.bill_name;
 [입력]                       [내부 매핑]                 [결과 화면]
 ─────                       ──────────                  ─────────
 의원 이름 텍스트     →     members.mona_cd        →     S1 카드
-법안 키워드        →     bills.bill_id (FTS)    →     S2 카드
+법안 키워드        →     bills pg_trgm 검색     →     S2 카드
 회의 ID/제목       →     meetings.mnts_id       →     S3 카드
-키워드 (다목적)     →     bills + utterances FTS →     S4 결과
+키워드 (다목적)     →     bills + utterances pg_trgm 검색 → S4 결과
 위원회 이름        →     meetings.comm_name     →     S5 집계
-화자 직함 패턴      →     session_groups.JSONB + utterances FTS fallback → S6/S4 결과
+화자 직함 패턴      →     session_groups.JSONB + utterances keyword fallback → S6/S4 결과
 정당 + 날짜        →     votes + members        →     S7 집계
 ```
 
@@ -221,8 +221,8 @@ ORDER BY b.bill_name;
 - **자연키 우선 노출**: `mona_cd`, `bill_id`, `mnts_id`는 외부 API에서도 그대로 노출 (URL-friendly).
 - **JSON 응답 표준**: 자주 쓰는 시나리오(S1~S3)는 "한 호출에 패널 전체"가 자연스러움. nested response.
 - **Rate limit / 캐시**: utterances는 한 회의당 수천 row. 페이지네이션 필수.
-- **FTS 결과 highlight**: `ts_headline()`로 검색어 주변 발췌.
-- **Session-first 검색**: Q&A 결과는 `session_groups`를 우선 노출하고, 누락 가능성은 `utterances` FTS + `sequence` window로 보완한다.
+- **검색 결과 highlight**: pg_trgm은 후보 row를 빠르게 좁히고, 앱/API 계층에서 검색어 주변 발췌를 만든다.
+- **Session-first 검색**: Q&A 결과는 `session_groups`를 우선 노출하고, 누락 가능성은 `utterances` pg_trgm keyword search + `sequence` window로 보완한다.
 - **차원별 facet**: 의원 검색에서 정당·위원회·재선 횟수 등 facet.
 
 ## 데이터 외 정보(메타) 흐름
