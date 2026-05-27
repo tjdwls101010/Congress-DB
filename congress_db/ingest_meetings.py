@@ -20,6 +20,7 @@ from .benchmark import (
 )
 from .db import execute_many, get_conn
 from .meeting_id import extract_mnts_id
+from .progress import ProgressReporter
 
 PLENARY_ENDPOINT = "nzbyfwhwaoanttzje"
 COMMITTEE_ENDPOINT = "ncwgseseafwbuheph"
@@ -129,6 +130,10 @@ def ingest_meetings(
     benchmark_output_path: Path = DEFAULT_MEETINGS_BENCHMARK_OUTPUT,
 ) -> IngestMeetingsResult:
     """22대 회의 메타를 캘리브레이션 분량만큼 적재한다."""
+    print(
+        f"[ingest-meetings] calibration target unique meetings={calibration_limit or 'all'}",
+        flush=True,
+    )
     fetched = _fetch_meeting_sources(
         years=years or _default_years(),
         calibration_limit=calibration_limit,
@@ -243,9 +248,16 @@ def _fetch_until_target_meetings(
     if calibration_limit is not None and calibration_limit <= 0:
         raise ValueError("calibration_limit must be positive")
 
+    progress = ProgressReporter(
+        "meeting metadata unique mnts_id",
+        calibration_limit or sum(state.total_count for state in states),
+    )
+    progress.start()
+    progress.set(len(seen_meeting_ids))
     while calibration_limit is None or len(seen_meeting_ids) < calibration_limit:
         candidates = [state for state in states if len(state.rows) < state.total_count]
         if not candidates:
+            progress.finish()
             return
         progressed = False
         for state in sorted(candidates, key=lambda item: item.total_count - len(item.rows), reverse=True):
@@ -258,8 +270,11 @@ def _fetch_until_target_meetings(
             state.rows.extend(rows)
             for row in rows:
                 seen_meeting_ids.add(_meeting_id_from_row(state.request.endpoint, row))
+            progress.set(len(seen_meeting_ids))
         if not progressed:
+            progress.finish()
             return
+    progress.finish()
 
 
 def _fetch_next_meeting_page(state: _FetchState, *, page_size: int) -> list[dict[str, Any]]:
@@ -503,10 +518,18 @@ def _fetch_vconfbill_rows_for_bills(
     worker_count: int,
 ) -> dict[str, list[dict[str, Any]]]:
     rows_by_bill: dict[str, list[dict[str, Any]]] = {}
+    progress = ProgressReporter("VCONFBILLCONFLIST", len(bill_ids))
+    progress.start()
     with ThreadPoolExecutor(max_workers=worker_count) as pool:
         futures = {pool.submit(_fetch_vconfbill_rows, bill_id): bill_id for bill_id in bill_ids}
         for future in as_completed(futures):
-            rows_by_bill[futures[future]] = future.result()
+            try:
+                rows_by_bill[futures[future]] = future.result()
+                progress.advance()
+            except Exception:
+                progress.advance(errors=1)
+                raise
+    progress.finish()
     return rows_by_bill
 
 

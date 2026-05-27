@@ -23,6 +23,7 @@ from .benchmark import (
 )
 from .db import execute_many, get_conn
 from .endpoints import ENDPOINTS_BY_SLUG
+from .progress import ProgressReporter
 
 BILLS_ENDPOINT = "nzmimeepazxkubdpn"
 SUMMARY_ENDPOINT = "BPMBILLSUMMARY"
@@ -173,6 +174,10 @@ def ingest_bills(
 ) -> IngestBillsResult:
     """22대 법안 목록 10%와 summary를 적재한다."""
     bill_list = _fetch_bill_list(limit_pct=limit_pct, page_size=page_size)
+    print(
+        f"[ingest-bills] target bills={bill_list.target_count}/{bill_list.total_count}",
+        flush=True,
+    )
     bill_nos = [str(row["BILL_NO"]) for row in bill_list.rows]
 
     benchmark = _benchmark_summary_workers(
@@ -280,15 +285,20 @@ def _benchmark_summary_workers(
 def _fetch_summaries(bill_nos: list[str], worker_count: int) -> _SummaryResult:
     summaries: dict[str, str | None] = {}
     error_count = 0
+    progress = ProgressReporter("bill summaries", len(bill_nos))
+    progress.start()
     with ThreadPoolExecutor(max_workers=worker_count) as pool:
         futures = {pool.submit(_fetch_summary, bill_no): bill_no for bill_no in bill_nos}
         for future in as_completed(futures):
             bill_no = futures[future]
             try:
                 summaries[bill_no] = future.result()
+                progress.advance()
             except Exception:
                 summaries[bill_no] = None
                 error_count += 1
+                progress.advance(errors=1)
+    progress.finish()
     return _SummaryResult(
         summaries=summaries,
         success_count=len(bill_nos) - error_count,

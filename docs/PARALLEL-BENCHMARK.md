@@ -27,3 +27,15 @@ Selection policy: choose the lowest worker count that stays under the error thre
 100: ############################# 23.26/s
 200: ############################## 24.27/s
 ```
+
+<!-- SCRAPE_BENCHMARK_START -->
+## Scraping Stage
+
+Measured at: `2026-05-27T00:11:39+00:00`
+
+Selected worker count: `5`
+
+| Workers | Calls | Success | Errors | Error rate | Seconds | Calls/sec |
+|---:|---:|---:|---:|---:|---:|---:|
+| 5 | 100 | 100 | 0 | 0.0% | 68.01 | 1.47 |
+<!-- SCRAPE_BENCHMARK_END -->

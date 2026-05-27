@@ -15,6 +15,7 @@ from .api_client import ApiResponse, fetch_endpoint, fetch_with_age_attempts
 from .benchmark import DEFAULT_WORKER_LEVELS, measure_workers, render_parallel_benchmark
 from .db import execute_many, get_conn
 from .endpoints import ENDPOINTS_BY_SLUG
+from .progress import ProgressReporter
 
 VOTE_BILL_ENDPOINT = "ncocpgfiaoituanbr"
 VOTE_ROWS_ENDPOINT = "nojepdqqaweusdfbi"
@@ -101,6 +102,11 @@ def ingest_votes(
 ) -> IngestVotesResult:
     """22대 본회의 표결 10%를 votes에 적재한다."""
     vote_bill_list = _fetch_vote_bill_list(limit_pct=limit_pct, page_size=page_size)
+    print(
+        "[ingest-votes] target vote bills="
+        f"{vote_bill_list.target_count}/{vote_bill_list.total_count}",
+        flush=True,
+    )
     bill_ids = [str(row["BILL_ID"]) for row in vote_bill_list.rows]
     benchmark = measure_workers(
         lambda bill_id, worker_count: _fetch_vote_rows(str(bill_id)),
@@ -199,11 +205,19 @@ def _fetch_vote_rows_for_bills(
     worker_count: int,
 ) -> dict[str, list[dict[str, Any]]]:
     vote_rows_by_bill: dict[str, list[dict[str, Any]]] = {}
+    progress = ProgressReporter("vote rows", len(bill_ids))
+    progress.start()
     with ThreadPoolExecutor(max_workers=worker_count) as pool:
         futures = {pool.submit(_fetch_vote_rows, bill_id): bill_id for bill_id in bill_ids}
         for future in as_completed(futures):
             bill_id = futures[future]
-            vote_rows_by_bill[bill_id] = future.result()
+            try:
+                vote_rows_by_bill[bill_id] = future.result()
+                progress.advance()
+            except Exception:
+                progress.advance(errors=1)
+                raise
+    progress.finish()
     return vote_rows_by_bill
 
 
