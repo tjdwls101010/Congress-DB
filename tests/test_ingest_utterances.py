@@ -168,6 +168,55 @@ def test_ingest_utterances_retries_failed_meetings_in_final_pass(
     assert call_counts[920102] == 2
 
 
+def test_ingest_utterances_retries_metadata_mismatches(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    call_counts: dict[int, int] = {}
+
+    def fake_get(url: str, **kwargs: Any) -> MagicMock:
+        mnts_id = int(kwargs["params"]["id"])
+        call_counts[mnts_id] = call_counts.get(mnts_id, 0) + 1
+
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.apparent_encoding = "utf-8"
+        if mnts_id == 920102 and call_counts[mnts_id] == 1:
+            response.text = _html(920101)
+        else:
+            response.text = _html(mnts_id)
+        return response
+
+    monkeypatch.setattr("congress_db.scrape_minutes.requests.get", fake_get)
+
+    result = ingest_utterances(
+        calibration_limit=2,
+        benchmark_sample_size=1,
+        meeting_ids=TEST_MEETINGS,
+        retry_delays=(),
+        worker_levels=(2,),
+        benchmark_output_path=tmp_path / "PARALLEL-BENCHMARK.md",
+    )
+
+    assert result.scraped_meeting_count == 2
+    assert result.scrape_error_count == 0
+    assert result.utterance_count == 3
+    assert call_counts[920102] == 2
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT speaker_name, content
+            FROM utterances
+            WHERE meeting_id = 920102
+            ORDER BY sequence
+            """
+        )
+        rows = cur.fetchall()
+
+    assert rows == [("김테스트", "본회의 발언입니다.")]
+
+
 def test_ingest_utterances_aborts_when_no_worker_meets_error_threshold(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
