@@ -162,6 +162,20 @@ WHERE sg.respondents @> '[{"title":"기획재정부장관"}]'::jsonb
 ORDER BY m.conf_date DESC;
 ```
 
+`session_groups`는 정밀한 Q&A 의미 단위로 우선 사용한다. 다만 본회의·소위원회처럼 그룹화하지 않은 회의나, 상임위·국정감사 안에서도 누락된 발언은 `utterances` 검색으로 보완한다.
+
+```sql
+SELECT u.meeting_id, m.title, m.conf_date,
+       u.sequence, u.speaker_name, u.speaker_title, u.content
+FROM utterances u
+  JOIN meetings m ON u.meeting_id = m.mnts_id
+WHERE u.content @@ websearch_to_tsquery('simple', ?)
+ORDER BY m.conf_date DESC, u.meeting_id, u.sequence
+LIMIT 50;
+```
+
+SDK/API는 `session_group_id`가 없는 `utterances` hit를 반환할 때, 같은 `meeting_id`의 `sequence` 앞뒤 window를 함께 읽어 지역 문맥을 복원한다. 별도 orphan Q&A candidate 레이어는 현재 계획에 넣지 않고, 검색 품질 검증에서 중요한 누락이 반복될 때 재검토한다.
+
 ### S7. 정당별/시점별 표결 패턴
 
 > "더불어민주당의 어떤 법안 찬성률"
@@ -195,7 +209,7 @@ ORDER BY b.bill_name;
 회의 ID/제목       →     meetings.mnts_id       →     S3 카드
 키워드 (다목적)     →     bills + utterances FTS →     S4 결과
 위원회 이름        →     meetings.comm_name     →     S5 집계
-화자 직함 패턴      →     session_groups.JSONB   →     S6 결과
+화자 직함 패턴      →     session_groups.JSONB + utterances FTS fallback → S6/S4 결과
 정당 + 날짜        →     votes + members        →     S7 집계
 ```
 
@@ -208,6 +222,7 @@ ORDER BY b.bill_name;
 - **JSON 응답 표준**: 자주 쓰는 시나리오(S1~S3)는 "한 호출에 패널 전체"가 자연스러움. nested response.
 - **Rate limit / 캐시**: utterances는 한 회의당 수천 row. 페이지네이션 필수.
 - **FTS 결과 highlight**: `ts_headline()`로 검색어 주변 발췌.
+- **Session-first 검색**: Q&A 결과는 `session_groups`를 우선 노출하고, 누락 가능성은 `utterances` FTS + `sequence` window로 보완한다.
 - **차원별 facet**: 의원 검색에서 정당·위원회·재선 횟수 등 facet.
 
 ## 데이터 외 정보(메타) 흐름

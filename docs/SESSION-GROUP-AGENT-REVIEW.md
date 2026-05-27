@@ -1,6 +1,6 @@
 # Session Group Agent Review
 
-This is an agent-led semantic review of the current 10% `session_groups` load. The goal is not to force a brittle 100% rule set, but to decide whether the current Q&A grouping is good enough as a high-precision meaning unit and where recall needs a separate candidate layer.
+This is an agent-led semantic review of the current 10% `session_groups` load. The goal is not to force a brittle 100% rule set, but to decide whether the current Q&A grouping is good enough as a high-precision meaning unit and how recall should be handled without weakening that unit.
 
 ## Review Rubric
 
@@ -78,4 +78,13 @@ This proxy overcounts because one real Q&A can contain many member utterances, b
 
 The current detector is good as a **high-precision Q&A group generator** for clean chair-call patterns. It should not be expanded with sentence-specific exclusions such as "질의 시간 안 줄 겁니다"; that would create a brittle rule list.
 
-The next improvement should be a separate **orphan Q&A candidate** layer or report: ungrouped member turns followed by non-member responses should be surfaced for review, but not automatically promoted into `session_groups` until precision is measured. This preserves `session_groups` as a reliable API/SDK meaning unit while giving us a path to improve recall.
+Do **not** add a separate **orphan Q&A candidate** layer in the current plan. It would add a new module and review surface before we have proved that the API/SDK search experience needs it.
+
+The current search strategy should be:
+
+1. Use `session_groups` first for high-confidence grouped Q&A.
+2. Use `utterances` keyword/FTS search for recall.
+3. When an ungrouped utterance matches, read nearby rows by `meeting_id` + `sequence` window so the caller can recover the local context.
+4. Reconsider an orphan candidate layer only after the planned search-quality evaluation shows repeated important misses that this fallback cannot handle.
+
+This keeps `session_groups` reliable as an API/SDK meaning unit while avoiding premature complexity. The trade-off is explicit: "all Q&A by a member" will not be perfectly complete through `session_groups` alone, but the combined session-first + utterance-fallback flow should provide a higher-value 90% solution before we spend disproportionate effort chasing the remaining edge cases.
