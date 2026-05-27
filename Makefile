@@ -1,7 +1,7 @@
 .PHONY: db-up db-down db-migrate db-shell db-reset test \
         seed-catalog verify-catalog render-catalog ingest-members ingest-bills \
         ingest-votes ingest-meetings validate-minutes-dom ingest-utterances \
-        ingest-session-groups validate-session-groups
+        ingest-session-groups validate-session-groups evaluate-session-groups
 
 # .env가 있으면 변수 자동 로드 (없어도 통과)
 -include .env
@@ -86,3 +86,7 @@ ingest-session-groups:
 # session_groups 생성률/정합성 검증
 validate-session-groups:
 	uv run python -m scripts.validate_session_groups
+
+# session_groups 정확도 검증 라벨/리포트 생성
+evaluate-session-groups:
+	uv run python -m scripts.evaluate_session_groups
