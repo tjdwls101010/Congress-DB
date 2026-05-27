@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""api_catalog seed CLI — PRD 확정 10개 endpoint를 UPSERT.
+"""api_catalog seed CLI — PRD 확정 endpoint를 UPSERT.
 
 사용법::
 

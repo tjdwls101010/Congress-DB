@@ -3,7 +3,7 @@
 deep module: 호출자는 `seed_pipeline_endpoints()`와 `update_verification_result()`
 두 함수만 알면 된다. SQL과 ON CONFLICT 분기는 내부에 흡수.
 
-PRD 확정 10개 endpoint만 다룬다 — ADR-0001 참고.
+PRD 확정 사용 endpoint만 다룬다 — ADR-0001 참고.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ _SEED_SQL = """
 
 
 def seed_pipeline_endpoints() -> int:
-    """`PIPELINE_ENDPOINTS` 10개를 api_catalog에 UPSERT.
+    """`PIPELINE_ENDPOINTS`를 api_catalog에 UPSERT.
 
     멱등. 호출자는 결과 row 수만 알면 됨.
     """
