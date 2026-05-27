@@ -1,6 +1,6 @@
 """Slice 1 RGR 3 — schema.sql 멱등 적용 검증.
 
-`make db-migrate`를 두 번 호출해도 에러 없이 통과하고, 11개 테이블이 그대로
+`make db-migrate`를 두 번 호출해도 에러 없이 통과하고, 예상 테이블이 그대로
 유지되어야 한다. (CREATE TABLE/INDEX IF NOT EXISTS 보장.)
 """
 

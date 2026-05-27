@@ -49,6 +49,9 @@ def _pk_columns(table: str) -> list[str]:
         ("utterances",       ["id"]),
         ("session_groups",   ["id"]),
         ("api_catalog",      ["inf_id"]),
+        ("ingest_runs",      ["id"]),
+        ("ingest_cursors",   ["source"]),
+        ("dead_letters",     ["id"]),
     ],
 )
 def test_primary_keys(table: str, expected_pk: list[str]) -> None:

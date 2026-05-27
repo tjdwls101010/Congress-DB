@@ -1,4 +1,4 @@
-"""Slice 1 RGR 2 — 11개 테이블 존재 검증.
+"""Slice 1 RGR 2 — 테이블 존재 검증.
 
 `make db-migrate`로 schema.sql 적용 후 information_schema에서 테이블이 모두
 존재하는지 확인한다. 컬럼/제약 검증은 RGR 3에서 별도 테스트.
@@ -6,7 +6,7 @@
 
 from congress_db.db import get_conn
 
-# ERD.md에 정의된 10개 핵심 + 1개 카탈로그 = 11개.
+# ERD.md에 정의된 10개 핵심 + 1개 카탈로그 + 3개 수집 운영 테이블.
 EXPECTED_TABLES = frozenset(
     {
         "members",
@@ -20,6 +20,9 @@ EXPECTED_TABLES = frozenset(
         "utterances",
         "session_groups",
         "api_catalog",
+        "ingest_runs",
+        "ingest_cursors",
+        "dead_letters",
     }
 )
 
