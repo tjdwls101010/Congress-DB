@@ -1,7 +1,8 @@
 .PHONY: db-up db-down db-migrate db-shell db-reset test \
         seed-catalog verify-catalog render-catalog ingest-members ingest-bills \
         ingest-votes ingest-meetings validate-minutes-dom ingest-utterances \
-        ingest-session-groups validate-session-groups evaluate-session-groups
+        ingest-session-groups validate-session-groups evaluate-session-groups \
+        sanity-check
 
 # .env가 있으면 변수 자동 로드 (없어도 통과)
 -include .env
@@ -28,6 +29,14 @@ db-migrate:
 		-U $${POSTGRES_USER:-congress} \
 		-d $${POSTGRES_DB:-congress} \
 		-1 -v ON_ERROR_STOP=1 < db/schema.sql
+	@for migration in db/migrations/*.sql; do \
+		[ -e "$$migration" ] || continue; \
+		echo "Applying $$migration..."; \
+		docker compose exec -T db psql \
+			-U $${POSTGRES_USER:-congress} \
+			-d $${POSTGRES_DB:-congress} \
+			-1 -v ON_ERROR_STOP=1 < "$$migration"; \
+	done
 	@echo "Schema applied."
 
 # 컨테이너 + 볼륨 삭제 후 재기동 (완전 리셋, schema 재적용)
@@ -90,3 +99,7 @@ validate-session-groups:
 # session_groups 정확도 검증 라벨/리포트 생성
 evaluate-session-groups:
 	uv run python -m scripts.evaluate_session_groups
+
+# 10% 통합 sanity check + FTS 결정 리포트 생성
+sanity-check:
+	uv run python -m scripts.sanity_check

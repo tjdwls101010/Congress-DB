@@ -36,13 +36,14 @@ make test
 | `make db-reset` | 컨테이너 + 볼륨 삭제 후 재기동 (완전 리셋) |
 | `make db-shell` | psql 셸 접속 |
 | `make test` | `uv run pytest -v` |
+| `make sanity-check` | 10% 통합 검증 리포트 생성 |
 
 ## 구조
 
 ```
 congress_db/      # Python 패키지 (현재: db.py 만)
 db/
-  migrations/     # 향후 스키마 변경 SQL (현재 비어 있음)
+  migrations/     # schema.sql 이후 적용되는 변경 SQL
 tests/            # pytest 통합 테스트
 docs/             # PRD / IA / ERD
 docker-compose.yml

@@ -83,7 +83,7 @@ Do **not** add a separate **orphan Q&A candidate** layer in the current plan. It
 The current search strategy should be:
 
 1. Use `session_groups` first for high-confidence grouped Q&A.
-2. Use `utterances` keyword/FTS search for recall.
+2. Use `utterances` keyword search for recall.
 3. When an ungrouped utterance matches, read nearby rows by `meeting_id` + `sequence` window so the caller can recover the local context.
 4. Reconsider an orphan candidate layer only after the planned search-quality evaluation shows repeated important misses that this fallback cannot handle.
 
