@@ -239,3 +239,40 @@ def test_ingest_utterances_aborts_when_no_worker_meets_error_threshold(
             worker_levels=(1,),
             benchmark_output_path=tmp_path / "PARALLEL-BENCHMARK.md",
         )
+
+
+def test_ingest_utterances_returns_structured_failures_when_partial_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    call_counts: dict[int, int] = {}
+
+    def fake_get(url: str, **kwargs: Any) -> MagicMock:
+        mnts_id = int(kwargs["params"]["id"])
+        call_counts[mnts_id] = call_counts.get(mnts_id, 0) + 1
+        if mnts_id == 920102:
+            raise RuntimeError("blocked by remote")
+
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.apparent_encoding = "utf-8"
+        response.text = _html(mnts_id)
+        return response
+
+    monkeypatch.setattr("congress_db.scrape_minutes.requests.get", fake_get)
+
+    result = ingest_utterances(
+        calibration_limit=2,
+        benchmark_sample_size=1,
+        meeting_ids=TEST_MEETINGS,
+        retry_delays=(),
+        worker_levels=(1,),
+        benchmark_output_path=tmp_path / "PARALLEL-BENCHMARK.md",
+        allow_partial=True,
+    )
+
+    assert result.scraped_meeting_count == 1
+    assert result.scrape_error_count == 1
+    assert result.scrape_failures[0].mnts_id == 920102
+    assert "blocked by remote" in result.scrape_failures[0].error
+    assert call_counts[920102] == 2

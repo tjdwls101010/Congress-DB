@@ -50,10 +50,13 @@ class IngestUtterancesResult:
     scrape_error_count: int
     member_mapped_count: int
     sample_errors: tuple[str, ...]
+    scrape_failures: tuple["ScrapeFailure", ...]
 
 
 @dataclass(frozen=True)
-class _ScrapeError:
+class ScrapeFailure:
+    """회의록 스크래핑 최종 실패."""
+
     mnts_id: int
     error: str
     attempts: int
@@ -146,6 +149,7 @@ def ingest_utterances(
             f"{error.mnts_id}: attempts={error.attempts} {error.error}"
             for error in errors[:5]
         ),
+        scrape_failures=tuple(errors),
     )
     if errors and not allow_partial:
         sample = "; ".join(
@@ -256,9 +260,9 @@ def _scrape_meetings(
     worker_count: int,
     retry_delays: tuple[float, ...],
     label: str = "minutes scraping",
-) -> tuple[dict[int, list[UtteranceDraft]], list[_ScrapeError]]:
+) -> tuple[dict[int, list[UtteranceDraft]], list[ScrapeFailure]]:
     scraped: dict[int, list[UtteranceDraft]] = {}
-    errors: list[_ScrapeError] = []
+    errors: list[ScrapeFailure] = []
     progress = ProgressReporter(label, len(meetings))
     progress.start()
     with ThreadPoolExecutor(max_workers=worker_count) as pool:
@@ -273,7 +277,7 @@ def _scrape_meetings(
                 progress.advance()
             except Exception as exc:  # noqa: BLE001 - scraping boundary errors are measured
                 errors.append(
-                    _ScrapeError(
+                    ScrapeFailure(
                         mnts_id=meeting.mnts_id,
                         error=str(exc),
                         attempts=len(retry_delays) + 1,
@@ -285,11 +289,11 @@ def _scrape_meetings(
 
 
 def _retry_failed_meetings(
-    errors: list[_ScrapeError],
+    errors: list[ScrapeFailure],
     *,
     selected_worker_count: int,
     retry_delays: tuple[float, ...],
-) -> tuple[dict[int, list[UtteranceDraft]], list[_ScrapeError]]:
+) -> tuple[dict[int, list[UtteranceDraft]], list[ScrapeFailure]]:
     failed_ids = [error.mnts_id for error in errors]
     failed_meetings = _load_meetings_by_ids(failed_ids)
     retry_worker_count = min(5, max(1, selected_worker_count))

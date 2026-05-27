@@ -172,6 +172,7 @@ def test_ingest_bills_upserts_bills_and_coproposers_idempotently(
     assert first.upserted_bills == 2
     assert first.upserted_lead_proposers == 3
     assert first.upserted_coproposers == 2
+    assert first.summary_failures == ()
     assert second.fetched_count == 2
     assert second.upserted_bills == 2
     assert second.upserted_lead_proposers == 3
@@ -249,3 +250,63 @@ def test_ingest_bills_upserts_bills_and_coproposers_idempotently(
         endpoint == "nzmimeepazxkubdpn" and params["pSize"] == "2"
         for endpoint, params in calls
     )
+
+
+def test_ingest_bills_returns_structured_summary_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    rows = [
+        _bill_row(
+            "TEST_BILL_1",
+            "9000001",
+            "테스트 법안 1",
+            "TEST_BILL_MEMBER_1",
+            "",
+            "",
+        ),
+        _bill_row(
+            "TEST_BILL_2",
+            "9000002",
+            "테스트 법안 2",
+            "TEST_BILL_MEMBER_2",
+            "",
+            "",
+        ),
+    ]
+
+    def fake_get(url: str, **kwargs: Any) -> MagicMock:
+        endpoint = url.rsplit("/", 1)[-1]
+        params = kwargs["params"]
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        if endpoint == "nzmimeepazxkubdpn" and "AGE" not in params:
+            response.json.return_value = _no_data()
+        elif endpoint == "nzmimeepazxkubdpn":
+            response.json.return_value = _envelope(endpoint, total=2, rows=rows)
+        elif endpoint == "BPMBILLSUMMARY" and params["BILL_NO"] == "9000002":
+            raise RuntimeError("summary API overloaded")
+        elif endpoint == "BPMBILLSUMMARY":
+            response.json.return_value = _envelope(
+                endpoint,
+                total=1,
+                rows=[{"BILL_NO": params["BILL_NO"], "SUMMARY": "요약"}],
+            )
+        else:
+            raise AssertionError(endpoint)
+        return response
+
+    monkeypatch.setattr("congress_db.api_client.requests.get", fake_get)
+
+    result = ingest_bills(
+        limit_pct=1.0,
+        page_size=2,
+        benchmark_sample_size=0,
+        worker_levels=(1,),
+        benchmark_output_path=tmp_path / "PARALLEL-BENCHMARK.md",
+    )
+
+    assert result.summary_success_count == 1
+    assert result.summary_error_count == 1
+    assert result.summary_failures[0].bill_no == "9000002"
+    assert result.summary_failures[0].error == "summary API overloaded"

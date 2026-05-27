@@ -1,7 +1,7 @@
 .PHONY: db-up db-down db-migrate db-shell db-reset test \
         seed-catalog verify-catalog render-catalog ingest-members ingest-bills \
         ingest-votes ingest-meetings validate-minutes-dom ingest-utterances \
-        ingest-session-groups validate-session-groups evaluate-session-groups \
+        ingest-session-groups ingest-backfill validate-session-groups evaluate-session-groups \
         sanity-check data-completeness
 
 # .env가 있으면 변수 자동 로드 (없어도 통과)
@@ -91,6 +91,10 @@ validate-minutes-dom:
 # session_groups 적재 (기본 캘리브레이션 500건)
 ingest-session-groups:
 	uv run python -m scripts.ingest_session_groups
+
+# 로컬 100% 백필 실행 (Supabase migration 전 PM gate의 입력)
+ingest-backfill:
+	uv run python -m scripts.ingest_backfill
 
 # session_groups 생성률/정합성 검증
 validate-session-groups:
