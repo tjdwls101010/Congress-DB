@@ -39,6 +39,7 @@ make test
 | `make ingest-backfill` | Supabase migration 전 로컬 100% 백필 실행 |
 | `make sanity-check` | 10% 통합 검증 리포트 생성 |
 | `make data-completeness` | 10% 데이터 완성도 follow-up 리포트 생성 |
+| `make migration-readiness` | Supabase migration 전 readiness 리포트 생성 |
 
 ## 구조
 

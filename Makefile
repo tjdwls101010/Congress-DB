@@ -2,7 +2,7 @@
         seed-catalog verify-catalog render-catalog ingest-members ingest-bills \
         ingest-votes ingest-meetings validate-minutes-dom ingest-utterances \
         ingest-session-groups ingest-backfill validate-session-groups evaluate-session-groups \
-        sanity-check data-completeness
+        sanity-check data-completeness migration-readiness
 
 # .env가 있으면 변수 자동 로드 (없어도 통과)
 -include .env
@@ -111,3 +111,7 @@ sanity-check:
 # 10% 데이터 완성도 follow-up 리포트 생성
 data-completeness:
 	uv run python -m scripts.data_completeness
+
+# Supabase migration 전 로컬 백필 readiness 리포트 생성
+migration-readiness:
+	uv run python -m scripts.migration_readiness
