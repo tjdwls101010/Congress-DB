@@ -74,6 +74,28 @@ _Avoid_: Q&A 그룹(질의자-답변자 묶음과 혼동)
 **처리결과 (Proc Result)**:
 법안의 본회의 처리결과. 가결·부결·대안반영·철회 등. `bills.proc_result`에 텍스트로 저장.
 
+**백필 (Backfill)**:
+22대 시작일(2024-05-30)부터 현재까지 누적 데이터를 한 번에 채우는 초기 전체 적재 실행. 이후 증분 수집과 같은 적재 Module을 사용하고, 실행 범위만 전체로 잡는다.
+_Avoid_: 일회성 스크립트, 초기 전용 코드
+
+**증분 동기화 (Incremental Sync)**:
+백필 이후 새로 생기거나 뒤늦게 변경된 데이터를 주기적으로 다시 가져와 upsert하는 실행. source별 cursor와 30일 overlap window를 사용한다.
+_Avoid_: 신규 row만 추가(변경 데이터가 누락됨)
+
+**수집 실행 (Ingest Run)**:
+백필, 증분 동기화, dead letter 재처리 중 하나를 실행한 기록. 상태는 `running`, `success`, `degraded_success`, `failed`, `blocked` 중 하나다.
+
+**수집 커서 (Ingest Cursor)**:
+각 source가 마지막으로 성공 처리한 기준점. 법안·표결·회의는 날짜 의미가 달라 하나의 global cursor를 쓰지 않고 source별로 분리한다.
+_Avoid_: global cursor
+
+**실패 편지 (Dead Letter)**:
+재시도 후에도 실패한 API item 또는 회의록 스크래핑 대상. 삭제하지 않고 `pending`/`resolved` 등 상태로 보존해 누락과 지연 적재 원인을 추적한다.
+_Avoid_: 터미널 로그만 남기기, 실패 item 무시
+
+**Touched Meeting**:
+증분 동기화에서 새로 들어오거나 갱신된 회의. 해당 `meeting_id`만 utterances를 재스크래핑하고 session_groups를 재계산한다.
+
 ## 회의 종류 (meeting_type 값)
 
 5가지 enum 값. 각각 다른 OpenAPI에서 가져온다:
@@ -99,6 +121,8 @@ _Avoid_: Q&A 그룹(질의자-답변자 묶음과 혼동)
 - **Q&A 그룹 → 발언**: 1:N. utterances.session_group_id (nullable) FK.
 - **의원 → 발언**: 1:N. utterances.speaker_mona_cd (nullable — 비-의원 화자는 NULL).
 - **의원 → Q&A 그룹 (질의자)**: 1:N. session_groups.questioner_mona_cd FK.
+- **수집 실행 → 실패 편지**: 1:N. dead_letters.run_id FK.
+- **수집 커서 → 수집 실행**: source별 cursor가 마지막 성공 run을 가리킨다.
 
 ## Example dialogue
 
@@ -112,6 +136,9 @@ _Avoid_: Q&A 그룹(질의자-답변자 묶음과 혼동)
 > **PM**: 위원회 단계의 표결 결과도 필요한가?
 > **개발자**: API가 본회의 표결만 제공한다. 위원회 표결을 회의록 발언에서 추출하는 건 정밀도가 낮다. 본회의 표결만 다루자.
 
+> **PM**: 2년치 초기 적재와 이후 신규 데이터 추가 코드를 따로 만들까?
+> **개발자**: 따로 만들면 drift가 생긴다. 같은 적재 Module을 사용하고, 백필은 전체 범위, 증분 동기화는 source별 cursor + 30일 overlap으로 실행 범위만 다르게 잡자.
+
 ## Flagged ambiguities
 
 - **"세션" 다중 의미**: 회기(Session No, 제434회) vs Q&A 세션 그룹(Session Group). 본 프로젝트에서는 후자를 항상 "**그룹**" 또는 "**Q&A 그룹**"으로 부른다.
@@ -121,3 +148,4 @@ _Avoid_: Q&A 그룹(질의자-답변자 묶음과 혼동)
 - **회의 식별자 3종**: `mnts_id`(PDF URL의 id, 통합 키), `CONFER_NUM`(본회의/위원회 API의 회의번호, mnts_id와 동일), `CONF_ID`(N0xxxxx, 별도 식별자). 통합 키는 `mnts_id`.
 - **대수 파라미터 형식 혼재**: `DAE_NUM=22` (정수) vs `AGE=22` (정수) vs `ERACO=제22대` (한글 텍스트). API별로 다르므로 한 군데 wrapper에서 흡수.
 - **본회의·소위원회 의미 단위**: "불가능"으로 확정한 것이 아니라, `session_groups`와 다른 Interface가 필요하다고 정리했다. 후보는 본회의의 의사일정/대정부질문/표결 세그먼트, 소위원회의 법안 심사 세그먼트다.
+- **백필 vs 증분 동기화**: 별도 코드가 아니라 같은 적재 Module의 실행 mode다. 초기에는 로컬/별도 runner가 Supabase DB에 직접 upsert한다.
