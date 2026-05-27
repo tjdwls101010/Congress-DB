@@ -2,7 +2,7 @@
         seed-catalog verify-catalog render-catalog ingest-members ingest-bills \
         ingest-votes ingest-meetings validate-minutes-dom ingest-utterances \
         ingest-session-groups validate-session-groups evaluate-session-groups \
-        sanity-check
+        sanity-check data-completeness
 
 # .env가 있으면 변수 자동 로드 (없어도 통과)
 -include .env
@@ -103,3 +103,7 @@ evaluate-session-groups:
 # 10% 통합 sanity check + FTS 결정 리포트 생성
 sanity-check:
 	uv run python -m scripts.sanity_check
+
+# 10% 데이터 완성도 follow-up 리포트 생성
+data-completeness:
+	uv run python -m scripts.data_completeness

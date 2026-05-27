@@ -37,6 +37,7 @@ make test
 | `make db-shell` | psql 셸 접속 |
 | `make test` | `uv run pytest -v` |
 | `make sanity-check` | 10% 통합 검증 리포트 생성 |
+| `make data-completeness` | 10% 데이터 완성도 follow-up 리포트 생성 |
 
 ## 구조
 
