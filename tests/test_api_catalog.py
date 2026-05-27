@@ -1,9 +1,11 @@
 """Slice 2 RGR 2 — api_catalog seed + verification result 갱신 검증.
 
-각 테스트 시작 시 api_catalog를 TRUNCATE해서 다른 테스트와 격리.
+테스트가 건드리는 api_catalog row만 백업/복구해서 운영 데이터를 지우지 않는다.
 """
 
 from __future__ import annotations
+
+from collections.abc import Iterator
 
 import pytest
 
@@ -16,18 +18,73 @@ from congress_db.db import get_conn
 from congress_db.endpoints import PIPELINE_ENDPOINTS
 
 
+_API_CATALOG_COLUMNS = (
+    "inf_id",
+    "name",
+    "endpoint",
+    "source_system",
+    "category",
+    "tested_at",
+    "status",
+    "has_22nd_data",
+    "total_count_22nd",
+    "used_in_pipeline",
+    "usage_note",
+    "skip_reason",
+)
+_PIPELINE_INF_IDS = tuple(spec.inf_id for spec in PIPELINE_ENDPOINTS)
+_TEST_INF_IDS = (*_PIPELINE_INF_IDS, "TEST_UNUSED_API")
+
+
 @pytest.fixture(autouse=True)
-def clean_api_catalog() -> None:
-    """매 테스트 시작 전 api_catalog 비움."""
+def preserve_api_catalog_rows() -> Iterator[None]:
+    """테스트 대상 row만 비우고, 테스트 후 원래 상태로 되돌린다."""
     with get_conn() as conn, conn.cursor() as cur:
-        cur.execute("TRUNCATE api_catalog")
+        cur.execute(
+            f"""
+            SELECT {", ".join(_API_CATALOG_COLUMNS)}
+            FROM api_catalog
+            WHERE inf_id = ANY(%s)
+            """,
+            (list(_TEST_INF_IDS),),
+        )
+        original_rows = cur.fetchall()
+        cur.execute(
+            "DELETE FROM api_catalog WHERE inf_id = ANY(%s)",
+            (list(_TEST_INF_IDS),),
+        )
         conn.commit()
+
+    try:
+        yield
+    finally:
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM api_catalog WHERE inf_id = ANY(%s)",
+                (list(_TEST_INF_IDS),),
+            )
+            if original_rows:
+                placeholders = ", ".join(["%s"] * len(_API_CATALOG_COLUMNS))
+                cur.executemany(
+                    f"""
+                    INSERT INTO api_catalog ({", ".join(_API_CATALOG_COLUMNS)})
+                    VALUES ({placeholders})
+                    """,
+                    original_rows,
+                )
+            conn.commit()
 
 
 def _count_pipeline_rows() -> int:
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT COUNT(*) FROM api_catalog WHERE used_in_pipeline = TRUE"
+            """
+            SELECT COUNT(*)
+            FROM api_catalog
+            WHERE used_in_pipeline = TRUE
+              AND inf_id = ANY(%s)
+            """,
+            (list(_PIPELINE_INF_IDS),),
         )
         result = cur.fetchone()
         return int(result[0]) if result else 0
@@ -96,12 +153,12 @@ def test_fetch_pipeline_catalog_rows_returns_only_pipeline_endpoints() -> None:
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             "INSERT INTO api_catalog (inf_id, name, endpoint, used_in_pipeline) "
-            "VALUES ('UNUSED_API', '미사용 API', 'unused_endpoint', FALSE)"
+            "VALUES ('TEST_UNUSED_API', '미사용 API', 'unused_endpoint', FALSE)"
         )
         conn.commit()
 
     rows = fetch_pipeline_catalog_rows()
 
     inf_ids = {r["inf_id"] for r in rows}
-    assert "UNUSED_API" not in inf_ids
-    assert len(rows) == 11
+    assert "TEST_UNUSED_API" not in inf_ids
+    assert set(_PIPELINE_INF_IDS).issubset(inf_ids)
