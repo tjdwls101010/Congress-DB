@@ -186,3 +186,21 @@ def test_vote_distribution_allows_gap_when_member_vote_api_omits_member() -> Non
     ]
 
     assert _validate_vote_distribution(vote_bill, vote_rows) is False
+
+
+def test_vote_distribution_allows_small_category_mismatch_when_vote_total_matches() -> None:
+    vote_bill = {
+        "BILL_ID": "TEST_VOTE_BILL_CATEGORY_MISMATCH",
+        "MEMBER_TCNT": 296,
+        "VOTE_TCNT": 197,
+        "YES_TCNT": 195,
+        "NO_TCNT": 0,
+        "BLANK_TCNT": 2,
+    }
+    vote_rows = (
+        [{"RESULT_VOTE_MOD": "찬성"}] * 196
+        + [{"RESULT_VOTE_MOD": "기권"}]
+        + [{"RESULT_VOTE_MOD": "불참"}] * 98
+    )
+
+    assert _validate_vote_distribution(vote_bill, vote_rows) is False

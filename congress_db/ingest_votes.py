@@ -278,20 +278,30 @@ def _validate_vote_distribution(vote_bill: dict[str, Any], vote_rows: list[dict[
         "반대": _int_or_zero(vote_bill.get("NO_TCNT")),
         "기권": _int_or_zero(vote_bill.get("BLANK_TCNT")),
     }
+    expected_vote_count = _int_or_zero(vote_bill.get("VOTE_TCNT"))
     missing_member_rows = max(_int_or_zero(vote_bill.get("MEMBER_TCNT")) - len(vote_rows), 0)
-    mismatch_delta = 0
-    for result_vote_mod, expected_count in expected.items():
-        actual_count = counts[result_vote_mod]
-        mismatch_delta += abs(actual_count - expected_count)
-        if actual_count != expected_count and mismatch_delta > missing_member_rows:
-            bill_id = vote_bill.get("BILL_ID")
-            raise RuntimeError(
-                f"vote distribution mismatch for {bill_id}: "
-                f"{result_vote_mod} expected={expected_count} actual={actual_count}"
-            )
-    if sum(expected.values()) != _int_or_zero(vote_bill.get("VOTE_TCNT")):
+    if sum(expected.values()) != expected_vote_count:
         raise RuntimeError(f"vote aggregate mismatch for {vote_bill.get('BILL_ID')}")
-    return mismatch_delta == 0
+
+    mismatch_delta = sum(
+        abs(counts[result_vote_mod] - expected_count)
+        for result_vote_mod, expected_count in expected.items()
+    )
+    actual_vote_count = sum(counts[result_vote_mod] for result_vote_mod in expected)
+    if mismatch_delta == 0:
+        return True
+    if (
+        abs(actual_vote_count - expected_vote_count) <= missing_member_rows
+        and mismatch_delta <= max(2, missing_member_rows * 2)
+    ):
+        return False
+
+    bill_id = vote_bill.get("BILL_ID")
+    actual = {result_vote_mod: counts[result_vote_mod] for result_vote_mod in expected}
+    raise RuntimeError(
+        f"vote distribution mismatch for {bill_id}: "
+        f"expected={expected} actual={actual}"
+    )
 
 
 def _parse_vote_date(value: str) -> datetime:
