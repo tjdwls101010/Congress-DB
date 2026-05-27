@@ -127,11 +127,18 @@ def ingest_votes(
         if not matched:
             tolerated_distribution_mismatches += 1
 
-    bill_refs = [_normalize_bill_ref(row) for row in vote_bill_list.rows]
+    canonical_bill_ids = _load_canonical_bill_ids(vote_bill_list.rows)
+    bill_refs = [
+        _normalize_bill_ref(
+            row,
+            bill_id=canonical_bill_ids[str(row["BILL_ID"])],
+        )
+        for row in vote_bill_list.rows
+    ]
     member_refs = _normalize_member_refs(vote_rows_by_bill)
     vote_rows = [
-        _normalize_vote_row(row)
-        for rows in vote_rows_by_bill.values()
+        _normalize_vote_row(row, bill_id=canonical_bill_ids[source_bill_id])
+        for source_bill_id, rows in vote_rows_by_bill.items()
         for row in rows
     ]
 
@@ -229,9 +236,25 @@ def _target_count(total_count: int, limit_pct: float) -> int:
     return min(total_count, int(limit_pct))
 
 
-def _normalize_bill_ref(row: dict[str, Any]) -> dict[str, Any]:
+def _load_canonical_bill_ids(rows: list[dict[str, Any]]) -> dict[str, str]:
+    bill_nos = sorted({str(row["BILL_NO"]) for row in rows})
+    existing_by_no: dict[str, str] = {}
+    if bill_nos:
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT bill_no, bill_id FROM bills WHERE bill_no = ANY(%s)",
+                (bill_nos,),
+            )
+            existing_by_no = {str(bill_no): str(bill_id) for bill_no, bill_id in cur.fetchall()}
     return {
-        "bill_id": _required(row, "BILL_ID"),
+        str(row["BILL_ID"]): existing_by_no.get(str(row["BILL_NO"]), str(row["BILL_ID"]))
+        for row in rows
+    }
+
+
+def _normalize_bill_ref(row: dict[str, Any], *, bill_id: str | None = None) -> dict[str, Any]:
+    return {
+        "bill_id": bill_id or _required(row, "BILL_ID"),
         "bill_no": _required(row, "BILL_NO"),
         "bill_name": _required(row, "BILL_NAME"),
         "committee": _blank_to_none(row.get("CURR_COMMITTEE")),
@@ -259,9 +282,9 @@ def _normalize_member_refs(
     ]
 
 
-def _normalize_vote_row(row: dict[str, Any]) -> dict[str, Any]:
+def _normalize_vote_row(row: dict[str, Any], *, bill_id: str | None = None) -> dict[str, Any]:
     return {
-        "bill_id": _required(row, "BILL_ID"),
+        "bill_id": bill_id or _required(row, "BILL_ID"),
         "mona_cd": _required(row, "MONA_CD"),
         "vote_date": _parse_vote_date(_required(row, "VOTE_DATE")),
         "result_vote_mod": _required(row, "RESULT_VOTE_MOD"),

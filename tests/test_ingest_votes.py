@@ -10,7 +10,12 @@ import pytest
 from congress_db.db import get_conn
 from congress_db.ingest_votes import _validate_vote_distribution, ingest_votes
 
-TEST_BILLS = ("TEST_VOTE_BILL_1", "TEST_VOTE_BILL_2")
+TEST_BILLS = (
+    "TEST_VOTE_BILL_1",
+    "TEST_VOTE_BILL_2",
+    "TEST_VOTE_BILL_EXISTING",
+    "TEST_VOTE_BILL_ALIAS",
+)
 TEST_MEMBERS = ("TEST_VOTE_MEMBER_1", "TEST_VOTE_MEMBER_2", "TEST_VOTE_MEMBER_3")
 
 
@@ -204,3 +209,95 @@ def test_vote_distribution_allows_small_category_mismatch_when_vote_total_matche
     )
 
     assert _validate_vote_distribution(vote_bill, vote_rows) is False
+
+
+def test_ingest_votes_uses_existing_bill_when_vote_api_reuses_bill_no(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    vote_bills = [
+        _vote_bill_row(
+            "TEST_VOTE_BILL_ALIAS",
+            "9100003",
+            "표결 API의 다른 BILL_ID",
+        )
+    ]
+    vote_rows_by_bill = {
+        "TEST_VOTE_BILL_ALIAS": [
+            _vote_row(
+                "TEST_VOTE_BILL_ALIAS",
+                "9100003",
+                "TEST_VOTE_MEMBER_1",
+                "표결일",
+                "찬성",
+            ),
+            _vote_row(
+                "TEST_VOTE_BILL_ALIAS",
+                "9100003",
+                "TEST_VOTE_MEMBER_2",
+                "표결이",
+                "반대",
+            ),
+            _vote_row(
+                "TEST_VOTE_BILL_ALIAS",
+                "9100003",
+                "TEST_VOTE_MEMBER_3",
+                "표결삼",
+                "기권",
+            ),
+        ]
+    }
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO bills (bill_id, bill_no, bill_name)
+            VALUES ('TEST_VOTE_BILL_EXISTING', '9100003', '기존 법안')
+            """
+        )
+        conn.commit()
+
+    def fake_get(url: str, **kwargs: Any) -> MagicMock:
+        endpoint = url.rsplit("/", 1)[-1]
+        params = kwargs["params"]
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        if "AGE" not in params:
+            response.json.return_value = _no_data()
+        elif endpoint == "ncocpgfiaoituanbr":
+            response.json.return_value = _envelope(endpoint, total=1, rows=vote_bills)
+        elif endpoint == "nojepdqqaweusdfbi":
+            response.json.return_value = _envelope(
+                endpoint,
+                total=3,
+                rows=vote_rows_by_bill[params["BILL_ID"]],
+            )
+        else:
+            raise AssertionError(endpoint)
+        return response
+
+    monkeypatch.setattr("congress_db.api_client.requests.get", fake_get)
+
+    result = ingest_votes(
+        limit_pct=1.0,
+        page_size=1,
+        benchmark_sample_size=1,
+        worker_levels=(1,),
+        benchmark_output_path=tmp_path / "VOTES-PARALLEL-BENCHMARK.md",
+    )
+
+    assert result.upserted_votes == 3
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM bills WHERE bill_id = 'TEST_VOTE_BILL_ALIAS'")
+        alias_bill_count = cur.fetchone()
+        cur.execute(
+            """
+            SELECT DISTINCT bill_id
+            FROM votes
+            WHERE mona_cd = ANY(%s)
+            """,
+            (list(TEST_MEMBERS),),
+        )
+        vote_bill_ids = cur.fetchall()
+
+    assert alias_bill_count == (0,)
+    assert vote_bill_ids == [("TEST_VOTE_BILL_EXISTING",)]
