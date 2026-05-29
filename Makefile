@@ -1,4 +1,4 @@
-.PHONY: db-up db-down db-migrate db-shell db-reset test \
+.PHONY: db-up db-down db-migrate db-shell db-reset test ingest \
         seed-catalog verify-catalog render-catalog ingest-members ingest-bills \
         ingest-votes ingest-meetings validate-minutes-dom ingest-utterances \
         ingest-session-groups ingest-backfill validate-session-groups evaluate-session-groups \
@@ -52,6 +52,10 @@ db-shell:
 test:
 	uv run pytest -v
 
+# 공식 단일 수집 명령 (auto: 첫 baseline 전에는 backfill, 이후에는 incremental)
+ingest:
+	uv run python -m scripts.ingest
+
 # api_catalog seed (PRD 확정 10개 endpoint UPSERT)
 seed-catalog:
 	uv run python -m scripts.seed_api_catalog
@@ -64,23 +68,23 @@ verify-catalog:
 render-catalog:
 	uv run python -m scripts.render_api_catalog
 
-# members 적재 (국회의원 인적사항 API -> members)
+# 진단용: members 적재 (국회의원 인적사항 API -> members)
 ingest-members:
 	uv run python -m scripts.ingest_members
 
-# bills + bill_coproposers 적재 (기본 10%)
+# 진단용: bills + bill_coproposers 적재 (기본 10%)
 ingest-bills:
 	uv run python -m scripts.ingest_bills
 
-# votes 적재 (기본 10%)
+# 진단용: votes 적재 (기본 10%)
 ingest-votes:
 	uv run python -m scripts.ingest_votes
 
-# meetings + agenda_items + meeting_bills 적재 (기본 캘리브레이션 500건)
+# 진단용: meetings + meeting_bills 적재 (기본 캘리브레이션 500건)
 ingest-meetings:
 	uv run python -m scripts.ingest_meetings
 
-# utterances 적재 (기본 캘리브레이션 500건)
+# 진단용: utterances 적재 (기본 캘리브레이션 500건)
 ingest-utterances:
 	uv run python -m scripts.ingest_utterances
 
@@ -88,11 +92,11 @@ ingest-utterances:
 validate-minutes-dom:
 	uv run python -m scripts.validate_minutes_dom
 
-# session_groups 적재 (기본 캘리브레이션 500건)
+# 진단용: session_groups 적재 (기본 캘리브레이션 500건)
 ingest-session-groups:
 	uv run python -m scripts.ingest_session_groups
 
-# 로컬 100% 백필 실행 (Supabase migration 전 PM gate의 입력)
+# 진단용: 로컬 100% 백필 실행 (Supabase migration 전 PM gate의 입력)
 ingest-backfill:
 	uv run python -m scripts.ingest_backfill
 

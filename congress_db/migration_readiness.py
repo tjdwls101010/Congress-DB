@@ -11,7 +11,7 @@ from .db import get_conn
 DEFAULT_MIGRATION_READINESS_REPORT = Path("docs/MIGRATION-READINESS.md")
 READY = "ready_for_human_review"
 NOT_READY = "not_ready_for_human_review"
-SANITY_KEYS = frozenset({"S1", "S2", "S3", "S4", "S5", "S6", "S7"})
+SANITY_KEYS = frozenset({"S1", "S2", "S3", "S4a", "S4b", "S5", "S6", "S7"})
 CORE_TABLES = (
     "members",
     "bills",
@@ -19,7 +19,6 @@ CORE_TABLES = (
     "bill_coproposers",
     "votes",
     "meetings",
-    "agenda_items",
     "meeting_bills",
     "utterances",
     "session_groups",

@@ -42,10 +42,10 @@ def _insert_test_rows() -> None:
         )
         cur.execute(
             """
-            INSERT INTO meetings (mnts_id, title, meeting_type, conf_date, source_api)
+            INSERT INTO meetings (mnts_id, title, meeting_type, conf_date)
             VALUES
-                (920101, '테스트 위원회', '상임위', '2026-05-20', 'test'),
-                (920102, '테스트 본회의', '본회의', '2026-05-21', 'test')
+                (920101, '테스트 위원회', '상임위', '2026-05-20'),
+                (920102, '테스트 본회의', '본회의', '2026-05-21')
             """
         )
         conn.commit()

@@ -7,12 +7,12 @@ It separates safe fixes from expected calibration artifacts and unsafe automatic
 
 | Metric | Value | Interpretation |
 | --- | ---: | --- |
-| `members_missing_party` | 12 | Referenced member stubs preserved by FK policy; profile metadata is absent. |
-| `member_stubs_with_vote_party` | 9 | Point-in-time vote party exists, but it is not the same as profile party. |
-| `bill_metadata_gaps` | 164 | Bills missing proposed date or summary. |
-| `vote_created_bill_metadata_gaps` | 158 | Metadata gaps attached to bills already touched by votes ingest. |
-| `bills_missing_summary` | 164 | Bills whose summary cannot yet participate in keyword search. |
-| `unmapped_member_titled_utterances` | 3223 | Utterances with member-like title but no safe member FK in current members table. |
+| `members_missing_party` | 20 | Referenced member stubs preserved by FK policy; profile metadata is absent. |
+| `member_stubs_with_vote_party` | 20 | Point-in-time vote party exists, but it is not the same as profile party. |
+| `bill_metadata_gaps` | 1078 | Bills missing proposed date or summary. |
+| `vote_created_bill_metadata_gaps` | 1038 | Metadata gaps attached to bills already touched by votes ingest. |
+| `bills_missing_summary` | 1078 | Bills whose summary cannot yet participate in keyword search. |
+| `unmapped_member_titled_utterances` | 143 | Utterances with member-like title but no safe member FK in current members table. |
 | `safe_utterance_mapping_candidates` | 0 | Rows that can be auto-mapped by unique member name. Current sample should stay zero. |
 
 ## Conclusions
@@ -26,18 +26,26 @@ It separates safe fixes from expected calibration artifacts and unsafe automatic
 
 | name | mona_cd | latest_vote_party | utterances | votes | lead_bills | co_bills | classification |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 추미애 | URV1689Q | 더불어민주당 | 4104 | 44 | 2 | 22 | referenced_member_stub |
-| 민형배 | VRY5522V | 더불어민주당 | 1890 | 44 | 1 | 44 | referenced_member_stub |
-| 위성곤 | RQQ3807K | 더불어민주당 | 1408 | 44 | 8 | 21 | referenced_member_stub |
-| 양문석 | 3OQ8273H |  | 1404 | 0 | 4 | 22 | referenced_member_stub |
-| 박찬대 | BT62420K | 더불어민주당 | 1384 | 44 | 1 | 17 | referenced_member_stub |
-| 정을호 | NA61091D |  | 1144 | 0 | 0 | 9 | referenced_member_stub |
-| 전재수 | 9YO73104 | 더불어민주당 | 1033 | 44 | 3 | 1 | referenced_member_stub |
-| 이원택 | DAV7257X | 더불어민주당 | 913 | 44 | 5 | 43 | referenced_member_stub |
-| 김상욱 | VDN5593C | 더불어민주당 | 624 | 44 | 1 | 7 | referenced_member_stub |
-| 박수현 | 5TQ6306B | 더불어민주당 | 396 | 44 | 3 | 52 | referenced_member_stub |
-| 강훈식 | TRE2429O |  | 247 | 0 | 0 | 1 | referenced_member_stub |
-| 추경호 | G152611B | 국민의힘 | 242 | 44 | 0 | 7 | referenced_member_stub |
+| 추미애 | URV1689Q | 더불어민주당 | 8154 | 1479 | 29 | 517 | referenced_member_stub |
+| 민형배 | VRY5522V | 더불어민주당 | 7219 | 1479 | 240 | 1151 | referenced_member_stub |
+| 위성곤 | RQQ3807K | 더불어민주당 | 5563 | 1479 | 102 | 997 | referenced_member_stub |
+| 박찬대 | BT62420K | 더불어민주당 | 2830 | 1479 | 24 | 126 | referenced_member_stub |
+| 이원택 | DAV7257X | 더불어민주당 | 2814 | 1479 | 73 | 801 | referenced_member_stub |
+| 양문석 | 3OQ8273H | 더불어민주당 | 2578 | 1233 | 28 | 460 | referenced_member_stub |
+| 이병진 | HFV52269 | 더불어민주당 | 2230 | 1056 | 89 | 1464 | referenced_member_stub |
+| 정을호 | NA61091D | 더불어민주당 | 2002 | 1233 | 62 | 459 | referenced_member_stub |
+| 박수현 | 5TQ6306B | 더불어민주당 | 1873 | 1479 | 49 | 858 | referenced_member_stub |
+| 전재수 | 9YO73104 | 더불어민주당 | 1854 | 1479 | 34 | 339 | referenced_member_stub |
+| 김상욱 | VDN5593C | 더불어민주당 | 1774 | 1479 | 32 | 362 | referenced_member_stub |
+| 강유정 | Q129715Y | 더불어민주당 | 1443 | 669 | 33 | 483 | referenced_member_stub |
+| 신영대 | AFH96856 | 더불어민주당 | 1211 | 1056 | 53 | 515 | referenced_member_stub |
+| 임광현 | CST4991F | 더불어민주당 | 672 | 716 | 37 | 297 | referenced_member_stub |
+| 조국 | T3E4932G | 조국혁신당 | 569 | 281 | 10 | 569 | referenced_member_stub |
+| 강훈식 | TRE2429O | 더불어민주당 | 469 | 669 | 24 | 260 | referenced_member_stub |
+| 인요한 | B7789327 | 국민의힘 | 414 | 1056 | 20 | 573 | referenced_member_stub |
+| 추경호 | G152611B | 국민의힘 | 307 | 1479 | 36 | 299 | referenced_member_stub |
+| 위성락 | T9E37304 | 더불어민주당 | 262 | 669 | 10 | 178 | referenced_member_stub |
+| 이재명 | IUD9392R | 더불어민주당 | 89 | 669 | 4 | 16 | referenced_member_stub |
 
 ## Vote-created Bill Metadata Gaps
 
@@ -68,12 +76,12 @@ It separates safe fixes from expected calibration artifacts and unsafe automatic
 
 | speaker_name | utterances | member_name_matches | classification |
 | --- | --- | --- | --- |
-| 이병진 | 1140 | 0 | no_member_reference |
-| 강유정 | 796 | 0 | no_member_reference |
-| 신영대 | 476 | 0 | no_member_reference |
-| 조국 | 291 | 0 | no_member_reference |
-| 인요한 | 211 | 0 | no_member_reference |
-| 임광현 | 186 | 0 | no_member_reference |
-| 위성락 | 85 | 0 | no_member_reference |
-| 이재명 | 37 | 0 | no_member_reference |
+| 양이원영 | 128 | 0 | no_member_reference |
+| 전종득 | 5 | 0 | no_member_reference |
+| 김회재 | 2 | 0 | no_member_reference |
+| 오신환 | 2 | 0 | no_member_reference |
+| 이철희 | 2 | 0 | no_member_reference |
+| 기왕 | 1 | 0 | no_member_reference |
+| 김상휘 | 1 | 0 | no_member_reference |
+| 깅대식 | 1 | 0 | no_member_reference |
 | 박상민 | 1 | 0 | no_member_reference |

@@ -1,16 +1,18 @@
 # Supabase Migration Readiness
 
-Recommendation: `not_ready_for_human_review`
+Recommendation: `ready_for_human_review`
 
 ## Blockers
 
-- no backfill run found
-- sanity_check signal unavailable
-- data_completeness signal unavailable
+- None
 
 ## Latest Backfill Run
 
-- None
+- id: `343`
+- status: `success`
+- started_at: `2026-05-27 14:11:12.922781+00:00`
+- finished_at: `2026-05-27 14:11:16.932376+00:00`
+- error: `None`
 
 ## Unresolved Dead Letters
 
@@ -27,20 +29,19 @@ Recommendation: `not_ready_for_human_review`
 
 ## Sanity And Completeness
 
-- sanity_check: `{'available': False, 'section_keys': (), 'missing_keys': ('S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7')}`
-- data_completeness: `{'available': False, 'metric_count': 0}`
+- sanity_check: `{'available': True, 'section_keys': ('S1', 'S2', 'S3', 'S4a', 'S4b', 'S5', 'S6', 'S7'), 'missing_keys': ()}`
+- data_completeness: `{'available': True, 'metric_count': 7}`
 
 ## Row Counts
 
 | Table | Rows |
 |---|---:|
-| `members` | 298 |
-| `bills` | 1887 |
-| `bill_lead_proposers` | 1750 |
-| `bill_coproposers` | 19303 |
-| `votes` | 45996 |
-| `meetings` | 503 |
-| `agenda_items` | 2558 |
-| `meeting_bills` | 244 |
-| `utterances` | 586766 |
-| `session_groups` | 17339 |
+| `members` | 306 |
+| `bills` | 18323 |
+| `bill_lead_proposers` | 17521 |
+| `bill_coproposers` | 205902 |
+| `votes` | 473594 |
+| `meetings` | 2103 |
+| `meeting_bills` | 40338 |
+| `utterances` | 1328745 |
+| `session_groups` | 28541 |

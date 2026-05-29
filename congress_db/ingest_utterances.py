@@ -22,7 +22,8 @@ from .scrape_minutes import (
 
 DEFAULT_SCRAPE_BENCHMARK_OUTPUT = Path("docs/PARALLEL-BENCHMARK.md")
 DEFAULT_RETRY_DELAYS = (1.0, 4.0, 16.0)
-DEFAULT_SCRAPE_WORKER_LEVELS = (5,)
+DEFAULT_SCRAPE_WORKER_LEVELS = (2, 5, 10, 20, 40)
+KNOWN_HTML_UNAVAILABLE_MNTS_IDS = frozenset({52354, 52713})
 MEMBER_SPEAKER_TITLES = frozenset(
     {
         "의원",
@@ -45,6 +46,7 @@ class IngestUtterancesResult:
 
     meeting_count: int
     scraped_meeting_count: int
+    scraped_meeting_ids: tuple[int, ...]
     utterance_count: int
     selected_worker_count: int
     scrape_error_count: int
@@ -141,6 +143,7 @@ def ingest_utterances(
     result = IngestUtterancesResult(
         meeting_count=len(target_meeting_ids),
         scraped_meeting_count=len(scraped),
+        scraped_meeting_ids=tuple(scraped_meeting_ids),
         utterance_count=upserted_utterances,
         selected_worker_count=benchmark.selected_worker_count,
         scrape_error_count=len(errors),

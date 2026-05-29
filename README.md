@@ -36,10 +36,15 @@ make test
 | `make db-reset` | 컨테이너 + 볼륨 삭제 후 재기동 (완전 리셋) |
 | `make db-shell` | psql 셸 접속 |
 | `make test` | `uv run pytest -v` |
-| `make ingest-backfill` | Supabase migration 전 로컬 100% 백필 실행 |
+| `make ingest` | 공식 단일 수집 명령. 첫 baseline 전에는 백필, 이후에는 증분 동기화 |
+| `make ingest-backfill` | 진단용: Supabase migration 전 로컬 100% 백필 실행 |
 | `make sanity-check` | 10% 통합 검증 리포트 생성 |
 | `make data-completeness` | 10% 데이터 완성도 follow-up 리포트 생성 |
 | `make migration-readiness` | Supabase migration 전 readiness 리포트 생성 |
+
+`ingest-members`, `ingest-bills`, `ingest-votes`, `ingest-meetings`,
+`ingest-utterances`, `ingest-session-groups`는 개발/진단용 stage 명령이다.
+일반 운영 흐름에서는 `make ingest`를 사용한다.
 
 ## 구조
 

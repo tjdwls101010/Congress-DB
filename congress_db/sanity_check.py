@@ -18,11 +18,50 @@ ROW_COUNT_TABLES = (
     "bill_coproposers",
     "votes",
     "meetings",
-    "agenda_items",
     "meeting_bills",
     "utterances",
     "session_groups",
 )
+
+_S3_MEETING_STREAMS_SQL = """
+    WITH bill_counts AS (
+        SELECT meeting_id, COUNT(*) AS bill_count
+        FROM meeting_bills
+        GROUP BY meeting_id
+    ), utterance_counts AS (
+        SELECT meeting_id, COUNT(*) AS utterance_count
+        FROM utterances
+        GROUP BY meeting_id
+    ), group_counts AS (
+        SELECT meeting_id, COUNT(*) AS group_count
+        FROM session_groups
+        GROUP BY meeting_id
+    )
+    SELECT
+        m.mnts_id AS "회의ID",
+        m.meeting_type AS "유형",
+        m.conf_date AS "일자",
+        left(m.title, 90) AS "회의명",
+        COALESCE(bc.bill_count, 0) AS "연결법안",
+        COALESCE(uc.utterance_count, 0) AS "발언",
+        COALESCE(gc.group_count, 0) AS "Q&A그룹",
+        first_u.speaker_name AS "첫발언자",
+        left(first_u.content, 120) AS "첫발언"
+    FROM meetings m
+    LEFT JOIN bill_counts bc ON bc.meeting_id = m.mnts_id
+    LEFT JOIN utterance_counts uc ON uc.meeting_id = m.mnts_id
+    LEFT JOIN group_counts gc ON gc.meeting_id = m.mnts_id
+    LEFT JOIN LATERAL (
+        SELECT speaker_name, content
+        FROM utterances u
+        WHERE u.meeting_id = m.mnts_id
+        ORDER BY sequence
+        LIMIT 1
+    ) first_u ON true
+    WHERE COALESCE(uc.utterance_count, 0) > 0
+    ORDER BY m.conf_date DESC, m.mnts_id DESC
+    LIMIT %s
+    """
 
 
 @dataclass(frozen=True)
@@ -228,52 +267,11 @@ def _load_s2_bill_process(cur: object, sample_size: int) -> SanitySection:
 
 
 def _load_s3_meeting_streams(cur: object, sample_size: int) -> SanitySection:
-    cur.execute(
-        """
-        WITH counts AS (
-            SELECT
-                m.mnts_id,
-                COUNT(DISTINCT ai.id) AS agenda_count,
-                COUNT(DISTINCT mb.bill_id) AS bill_count,
-                COUNT(DISTINCT u.id) AS utterance_count,
-                COUNT(DISTINCT sg.id) AS group_count
-            FROM meetings m
-            LEFT JOIN agenda_items ai ON ai.meeting_id = m.mnts_id
-            LEFT JOIN meeting_bills mb ON mb.meeting_id = m.mnts_id
-            LEFT JOIN utterances u ON u.meeting_id = m.mnts_id
-            LEFT JOIN session_groups sg ON sg.meeting_id = m.mnts_id
-            GROUP BY m.mnts_id
-        )
-        SELECT
-            m.mnts_id AS "회의ID",
-            m.meeting_type AS "유형",
-            m.conf_date AS "일자",
-            left(m.title, 90) AS "회의명",
-            c.agenda_count AS "안건",
-            c.bill_count AS "연결법안",
-            c.utterance_count AS "발언",
-            c.group_count AS "Q&A그룹",
-            first_u.speaker_name AS "첫발언자",
-            left(first_u.content, 120) AS "첫발언"
-        FROM meetings m
-        JOIN counts c ON c.mnts_id = m.mnts_id
-        LEFT JOIN LATERAL (
-            SELECT speaker_name, content
-            FROM utterances u
-            WHERE u.meeting_id = m.mnts_id
-            ORDER BY sequence
-            LIMIT 1
-        ) first_u ON true
-        WHERE c.utterance_count > 0
-        ORDER BY m.conf_date DESC, m.mnts_id DESC
-        LIMIT %s
-        """,
-        (sample_size,),
-    )
+    cur.execute(_S3_MEETING_STREAMS_SQL, (sample_size,))
     return SanitySection(
         key="S3",
-        title="회의 안건 + 발언 stream",
-        query_goal="최근 회의 5개의 안건/법안/발언/Q&A 그룹 연결 상태",
+        title="회의 본문 + 법안 + 발언 stream",
+        query_goal="최근 회의 5개의 연결법안/발언/Q&A 그룹 연결 상태",
         rows=_fetch_dicts(cur),
     )
 
