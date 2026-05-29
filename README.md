@@ -46,6 +46,9 @@ make test
 `ingest-utterances`, `ingest-session-groups`는 개발/진단용 stage 명령이다.
 일반 운영 흐름에서는 `make ingest`를 사용한다.
 
+Supabase 이전에는 [docs/PRE-MIGRATION-BACKFILL-GATE.md](docs/PRE-MIGRATION-BACKFILL-GATE.md)에 따라
+깨끗한 로컬 DB에서 100% 백필을 모니터링하고, 이상 지점을 수정한 뒤 idempotency 재실행까지 통과해야 한다.
+
 ## 구조
 
 ```

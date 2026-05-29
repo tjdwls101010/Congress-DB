@@ -2,6 +2,11 @@
 
 Recommendation: `ready_for_human_review`
 
+Operational gate: issue #45 is still required before Supabase migration. This
+report is one readiness signal, not final approval to migrate. The final gate is
+the clean local 100% backfill + monitored hardening + idempotency rerun described
+in [PRE-MIGRATION-BACKFILL-GATE.md](PRE-MIGRATION-BACKFILL-GATE.md).
+
 ## Blockers
 
 - None
