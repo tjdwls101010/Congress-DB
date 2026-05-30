@@ -29,6 +29,7 @@ from .ingest_state import upsert_cursor
 from .ingest_utterances import ingest_utterances
 from .ingest_votes import ingest_votes
 from .migration_readiness import generate_migration_readiness_report
+from .progress import safe_print
 from .sanity_check import run_sanity_check
 from .session_groups import ingest_session_groups
 from .validate_session_groups import validate_session_groups
@@ -44,6 +45,7 @@ REQUIRED_CURSOR_SPECS: tuple[tuple[str, str, int], ...] = (
     ("utterances", "meeting_id_set", 30),
     ("session_groups", "meeting_id_set", 30),
 )
+RESUMABLE_BACKFILL_STAGE_NAMES = frozenset({"members", "bills", "votes", "meetings"})
 
 
 @dataclass(frozen=True)
@@ -66,7 +68,7 @@ def run_ingest(
     """PM/운영자가 쓰는 단일 수집 명령을 실행한다."""
     now = (now_fn or (lambda: datetime.now(UTC)))()
     selected_mode = select_ingest_mode(mode)
-    print(f"[ingest] mode={selected_mode}", flush=True)
+    safe_print(f"[ingest] mode={selected_mode}", flush=True)
 
     if selected_mode == "backfill":
         stages = build_official_backfill_stages()
@@ -92,6 +94,8 @@ def run_ingest(
 
     if result.status == "success":
         advance_required_cursors(result.run_id, now)
+    if selected_mode == "backfill" and result.status in {"success", "degraded_success"}:
+        generate_migration_readiness_report()
 
     return IngestCommandResult(
         mode=selected_mode,
@@ -211,12 +215,97 @@ def advance_required_cursors(run_id: int, cursor_value: datetime) -> None:
 
 
 def build_official_backfill_stages() -> tuple[BackfillStage, ...]:
-    """공식 백필 stage: dead letter 재시도와 readiness까지 포함한다."""
-    return (
+    """공식 백필 stage: readiness는 run 마감 후 별도로 생성한다."""
+    stages = (
         BackfillStage("retry_dead_letters", _run_dead_letter_retry),
         *build_default_backfill_stages(),
-        BackfillStage("migration_readiness", _run_migration_readiness),
     )
+    resumed = _load_resumable_backfill_stage_summaries()
+    return tuple(_resume_stage(stage, resumed) for stage in stages)
+
+
+def _resume_stage(
+    stage: BackfillStage,
+    resumed: Mapping[str, tuple[int, Mapping[str, Any]]],
+) -> BackfillStage:
+    if stage.name not in resumed:
+        return stage
+    run_id, summary = resumed[stage.name]
+
+    def run_resumed_stage() -> StageResult:
+        safe_print(
+            f"[ingest] stage={stage.name} resumed_from_run={run_id}",
+            flush=True,
+        )
+        return StageResult(
+            summary={
+                **_compact_resumed_stage_summary(summary),
+                "skipped_reason": "stage already completed in previous backfill run",
+                "resumed_from_run_id": run_id,
+            }
+        )
+
+    return BackfillStage(stage.name, run_resumed_stage)
+
+
+def _load_resumable_backfill_stage_summaries() -> dict[str, tuple[int, Mapping[str, Any]]]:
+    """최근 backfill run들에서 재사용 가능한 완료 stage summary를 찾는다."""
+    wanted = set(RESUMABLE_BACKFILL_STAGE_NAMES)
+    found: dict[str, tuple[int, Mapping[str, Any]]] = {}
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, summary -> 'stages'
+            FROM ingest_runs
+            WHERE mode = 'backfill' AND summary ? 'stages'
+            ORDER BY started_at DESC, id DESC
+            LIMIT 20
+            """
+        )
+        rows = cur.fetchall()
+    for run_id, stages in rows:
+        if not isinstance(stages, Mapping):
+            continue
+        for name in tuple(wanted - set(found)):
+            summary = stages.get(name)
+            if not isinstance(summary, Mapping):
+                continue
+            if _is_resumable_stage_summary_healthy(name, summary):
+                found[name] = (int(run_id), summary)
+        if wanted.issubset(found):
+            break
+    return found
+
+
+def _is_resumable_stage_summary_healthy(name: str, summary: Mapping[str, Any]) -> bool:
+    if name == "members":
+        return summary.get("fetched_count") == summary.get("total_count")
+    if name == "bills":
+        return (
+            summary.get("fetched_count") == summary.get("target_count")
+            and int(summary.get("summary_error_count") or 0) == 0
+        )
+    if name == "votes":
+        return (
+            summary.get("vote_bill_count") == summary.get("target_bill_count")
+            and int(summary.get("failed_vote_bill_count") or 0) == 0
+        )
+    if name == "meetings":
+        return summary.get("meeting_count") == summary.get("target_count")
+    return False
+
+
+def _compact_resumed_stage_summary(summary: Mapping[str, Any]) -> dict[str, Any]:
+    compacted: dict[str, Any] = {}
+    for key, value in summary.items():
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            if len(value) > 20:
+                compacted[key] = {"count": len(value), "sample": list(value[:5])}
+            else:
+                compacted[key] = list(value)
+        else:
+            compacted[key] = value
+    return compacted
 
 
 def build_incremental_stages(
@@ -258,6 +347,8 @@ def build_incremental_stages(
                     "scraped_meeting_ids": (),
                     "utterance_count": 0,
                     "selected_worker_count": None,
+                    "retry_count": 0,
+                    "retried_meeting_count": 0,
                     "scrape_error_count": 0,
                     "member_mapped_count": 0,
                     "sample_errors": (),

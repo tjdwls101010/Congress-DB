@@ -26,10 +26,12 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, Sequence
 
 import requests
 from dotenv import load_dotenv
+
+from .progress import safe_print
 
 load_dotenv()
 
@@ -47,6 +49,7 @@ AGE_PARAM_ATTEMPTS: tuple[dict[str, str], ...] = (
     {"ERACO": "제22대"},
     {},
 )
+DEFAULT_API_RETRY_DELAYS = (1.0, 4.0, 16.0)
 
 Status = Literal["ok", "no_data", "error"]
 
@@ -61,6 +64,7 @@ class ApiResponse:
     error: str | None = None
     # fetch_with_age_attempts에서 채택된 대수 파라미터. None이면 미적용/무관.
     age_param_used: dict[str, str] | None = None
+    retry_count: int = 0
 
 
 # -------------------------------------------------------------------------
@@ -107,6 +111,73 @@ def fetch_endpoint(
         return ApiResponse(status="error", total_count=0, error=f"JSON parse: {exc}")
 
     return _parse_response(data)
+
+
+def fetch_endpoint_with_retry(
+    endpoint: str,
+    params: dict[str, str] | None = None,
+    *,
+    api_key: str | None = None,
+    p_index: int = 1,
+    p_size: int = 100,
+    timeout: int = 30,
+    retry_delays: Sequence[float] = DEFAULT_API_RETRY_DELAYS,
+) -> ApiResponse:
+    """일시적인 OpenAPI 네트워크/5xx 실패를 page 단위로 재시도한다."""
+    attempts = 0
+    while True:
+        attempts += 1
+        response = fetch_endpoint(
+            endpoint,
+            params,
+            api_key=api_key,
+            p_index=p_index,
+            p_size=p_size,
+            timeout=timeout,
+        )
+        if response.status != "error" or not _is_retryable_error(response.error):
+            return _with_retry_count(response, attempts - 1)
+        if attempts > len(retry_delays):
+            return _with_retry_count(response, attempts - 1)
+        delay = retry_delays[attempts - 1]
+        safe_print(
+            f"[retry] openapi endpoint={endpoint} p_index={p_index} "
+            f"attempt={attempts} next_delay={delay:.1f}s error={response.error}",
+            flush=True,
+        )
+        if delay:
+            time.sleep(delay)
+
+
+def _with_retry_count(response: ApiResponse, retry_count: int) -> ApiResponse:
+    return ApiResponse(
+        status=response.status,
+        total_count=response.total_count,
+        rows=response.rows,
+        error=response.error,
+        age_param_used=response.age_param_used,
+        retry_count=retry_count,
+    )
+
+
+def _is_retryable_error(error: str | None) -> bool:
+    if not error:
+        return False
+    retryable_fragments = (
+        "Read timed out",
+        "Connection aborted",
+        "Connection reset",
+        "RemoteDisconnected",
+        "Max retries exceeded",
+        "500 Server Error",
+        "502 Server Error",
+        "503 Server Error",
+        "504 Server Error",
+        "Bad Gateway",
+        "Service Unavailable",
+        "Gateway Timeout",
+    )
+    return any(fragment in error for fragment in retryable_fragments)
 
 
 def _parse_response(data: Any) -> ApiResponse:
@@ -170,9 +241,10 @@ def fetch_with_age_attempts(
     """
     base = dict(params or {})
     last: ApiResponse | None = None
+    total_retry_count = 0
     for age_params in AGE_PARAM_ATTEMPTS:
         attempt = {**base, **age_params}
-        response = fetch_endpoint(
+        response = fetch_endpoint_with_retry(
             endpoint,
             attempt,
             api_key=api_key,
@@ -180,6 +252,7 @@ def fetch_with_age_attempts(
             p_size=p_size,
             timeout=timeout,
         )
+        total_retry_count += response.retry_count
         if response.status == "ok":
             return ApiResponse(
                 status=response.status,
@@ -187,9 +260,10 @@ def fetch_with_age_attempts(
                 rows=response.rows,
                 error=response.error,
                 age_param_used=dict(age_params) if age_params else None,
+                retry_count=total_retry_count,
             )
         last = response
         if sleep_between:
             time.sleep(sleep_between)
     assert last is not None  # AGE_PARAM_ATTEMPTS는 비어 있지 않음
-    return last
+    return _with_retry_count(last, total_retry_count)

@@ -22,6 +22,7 @@ from congress_db.api_client import (
     AGE_PARAM_ATTEMPTS,
     ApiResponse,
     fetch_endpoint,
+    fetch_endpoint_with_retry,
     fetch_with_age_attempts,
 )
 
@@ -121,6 +122,35 @@ def test_fetch_endpoint_returns_error_on_http_failure(monkeypatch: pytest.Monkey
 
     assert resp.status == "error"
     assert resp.error is not None and "boom" in resp.error
+
+
+def test_fetch_endpoint_with_retry_recovers_transient_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import requests
+
+    calls = 0
+
+    def fake_get(*args: Any, **kwargs: Any) -> MagicMock:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise requests.Timeout("Read timed out")
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = _ok_envelope("foo", total=1, rows=[{"x": 1}])
+        response.raise_for_status = MagicMock()
+        return response
+
+    monkeypatch.setattr("congress_db.api_client.requests.get", fake_get)
+    monkeypatch.setattr("congress_db.api_client.time.sleep", lambda delay: None)
+
+    resp = fetch_endpoint_with_retry("foo", api_key="testkey", retry_delays=(0,))
+
+    assert resp.status == "ok"
+    assert resp.rows == [{"x": 1}]
+    assert resp.retry_count == 1
+    assert calls == 2
 
 
 # -------------------------------------------------------------------------

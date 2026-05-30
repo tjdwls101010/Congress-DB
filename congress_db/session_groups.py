@@ -9,7 +9,7 @@ from typing import Sequence
 from psycopg.types.json import Jsonb
 
 from .db import get_conn
-from .progress import ProgressReporter
+from .progress import ProgressReporter, safe_print
 
 PRESIDER_SUFFIXES = (
     "의장",
@@ -27,6 +27,13 @@ QUESTIONER_TITLES = frozenset({"위원", "의원"})
 NON_RESPONDENT_TITLES = frozenset({"위원", "의원", "반장", "반장대리", "의사국장"})
 SKIP_TITLE_RE = re.compile(r"(?:소위원회|조세소위|법안심사.*소위|예산결산.*소위|안건조정위원회)")
 SKIP_MEETING_TYPES = frozenset({"본회의", "소위원회"})
+SESSION_GROUP_LINK_INDEX = "idx_utterances_session_group"
+SESSION_GROUP_LINK_INDEX_SQL = """
+    CREATE INDEX IF NOT EXISTS idx_utterances_session_group
+    ON utterances (session_group_id)
+    WHERE session_group_id IS NOT NULL
+"""
+SESSION_GROUP_LINK_INDEX_REBUILD_THRESHOLD = 500
 
 
 @dataclass(frozen=True)
@@ -179,7 +186,7 @@ def ingest_session_groups(
         if meeting_ids is None
         else list(meeting_ids)
     )
-    print(f"[ingest-session-groups] target meetings={len(target_meeting_ids)}", flush=True)
+    safe_print(f"[ingest-session-groups] target meetings={len(target_meeting_ids)}", flush=True)
 
     detected_by_meeting: dict[int, list[SessionGroup]] = {}
     skipped_meeting_count = 0
@@ -195,8 +202,14 @@ def ingest_session_groups(
     progress.finish()
 
     with get_conn() as conn:
+        rebuild_link_index = _should_rebuild_session_group_link_index(target_meeting_ids)
+        if rebuild_link_index:
+            _prepare_large_session_group_write(conn)
+            _drop_session_group_link_index(conn)
         _replace_session_groups_for_meetings(conn, target_meeting_ids)
         group_count, link_count = _insert_session_groups(conn, detected_by_meeting)
+        if rebuild_link_index:
+            _create_session_group_link_index(conn)
         conn.commit()
 
     return IngestSessionGroupsResult(
@@ -330,10 +343,43 @@ def _replace_session_groups_for_meetings(conn: object, meeting_ids: list[int]) -
         return
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE utterances SET session_group_id = NULL WHERE meeting_id = ANY(%s)",
+            """
+            UPDATE utterances
+            SET session_group_id = NULL
+            WHERE meeting_id = ANY(%s)
+              AND session_group_id IS NOT NULL
+            """,
             (meeting_ids,),
         )
         cur.execute("DELETE FROM session_groups WHERE meeting_id = ANY(%s)", (meeting_ids,))
+
+
+def _should_rebuild_session_group_link_index(meeting_ids: Sequence[int]) -> bool:
+    return len(meeting_ids) >= SESSION_GROUP_LINK_INDEX_REBUILD_THRESHOLD
+
+
+def _prepare_large_session_group_write(conn: object) -> None:
+    with conn.cursor() as cur:
+        cur.execute("SET LOCAL synchronous_commit = off")
+        cur.execute("SET LOCAL maintenance_work_mem = '512MB'")
+
+
+def _drop_session_group_link_index(conn: object) -> None:
+    safe_print(
+        f"[ingest-session-groups] drop index {SESSION_GROUP_LINK_INDEX} for bulk relink",
+        flush=True,
+    )
+    with conn.cursor() as cur:
+        cur.execute(f"DROP INDEX IF EXISTS {SESSION_GROUP_LINK_INDEX}")
+
+
+def _create_session_group_link_index(conn: object) -> None:
+    safe_print(
+        f"[ingest-session-groups] recreate index {SESSION_GROUP_LINK_INDEX}",
+        flush=True,
+    )
+    with conn.cursor() as cur:
+        cur.execute(SESSION_GROUP_LINK_INDEX_SQL)
 
 
 def _insert_session_groups(

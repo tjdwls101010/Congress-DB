@@ -148,6 +148,31 @@ def test_run_backfill_marks_run_failed_when_required_stage_raises() -> None:
     assert run == ("failed", "bills: bill list unavailable", "1")
 
 
+def test_run_backfill_marks_run_failed_when_interrupted() -> None:
+    def interrupting_stage() -> StageResult:
+        raise KeyboardInterrupt()
+
+    with pytest.raises(KeyboardInterrupt):
+        run_backfill(
+            stages=(BackfillStage("session_groups", interrupting_stage),),
+            run_metadata={"test": "backfill"},
+        )
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT status, error
+            FROM ingest_runs
+            WHERE summary->>'test' = 'backfill'
+            ORDER BY id DESC
+            LIMIT 1
+            """
+        )
+        run = cur.fetchone()
+
+    assert run == ("failed", "session_groups: KeyboardInterrupt")
+
+
 def test_default_backfill_stages_use_full_load_parameters() -> None:
     calls: dict[str, dict[str, Any]] = {}
 
@@ -188,9 +213,14 @@ def test_default_backfill_stages_use_full_load_parameters() -> None:
 
     assert calls["members"] == {}
     assert calls["bills"]["limit_pct"] == 1.0
+    assert calls["bills"]["benchmark_sample_size"] == 1000
     assert calls["votes"]["limit_pct"] == 1.0
+    assert calls["votes"]["benchmark_sample_size"] == 1000
+    assert calls["votes"]["allow_partial"] is True
     assert calls["meetings"]["calibration_limit"] is None
+    assert calls["meetings"]["benchmark_sample_size"] == 1000
     assert calls["utterances"]["meeting_ids"] == (920101, 920102)
+    assert calls["utterances"]["benchmark_sample_size"] == 300
     assert calls["utterances"]["allow_partial"] is True
     assert calls["session_groups"]["meeting_ids"] == (920101, 920102)
 
@@ -216,6 +246,7 @@ def test_default_backfill_skips_utterance_and_session_groups_when_no_targets(
         validate_session_groups_fn=lambda **kwargs: {"stage": "validate"},
         run_sanity_check_fn=lambda **kwargs: {"stage": "sanity"},
         generate_data_completeness_report_fn=lambda **kwargs: {"stage": "completeness"},
+        load_meeting_ids_fn=lambda: (),
     )
 
     by_name = {stage.name: stage for stage in stages}
@@ -227,6 +258,39 @@ def test_default_backfill_skips_utterance_and_session_groups_when_no_targets(
     assert utterances.summary["skipped_reason"] == "no missing or explicitly targeted meetings"
     assert session_groups.summary["meeting_count"] == 0
     assert session_groups.summary["skipped_reason"] == "no utterance changes to regroup"
+
+
+def test_default_backfill_regroups_existing_utterances_when_no_missing_utterances(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(backfill_module, "load_utterance_target_meeting_ids", lambda: ())
+    monkeypatch.setattr(backfill_module, "load_all_meeting_ids", lambda: (930101, 930102))
+    calls: dict[str, Any] = {}
+
+    def capture_session_groups(**kwargs: Any) -> dict[str, object]:
+        calls["session_groups"] = kwargs
+        return {"stage": "session_groups"}
+
+    stages = build_default_backfill_stages(
+        ingest_members_fn=lambda **kwargs: {"stage": "members"},
+        ingest_bills_fn=lambda **kwargs: {"stage": "bills"},
+        ingest_votes_fn=lambda **kwargs: {"stage": "votes"},
+        ingest_meetings_fn=lambda **kwargs: {"stage": "meetings"},
+        ingest_utterances_fn=lambda **kwargs: {"stage": "utterances"},
+        ingest_session_groups_fn=capture_session_groups,
+        validate_session_groups_fn=lambda **kwargs: {"stage": "validate"},
+        run_sanity_check_fn=lambda **kwargs: {"stage": "sanity"},
+        generate_data_completeness_report_fn=lambda **kwargs: {"stage": "completeness"},
+    )
+
+    by_name = {stage.name: stage for stage in stages}
+
+    utterances = by_name["utterances"].run()
+    session_groups = by_name["session_groups"].run()
+
+    assert utterances.summary["meeting_count"] == 0
+    assert calls["session_groups"]["meeting_ids"] == (930101, 930102)
+    assert session_groups.summary["stage"] == "session_groups"
 
 
 def test_load_utterance_target_meeting_ids_only_returns_empty_meetings() -> None:

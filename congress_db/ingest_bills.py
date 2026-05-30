@@ -14,20 +14,22 @@ from typing import Any
 
 import psycopg
 
-from .api_client import ApiResponse, fetch_endpoint, fetch_with_age_attempts
+from .api_client import ApiResponse, fetch_endpoint_with_retry, fetch_with_age_attempts
 from .benchmark import (
     DEFAULT_WORKER_LEVELS,
     BenchmarkResult,
     measure_workers,
+    representative_sample,
     render_parallel_benchmark,
 )
 from .db import execute_many, get_conn
 from .endpoints import ENDPOINTS_BY_SLUG
-from .progress import ProgressReporter
+from .progress import ProgressReporter, safe_print
 
 BILLS_ENDPOINT = "nzmimeepazxkubdpn"
 SUMMARY_ENDPOINT = "BPMBILLSUMMARY"
 DEFAULT_BENCHMARK_OUTPUT = Path("docs/PARALLEL-BENCHMARK.md")
+SUMMARY_MAX_RETRY_RATE = 0.02
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,8 @@ class IngestBillsResult:
     selected_worker_count: int
     summary_success_count: int
     summary_error_count: int
+    summary_retry_count: int
+    summary_retried_bill_count: int
     summary_failures: tuple["BillSummaryFailure", ...]
     age_param_used: dict[str, str] | None
 
@@ -69,7 +73,15 @@ class _SummaryResult:
     summaries: dict[str, str | None]
     success_count: int
     error_count: int
+    retry_count: int
+    retry_item_count: int
     failures: tuple[BillSummaryFailure, ...]
+
+
+@dataclass(frozen=True)
+class _SummaryFetchResult:
+    summary: str | None
+    retry_count: int
 
 
 _BILL_FIELDS: tuple[str, ...] = (
@@ -184,14 +196,14 @@ def ingest_bills(
 ) -> IngestBillsResult:
     """22대 법안 목록 10%와 summary를 적재한다."""
     bill_list = _fetch_bill_list(limit_pct=limit_pct, page_size=page_size)
-    print(
+    safe_print(
         f"[ingest-bills] target bills={bill_list.target_count}/{bill_list.total_count}",
         flush=True,
     )
     bill_nos = [str(row["BILL_NO"]) for row in bill_list.rows]
 
     benchmark = _benchmark_summary_workers(
-        bill_nos[:benchmark_sample_size],
+        representative_sample(bill_nos, benchmark_sample_size),
         worker_levels=worker_levels,
         output_path=benchmark_output_path,
     )
@@ -230,6 +242,8 @@ def ingest_bills(
         selected_worker_count=benchmark.selected_worker_count,
         summary_success_count=summary_result.success_count,
         summary_error_count=summary_result.error_count,
+        summary_retry_count=summary_result.retry_count,
+        summary_retried_bill_count=summary_result.retry_item_count,
         summary_failures=summary_result.failures,
         age_param_used=bill_list.age_param_used,
     )
@@ -250,7 +264,7 @@ def _fetch_bill_list(*, limit_pct: float, page_size: int) -> _BillListResult:
 
     page = 2
     while len(rows) < target_count:
-        response = fetch_endpoint(
+        response = fetch_endpoint_with_retry(
             BILLS_ENDPOINT,
             age_param,
             p_index=page,
@@ -288,6 +302,9 @@ def _benchmark_summary_workers(
         lambda bill_no, worker_count: _fetch_summary(str(bill_no)),
         items=bill_nos,
         levels=worker_levels,
+        max_retry_rate=SUMMARY_MAX_RETRY_RATE,
+        retry_count_from_result=lambda result: result.retry_count,
+        stop_after_unacceptable_after_acceptance=True,
     )
     render_parallel_benchmark(benchmark, output_path)
     return benchmark
@@ -297,6 +314,8 @@ def _fetch_summaries(bill_nos: list[str], worker_count: int) -> _SummaryResult:
     summaries: dict[str, str | None] = {}
     failures: list[BillSummaryFailure] = []
     error_count = 0
+    retry_count = 0
+    retry_item_count = 0
     progress = ProgressReporter("bill summaries", len(bill_nos))
     progress.start()
     with ThreadPoolExecutor(max_workers=worker_count) as pool:
@@ -304,7 +323,11 @@ def _fetch_summaries(bill_nos: list[str], worker_count: int) -> _SummaryResult:
         for future in as_completed(futures):
             bill_no = futures[future]
             try:
-                summaries[bill_no] = future.result()
+                result = future.result()
+                summaries[bill_no] = result.summary
+                retry_count += result.retry_count
+                if result.retry_count:
+                    retry_item_count += 1
                 progress.advance()
             except Exception as exc:
                 summaries[bill_no] = None
@@ -316,11 +339,13 @@ def _fetch_summaries(bill_nos: list[str], worker_count: int) -> _SummaryResult:
         summaries=summaries,
         success_count=len(bill_nos) - error_count,
         error_count=error_count,
+        retry_count=retry_count,
+        retry_item_count=retry_item_count,
         failures=tuple(failures),
     )
 
 
-def _fetch_summary(bill_no: str) -> str | None:
+def _fetch_summary(bill_no: str) -> _SummaryFetchResult:
     response = fetch_with_age_attempts(
         SUMMARY_ENDPOINT,
         {"BILL_NO": bill_no},
@@ -328,11 +353,14 @@ def _fetch_summary(bill_no: str) -> str | None:
         sleep_between=0,
     )
     if response.status == "no_data":
-        return None
+        return _SummaryFetchResult(summary=None, retry_count=response.retry_count)
     _ensure_ok(response, f"summary API fetch failed for BILL_NO={bill_no}")
     if not response.rows:
-        return None
-    return _blank_to_none(response.rows[0].get("SUMMARY"))
+        return _SummaryFetchResult(summary=None, retry_count=response.retry_count)
+    return _SummaryFetchResult(
+        summary=_blank_to_none(response.rows[0].get("SUMMARY")),
+        retry_count=response.retry_count,
+    )
 
 
 def _normalize_bill_row(row: dict[str, Any], summary: str | None) -> dict[str, Any]:

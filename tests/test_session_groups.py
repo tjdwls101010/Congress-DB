@@ -6,7 +6,9 @@ import pytest
 
 from congress_db.db import get_conn
 from congress_db.session_groups import (
+    SESSION_GROUP_LINK_INDEX_REBUILD_THRESHOLD,
     SessionUtterance,
+    _should_rebuild_session_group_link_index,
     detect_sessions_from_stream,
     ingest_session_groups,
     should_skip_session_detection,
@@ -161,6 +163,13 @@ def test_should_skip_session_detection_for_plenary_and_subcommittee_titles() -> 
     assert should_skip_session_detection("본회의", "테스트 본회의") is True
     assert should_skip_session_detection("상임위", "법안심사제1소위원회") is True
     assert should_skip_session_detection("상임위", "테스트 위원회") is False
+
+
+def test_large_session_group_runs_rebuild_link_index() -> None:
+    threshold = SESSION_GROUP_LINK_INDEX_REBUILD_THRESHOLD
+
+    assert not _should_rebuild_session_group_link_index(tuple(range(threshold - 1)))
+    assert _should_rebuild_session_group_link_index(tuple(range(threshold)))
 
 
 def test_ingest_session_groups_replaces_rows_idempotently() -> None:

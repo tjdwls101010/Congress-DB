@@ -4,7 +4,15 @@ from __future__ import annotations
 
 import sys
 import time
-from typing import TextIO
+from typing import Any, TextIO
+
+
+def safe_print(*args: Any, **kwargs: Any) -> None:
+    """터미널 출력 실패가 수집 실행 실패로 번지지 않게 한다."""
+    try:
+        print(*args, **kwargs)
+    except (BrokenPipeError, OSError):
+        return
 
 
 class ProgressReporter:
@@ -65,7 +73,7 @@ class ProgressReporter:
             return
         elapsed = max(time.perf_counter() - self.started_at, 0.001)
         rate = self.done_count / elapsed
-        print(
+        safe_print(
             f"[progress] {self.label}: {state} "
             f"{self.done_count}/{self.total} errors={self.error_count} "
             f"elapsed={elapsed:.1f}s rate={rate:.2f}/s",

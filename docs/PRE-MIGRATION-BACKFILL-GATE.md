@@ -64,6 +64,49 @@ data-quality gaps are understood and either fixed or explicitly accepted.
   meeting-bill links, utterances, or session groups.
 - Final artifacts are refreshed from the accepted run.
 
+## Accepted Local Run
+
+- Accepted run: `ingest_runs.id = 103`
+- Status: `success`
+- Finished at: `2026-05-30 00:12:08 UTC`
+- Dead letters: `0`
+- Migration readiness: `ready_for_human_review`
+- Core row counts:
+  - `members`: 306
+  - `bills`: 18,333
+  - `bill_lead_proposers`: 17,531
+  - `bill_coproposers`: 206,014
+  - `votes`: 473,594
+  - `meetings`: 2,103
+  - `meeting_bills`: 40,353
+  - `utterances`: 1,373,867
+  - `session_groups`: 30,663
+- Session group relink summary: 2,101 target meetings, 739 skipped meetings,
+  30,663 groups, 916,823 linked utterances.
+
+## Findings From The Monitored Run
+
+- OpenAPI summary calls are the sensitive external bottleneck. A 200-worker run
+  completed the benchmark sample without final errors, but produced a retry
+  storm and lower real throughput. Benchmark selection now records retry rate
+  and rejects retry-heavy worker counts instead of treating eventual success as
+  healthy.
+- The benchmark sample for official OpenAPI backfill is now 1,000 representative
+  items across the target universe. HTML minutes scraping remains at 300
+  representative items because it is source-heavier and has a retry-rate guard.
+- Failed late-stage reruns must not refetch already completed expensive stages.
+  The official backfill now reuses healthy `members`, `bills`, `votes`, and
+  `meetings` stage summaries from previous failed backfill runs.
+- Terminal output is telemetry, not data integrity. Broken stdout/stderr no
+  longer fails a run by itself.
+- `session_groups` bulk relink is the largest local write. The relink now avoids
+  rewriting already-null `utterances.session_group_id` values and temporarily
+  drops/recreates the partial `session_group_id` index for large full-backfill
+  relinks.
+- Migration readiness must be generated after the backfill run is marked
+  complete. Generating it as an in-run stage observes the current run as
+  `running` and produces a false blocker.
+
 ## Output Artifacts
 
 - `docs/MIGRATION-READINESS.md`

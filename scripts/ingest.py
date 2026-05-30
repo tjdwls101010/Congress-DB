@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 
 from congress_db.ingest_command import run_ingest
+from congress_db.progress import safe_print
 
 
 def main() -> None:
@@ -26,7 +27,7 @@ def main() -> None:
     args = parser.parse_args()
 
     result = run_ingest(mode=args.mode, force_meeting_ids=tuple(args.force_meeting_id))
-    print(
+    safe_print(
         "Completed ingest: "
         f"mode={result.mode} "
         f"run_id={result.run_id} "

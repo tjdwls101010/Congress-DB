@@ -5,7 +5,12 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import congress_db.ingest_command as ingest_command
-from congress_db.ingest_command import build_incremental_stages, decide_ingest_mode
+from congress_db.ingest_command import (
+    _compact_resumed_stage_summary,
+    _is_resumable_stage_summary_healthy,
+    build_incremental_stages,
+    decide_ingest_mode,
+)
 
 
 def test_decide_ingest_mode_uses_backfill_until_successful_baseline_and_cursors() -> None:
@@ -89,3 +94,31 @@ def test_incremental_stages_scope_utterances_and_session_groups_to_touched_meeti
 
     assert calls["utterance_meeting_ids"] == (920101, 920102, 920103, 920104)
     assert calls["session_group_meeting_ids"] == (920101, 920102, 920103, 920104)
+
+
+def test_resumable_stage_summary_health_checks_completed_ingest_stages() -> None:
+    assert _is_resumable_stage_summary_healthy(
+        "bills",
+        {"fetched_count": 100, "target_count": 100, "summary_error_count": 0},
+    )
+    assert not _is_resumable_stage_summary_healthy(
+        "bills",
+        {"fetched_count": 100, "target_count": 100, "summary_error_count": 1},
+    )
+    assert _is_resumable_stage_summary_healthy(
+        "votes",
+        {"vote_bill_count": 10, "target_bill_count": 10, "failed_vote_bill_count": 0},
+    )
+    assert not _is_resumable_stage_summary_healthy(
+        "votes",
+        {"vote_bill_count": 10, "target_bill_count": 10, "failed_vote_bill_count": 1},
+    )
+
+
+def test_compact_resumed_stage_summary_replaces_large_sequences_with_counts() -> None:
+    compacted = _compact_resumed_stage_summary(
+        {"new_meeting_ids": list(range(30)), "target_count": 30}
+    )
+
+    assert compacted["new_meeting_ids"] == {"count": 30, "sample": [0, 1, 2, 3, 4]}
+    assert compacted["target_count"] == 30

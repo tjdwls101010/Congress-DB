@@ -4,11 +4,12 @@
 from __future__ import annotations
 
 from congress_db.backfill import run_backfill
+from congress_db.progress import safe_print
 
 
 def main() -> None:
     result = run_backfill()
-    print(
+    safe_print(
         "Completed backfill: "
         f"run_id={result.run_id} "
         f"status={result.status} "

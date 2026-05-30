@@ -22,9 +22,13 @@ from .ingest_state import (
 )
 from .ingest_utterances import KNOWN_HTML_UNAVAILABLE_MNTS_IDS, ingest_utterances
 from .ingest_votes import ingest_votes
+from .progress import safe_print
 from .sanity_check import run_sanity_check
 from .session_groups import ingest_session_groups
 from .validate_session_groups import validate_session_groups
+
+OFFICIAL_API_BENCHMARK_SAMPLE_SIZE = 1000
+OFFICIAL_SCRAPE_BENCHMARK_SAMPLE_SIZE = 300
 
 
 @dataclass(frozen=True)
@@ -105,14 +109,15 @@ def run_staged_ingest(
 
     try:
         for stage in selected_stages:
-            print(f"[backfill] stage={stage.name} start", flush=True)
+            safe_print(f"[backfill] stage={stage.name} start", flush=True)
             stage_result = stage.run()
             stage_summaries[stage.name] = _jsonable(stage_result.summary)
             dead_letter_count += _record_dead_letters(run_id, stage_result.dead_letters)
             _persist_summary(run_id, metadata, stage_summaries, dead_letter_count)
-            print(f"[backfill] stage={stage.name} done", flush=True)
-    except Exception as exc:
-        error = f"{stage.name}: {exc}"
+            safe_print(f"[backfill] stage={stage.name} done", flush=True)
+    except BaseException as exc:
+        error_detail = str(exc) or exc.__class__.__name__
+        error = f"{stage.name}: {error_detail}"
         _finish_ingest_run(
             run_id,
             status="failed",
@@ -161,7 +166,10 @@ def build_default_backfill_stages(
         return _stage_from_result(ingest_members_fn())
 
     def run_bills() -> StageResult:
-        result = ingest_bills_fn(limit_pct=1.0)
+        result = ingest_bills_fn(
+            limit_pct=1.0,
+            benchmark_sample_size=OFFICIAL_API_BENCHMARK_SAMPLE_SIZE,
+        )
         failures = getattr(result, "summary_failures", ())
         dead_letters = tuple(
             DeadLetterDraft(
@@ -176,16 +184,37 @@ def build_default_backfill_stages(
         return _stage_from_result(result, exclude=("summary_failures",), dead_letters=dead_letters)
 
     def run_votes() -> StageResult:
-        return _stage_from_result(ingest_votes_fn(limit_pct=1.0))
+        result = ingest_votes_fn(
+            limit_pct=1.0,
+            benchmark_sample_size=OFFICIAL_API_BENCHMARK_SAMPLE_SIZE,
+            allow_partial=True,
+        )
+        failures = getattr(result, "vote_row_failures", ())
+        dead_letters = tuple(
+            DeadLetterDraft(
+                source="votes.rows",
+                stage="fetch",
+                item_key=str(failure.bill_id),
+                payload={"bill_id": failure.bill_id},
+                error=failure.error,
+            )
+            for failure in failures
+        )
+        return _stage_from_result(result, exclude=("vote_row_failures",), dead_letters=dead_letters)
 
     def run_meetings() -> StageResult:
-        return _stage_from_result(ingest_meetings_fn(calibration_limit=None))
+        return _stage_from_result(
+            ingest_meetings_fn(
+                calibration_limit=None,
+                benchmark_sample_size=OFFICIAL_API_BENCHMARK_SAMPLE_SIZE,
+            )
+        )
 
     def run_utterances() -> StageResult:
         nonlocal session_group_target_ids
         meeting_ids = tuple(load_utterance_ids())
         if not meeting_ids:
-            session_group_target_ids = ()
+            session_group_target_ids = tuple(load_ids())
             return StageResult(
                 summary={
                     "meeting_count": 0,
@@ -193,6 +222,8 @@ def build_default_backfill_stages(
                     "scraped_meeting_ids": (),
                     "utterance_count": 0,
                     "selected_worker_count": None,
+                    "retry_count": 0,
+                    "retried_meeting_count": 0,
                     "scrape_error_count": 0,
                     "member_mapped_count": 0,
                     "sample_errors": (),
@@ -202,6 +233,7 @@ def build_default_backfill_stages(
         result = ingest_utterances_fn(
             calibration_limit=max(len(meeting_ids), 1),
             meeting_ids=meeting_ids,
+            benchmark_sample_size=OFFICIAL_SCRAPE_BENCHMARK_SAMPLE_SIZE,
             allow_partial=True,
         )
         session_group_target_ids = tuple(
@@ -221,7 +253,8 @@ def build_default_backfill_stages(
         return _stage_from_result(result, exclude=("scrape_failures",), dead_letters=dead_letters)
 
     def run_session_groups() -> StageResult:
-        if load_meeting_ids_fn is None and not session_group_target_ids:
+        target_ids = tuple(load_ids()) if load_meeting_ids_fn else session_group_target_ids
+        if not target_ids:
             return StageResult(
                 summary={
                     "meeting_count": 0,
@@ -231,7 +264,6 @@ def build_default_backfill_stages(
                     "skipped_reason": "no utterance changes to regroup",
                 }
             )
-        target_ids = tuple(load_ids()) if load_meeting_ids_fn else session_group_target_ids
         return _stage_from_result(ingest_session_groups_fn(meeting_ids=target_ids))
 
     def run_validation() -> StageResult:

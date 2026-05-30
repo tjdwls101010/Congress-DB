@@ -2,21 +2,16 @@
 
 Recommendation: `ready_for_human_review`
 
-Operational gate: issue #45 is still required before Supabase migration. This
-report is one readiness signal, not final approval to migrate. The final gate is
-the clean local 100% backfill + monitored hardening + idempotency rerun described
-in [PRE-MIGRATION-BACKFILL-GATE.md](PRE-MIGRATION-BACKFILL-GATE.md).
-
 ## Blockers
 
 - None
 
 ## Latest Backfill Run
 
-- id: `343`
+- id: `103`
 - status: `success`
-- started_at: `2026-05-27 14:11:12.922781+00:00`
-- finished_at: `2026-05-27 14:11:16.932376+00:00`
+- started_at: `2026-05-30 00:03:46.987635+00:00`
+- finished_at: `2026-05-30 00:12:08.604740+00:00`
 - error: `None`
 
 ## Unresolved Dead Letters
@@ -42,11 +37,11 @@ in [PRE-MIGRATION-BACKFILL-GATE.md](PRE-MIGRATION-BACKFILL-GATE.md).
 | Table | Rows |
 |---|---:|
 | `members` | 306 |
-| `bills` | 18323 |
-| `bill_lead_proposers` | 17521 |
-| `bill_coproposers` | 205902 |
+| `bills` | 18333 |
+| `bill_lead_proposers` | 17531 |
+| `bill_coproposers` | 206014 |
 | `votes` | 473594 |
 | `meetings` | 2103 |
-| `meeting_bills` | 40338 |
-| `utterances` | 1328745 |
-| `session_groups` | 28541 |
+| `meeting_bills` | 40353 |
+| `utterances` | 1373867 |
+| `session_groups` | 30663 |

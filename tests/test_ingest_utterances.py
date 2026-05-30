@@ -7,8 +7,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from congress_db.benchmark import WorkerRun
 from congress_db.db import get_conn
-from congress_db.ingest_utterances import ingest_utterances
+from congress_db.ingest_utterances import (
+    _benchmark_scrape_workers,
+    _select_scrape_worker,
+    ingest_utterances,
+)
 
 TEST_MEETINGS = (920101, 920102)
 TEST_MEMBERS = ("TEST_UTT_MEMBER_1", "TEST_UTT_MEMBER_2")
@@ -111,6 +116,8 @@ def test_ingest_utterances_scrapes_and_upserts_idempotently(
     assert first.utterance_count == 3
     assert first.scrape_error_count == 0
     assert first.selected_worker_count == 1
+    assert first.retry_count == 0
+    assert first.retried_meeting_count == 0
     assert second.utterance_count == 3
 
     with get_conn() as conn, conn.cursor() as cur:
@@ -164,6 +171,8 @@ def test_ingest_utterances_retries_failed_meetings_in_final_pass(
 
     assert result.scraped_meeting_count == 2
     assert result.scrape_error_count == 0
+    assert result.retry_count == 1
+    assert result.retried_meeting_count == 1
     assert result.utterance_count == 3
     assert call_counts[920102] == 2
 
@@ -200,6 +209,8 @@ def test_ingest_utterances_retries_metadata_mismatches(
 
     assert result.scraped_meeting_count == 2
     assert result.scrape_error_count == 0
+    assert result.retry_count == 1
+    assert result.retried_meeting_count == 1
     assert result.utterance_count == 3
     assert call_counts[920102] == 2
 
@@ -273,6 +284,74 @@ def test_ingest_utterances_returns_structured_failures_when_partial_allowed(
 
     assert result.scraped_meeting_count == 1
     assert result.scrape_error_count == 1
+    assert result.retry_count == 1
+    assert result.retried_meeting_count == 1
     assert result.scrape_failures[0].mnts_id == 920102
     assert "blocked by remote" in result.scrape_failures[0].error
     assert call_counts[920102] == 2
+
+
+def test_scrape_worker_selection_rejects_retry_storm() -> None:
+    selected = _select_scrape_worker(
+        (
+            WorkerRun(
+                2,
+                call_count=100,
+                success_count=100,
+                error_count=0,
+                seconds=60.0,
+                retry_item_count=2,
+            ),
+            WorkerRun(
+                20,
+                call_count=100,
+                success_count=100,
+                error_count=0,
+                seconds=25.0,
+                retry_item_count=18,
+            ),
+        ),
+        max_error_rate=0.01,
+        max_retry_rate=0.05,
+        min_throughput_ratio=0.95,
+    )
+
+    assert selected.worker_count == 2
+
+
+def test_scrape_benchmark_stops_after_higher_worker_retry_storm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    measured_workers: list[int] = []
+
+    def fake_measure(meetings, *, worker_count: int, retry_delays: tuple[float, ...]) -> WorkerRun:
+        measured_workers.append(worker_count)
+        if worker_count == 2:
+            return WorkerRun(
+                worker_count,
+                call_count=100,
+                success_count=100,
+                error_count=0,
+                seconds=60.0,
+                retry_item_count=1,
+            )
+        return WorkerRun(
+            worker_count,
+            call_count=100,
+            success_count=100,
+            error_count=0,
+            seconds=20.0,
+            retry_item_count=30,
+        )
+
+    monkeypatch.setattr("congress_db.ingest_utterances._measure_scrape_worker", fake_measure)
+
+    result = _benchmark_scrape_workers(
+        [object()],  # type: ignore[list-item]
+        levels=(2, 5, 10, 20),
+        retry_delays=(),
+    )
+
+    assert measured_workers == [2, 5]
+    assert [run.worker_count for run in result.runs] == [2, 5]
+    assert result.selected_worker_count == 2

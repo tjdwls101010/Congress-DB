@@ -9,16 +9,16 @@ data-integrity check; semantic accuracy review remains in Slice 9.
 - Meetings with utterances: 2101
 - Skip-target meetings: 739
 - Applicable meetings: 1362
-- Applicable meetings with groups: 1014 (74.4%)
-- Session groups: 28541
-- Linked utterances: 853326
+- Applicable meetings with groups: 1047 (76.9%)
+- Session groups: 30663
+- Linked utterances: 916823
 - Groups with no detected respondents: 0
 
 ## Semantic Review Candidates
 
-- Groups with 50+ utterances: 4347
-- Groups with 100+ utterances: 499
-- Largest group utterance count: 417
+- Groups with 50+ utterances: 4650
+- Groups with 100+ utterances: 557
+- Largest group utterance count: 783
 
 ## Integrity
 
@@ -32,9 +32,9 @@ data-integrity check; semantic accuracy review remains in Slice 9.
 
 | Type | Meetings | Skipped | Applicable | Applicable with groups | Groups | Success |
 |---|---:|---:|---:|---:|---:|---:|
-| 국정감사 | 317 | 0 | 317 | 316 | 13148 | 99.7% |
-| 국정조사 | 34 | 0 | 34 | 22 | 929 | 64.7% |
+| 국정감사 | 317 | 0 | 317 | 315 | 13210 | 99.4% |
+| 국정조사 | 34 | 0 | 34 | 22 | 1049 | 64.7% |
 | 본회의 | 114 | 114 | 0 | 0 | 0 | - |
-| 상임위 | 890 | 11 | 879 | 601 | 12832 | 68.4% |
+| 상임위 | 890 | 11 | 879 | 606 | 13447 | 68.9% |
 | 소위원회 | 577 | 577 | 0 | 0 | 0 | - |
-| 특별위 | 169 | 37 | 132 | 75 | 1632 | 56.8% |
+| 특별위 | 169 | 37 | 132 | 104 | 2957 | 78.8% |

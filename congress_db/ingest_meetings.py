@@ -12,17 +12,18 @@ from typing import Any, Sequence
 from zoneinfo import ZoneInfo
 
 from .agenda_parser import parse_agenda_item
-from .api_client import ApiResponse, fetch_endpoint, fetch_with_age_attempts
+from .api_client import ApiResponse, fetch_endpoint_with_retry, fetch_with_age_attempts
 from .benchmark import (
     DEFAULT_WORKER_LEVELS,
     BenchmarkResult,
     measure_workers,
+    representative_sample,
     render_parallel_benchmark,
 )
 from .db import execute_many, get_conn
 from .meeting_id import extract_mnts_id
 from .minutes_web_list import collect_minutes_web_list, web_meeting_to_row
-from .progress import ProgressReporter
+from .progress import ProgressReporter, safe_print
 
 PLENARY_ENDPOINT = "nzbyfwhwaoanttzje"
 COMMITTEE_ENDPOINT = "ncwgseseafwbuheph"
@@ -120,7 +121,7 @@ def ingest_meetings(
     benchmark_output_path: Path = DEFAULT_MEETINGS_BENCHMARK_OUTPUT,
 ) -> IngestMeetingsResult:
     """22대 회의 메타를 캘리브레이션 분량만큼 적재한다."""
-    print(
+    safe_print(
         f"[ingest-meetings] calibration target unique meetings={calibration_limit or 'all'}",
         flush=True,
     )
@@ -308,7 +309,7 @@ def _fetch_until_target_meetings(
 
 
 def _fetch_next_meeting_page(state: _FetchState, *, page_size: int) -> list[dict[str, Any]]:
-    response = fetch_endpoint(
+    response = fetch_endpoint_with_retry(
         state.request.endpoint,
         {**state.request.params, **(state.age_param_used or {})},
         p_index=state.next_page,
@@ -579,7 +580,7 @@ def _fetch_vconfbill_pairs(
         return set(), None
     benchmark = measure_workers(
         lambda bill_id, worker_count: _fetch_vconfbill_rows(str(bill_id)),
-        items=bill_ids[:sample_size],
+        items=representative_sample(bill_ids, sample_size),
         levels=worker_levels,
     )
     render_parallel_benchmark(benchmark, output_path)
@@ -610,7 +611,7 @@ def _fetch_vconfbill_rows_for_bills(
     )
     if errors:
         retry_worker_count = min(5, max(1, worker_count))
-        print(
+        safe_print(
             "[retry] VCONFBILLCONFLIST final pass "
             f"bills={len(errors)} workers={retry_worker_count}",
             flush=True,
@@ -674,7 +675,7 @@ def _fetch_vconfbill_rows_with_retry(
             if attempts > len(retry_delays):
                 raise RuntimeError(f"after {attempts} attempts: {exc}") from exc
             delay = retry_delays[attempts - 1]
-            print(
+            safe_print(
                 f"[retry] VCONFBILLCONFLIST bill_id={bill_id} "
                 f"attempt={attempts} next_delay={delay:.1f}s error={exc}",
                 flush=True,
@@ -696,7 +697,7 @@ def _fetch_vconfbill_rows(bill_id: str) -> list[dict[str, Any]]:
     rows = list(first.rows)
     page = 2
     while len(rows) < first.total_count:
-        response = fetch_endpoint(
+        response = fetch_endpoint_with_retry(
             VCONFBILL_ENDPOINT,
             {"BILL_ID": bill_id, **(first.age_param_used or {})},
             p_index=page,

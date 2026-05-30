@@ -19,6 +19,8 @@ def main() -> None:
         f"meetings={result.scraped_meeting_count}/{result.meeting_count} "
         f"utterances={result.utterance_count} "
         f"member_mapped={result.member_mapped_count} "
+        f"retries={result.retry_count} "
+        f"retried_meetings={result.retried_meeting_count} "
         f"errors={result.scrape_error_count} "
         f"workers={result.selected_worker_count}"
     )

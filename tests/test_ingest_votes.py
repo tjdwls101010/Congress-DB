@@ -47,6 +47,10 @@ def _no_data() -> dict[str, Any]:
     return {"RESULT": {"CODE": "INFO-200", "MESSAGE": "해당하는 데이터가 없습니다."}}
 
 
+def _error(message: str = "필수 값이 누락되어 있습니다. 요청인자를 참고 하십시오.") -> dict[str, Any]:
+    return {"RESULT": {"CODE": "ERROR-300", "MESSAGE": message}}
+
+
 def _vote_bill_row(bill_id: str, bill_no: str, bill_name: str) -> dict[str, Any]:
     return {
         "BILL_ID": bill_id,
@@ -145,6 +149,7 @@ def test_ingest_votes_upserts_vote_rows_idempotently(
     assert first.vote_row_count == 6
     assert first.upserted_votes == 6
     assert first.selected_worker_count == 1
+    assert first.failed_vote_bill_count == 0
     assert second.vote_row_count == 6
     assert second.upserted_votes == 6
 
@@ -173,6 +178,95 @@ def test_ingest_votes_upserts_vote_rows_idempotently(
     ]
     assert member_stub == ("표결삼",)
     assert bill_stub == ("테스트 표결 법안 1", "원안가결")
+
+
+def test_ingest_votes_retries_transient_vote_row_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    vote_bills = [_vote_bill_row("TEST_VOTE_BILL_1", "9100001", "테스트 표결 법안 1")]
+    vote_rows = [
+        _vote_row("TEST_VOTE_BILL_1", "9100001", "TEST_VOTE_MEMBER_1", "표결일", "찬성"),
+        _vote_row("TEST_VOTE_BILL_1", "9100001", "TEST_VOTE_MEMBER_2", "표결이", "반대"),
+        _vote_row("TEST_VOTE_BILL_1", "9100001", "TEST_VOTE_MEMBER_3", "표결삼", "기권"),
+    ]
+    row_endpoint_calls = 0
+
+    def fake_get(url: str, **kwargs: Any) -> MagicMock:
+        nonlocal row_endpoint_calls
+        endpoint = url.rsplit("/", 1)[-1]
+        params = kwargs["params"]
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        if "AGE" not in params and endpoint == "ncocpgfiaoituanbr":
+            response.json.return_value = _no_data()
+        elif endpoint == "ncocpgfiaoituanbr":
+            response.json.return_value = _envelope(endpoint, total=1, rows=vote_bills)
+        elif endpoint == "nojepdqqaweusdfbi":
+            row_endpoint_calls += 1
+            if row_endpoint_calls <= 4:
+                response.json.return_value = _error()
+            elif "AGE" in params:
+                response.json.return_value = _envelope(endpoint, total=3, rows=vote_rows)
+            else:
+                response.json.return_value = _error()
+        else:
+            raise AssertionError(endpoint)
+        return response
+
+    monkeypatch.setattr("congress_db.api_client.requests.get", fake_get)
+
+    result = ingest_votes(
+        limit_pct=1.0,
+        page_size=1,
+        benchmark_sample_size=1,
+        worker_levels=(1,),
+        benchmark_output_path=tmp_path / "VOTES-PARALLEL-BENCHMARK.md",
+        retry_delays=(0.0,),
+    )
+
+    assert result.vote_row_count == 3
+    assert result.failed_vote_bill_count == 0
+    assert row_endpoint_calls > 4
+
+
+def test_ingest_votes_returns_structured_failures_when_partial_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    vote_bills = [_vote_bill_row("TEST_VOTE_BILL_1", "9100001", "테스트 표결 법안 1")]
+
+    def fake_get(url: str, **kwargs: Any) -> MagicMock:
+        endpoint = url.rsplit("/", 1)[-1]
+        params = kwargs["params"]
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        if "AGE" not in params and endpoint == "ncocpgfiaoituanbr":
+            response.json.return_value = _no_data()
+        elif endpoint == "ncocpgfiaoituanbr":
+            response.json.return_value = _envelope(endpoint, total=1, rows=vote_bills)
+        elif endpoint == "nojepdqqaweusdfbi":
+            response.json.return_value = _error("source item unavailable")
+        else:
+            raise AssertionError(endpoint)
+        return response
+
+    monkeypatch.setattr("congress_db.api_client.requests.get", fake_get)
+
+    result = ingest_votes(
+        limit_pct=1.0,
+        page_size=1,
+        benchmark_sample_size=1,
+        worker_levels=(1,),
+        benchmark_output_path=tmp_path / "VOTES-PARALLEL-BENCHMARK.md",
+        retry_delays=(),
+        allow_partial=True,
+    )
+
+    assert result.vote_row_count == 0
+    assert result.failed_vote_bill_count == 1
+    assert result.vote_row_failures[0].bill_id == "TEST_VOTE_BILL_1"
+    assert "source item unavailable" in result.vote_row_failures[0].error
 
 
 def test_vote_distribution_allows_gap_when_member_vote_api_omits_member() -> None:
