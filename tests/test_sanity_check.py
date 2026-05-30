@@ -39,7 +39,7 @@ def test_render_sanity_report_shows_all_scenarios_and_fts_decision(tmp_path) -> 
     render_sanity_report(result, output)
 
     text = output.read_text()
-    assert "# 10% Integrated Sanity Check" in text
+    assert "# Integrated Sanity Check" in text
     assert "- members: 298" in text
     assert "## S1. 의원 통합 조회" in text
     assert "| 의원 | 발언수 |" in text

@@ -108,11 +108,11 @@ validate-session-groups:
 evaluate-session-groups:
 	uv run python -m scripts.evaluate_session_groups
 
-# 10% 통합 sanity check + FTS 결정 리포트 생성
+# 현재 로컬 적재 결과 통합 sanity check + FTS 결정 리포트 생성
 sanity-check:
 	uv run python -m scripts.sanity_check
 
-# 10% 데이터 완성도 follow-up 리포트 생성
+# 현재 로컬 적재 결과 데이터 완성도 follow-up 리포트 생성
 data-completeness:
 	uv run python -m scripts.data_completeness
 

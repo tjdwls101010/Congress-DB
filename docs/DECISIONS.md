@@ -3,6 +3,14 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-05-30 — Separate local data acceptance from strict clean replay proof
+
+The accepted local database is ready for Supabase human review because run `103`
+finished with `success`, `0` dead letters, passing S1-S7 checks, and
+`ready_for_human_review`. This does not claim a strict empty-DB one-shot replay
+with the current code; that destructive rehearsal remains optional before
+migration execution, not a blocker to migration planning.
+
 ## 2026-05-30 — Migration readiness runs after backfill completion
 
 `migration_readiness` reads the latest backfill run, so running it as a stage

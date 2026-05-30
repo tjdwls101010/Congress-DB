@@ -1,4 +1,4 @@
-"""10% 통합 sanity check 리포트 생성."""
+"""통합 sanity check 리포트 생성."""
 
 from __future__ import annotations
 
@@ -96,7 +96,7 @@ class QualitySignal:
 
 @dataclass(frozen=True)
 class SanityCheckResult:
-    """10% 통합 검증 리포트 입력값."""
+    """통합 검증 리포트 입력값."""
 
     row_counts: Mapping[str, int]
     sections: Sequence[SanitySection]
@@ -476,12 +476,12 @@ def _load_quality_signals(cur: object) -> tuple[QualitySignal, ...]:
         (
             "bills_missing_propose_dt",
             "SELECT COUNT(*) FROM bills WHERE propose_dt IS NULL",
-            "표결 endpoint에서 먼저 들어온 법안 stub 가능성. 전체 법안 적재 때 줄어드는지 확인해야 한다.",
+            "표결 endpoint에서 들어온 대안/처리 법안의 원천 metadata gap. full backfill 이후에도 accepted gap으로 추적한다.",
         ),
         (
             "bills_missing_summary",
             "SELECT COUNT(*) FROM bills WHERE summary IS NULL OR summary = ''",
-            "법안 본문 검색 recall에 영향. summary API 실패/미적재 후보를 추적해야 한다.",
+            "법안명 검색은 가능하지만 summary 기반 recall에는 영향. 원천 summary 부재/미제공 후보로 추적한다.",
         ),
         (
             "member_titled_utterances_unmapped",
@@ -514,9 +514,9 @@ def _fetch_dicts(cur: object) -> tuple[dict[str, object], ...]:
 
 def _render_markdown(result: SanityCheckResult) -> str:
     lines = [
-        "# 10% Integrated Sanity Check",
+        "# Integrated Sanity Check",
         "",
-        "This report runs the IA S1-S7 query paths against the current 10% calibration load.",
+        "This report runs the IA S1-S7 query paths against the current local backfill load.",
         "It is a review artifact: code checks that the paths execute, and the PM can scan the rows for domain plausibility.",
         "",
         "## Dataset Row Counts",

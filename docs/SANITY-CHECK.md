@@ -1,6 +1,6 @@
-# 10% Integrated Sanity Check
+# Integrated Sanity Check
 
-This report runs the IA S1-S7 query paths against the current 10% calibration load.
+This report runs the IA S1-S7 query paths against the current local backfill load.
 It is a review artifact: code checks that the paths execute, and the PM can scan the rows for domain plausibility.
 
 ## Dataset Row Counts
@@ -29,8 +29,8 @@ It is a review artifact: code checks that the paths execute, and the PM can scan
 | Metric | Value | Interpretation |
 | --- | ---: | --- |
 | `members_missing_party` | 20 | members stub 또는 의원 인적사항 API 누락 가능성. 의원 카드 완성도에 직접 영향이 있다. |
-| `bills_missing_propose_dt` | 1028 | 표결 endpoint에서 먼저 들어온 법안 stub 가능성. 전체 법안 적재 때 줄어드는지 확인해야 한다. |
-| `bills_missing_summary` | 1068 | 법안 본문 검색 recall에 영향. summary API 실패/미적재 후보를 추적해야 한다. |
+| `bills_missing_propose_dt` | 1028 | 표결 endpoint에서 들어온 대안/처리 법안의 원천 metadata gap. full backfill 이후에도 accepted gap으로 추적한다. |
+| `bills_missing_summary` | 1068 | 법안명 검색은 가능하지만 summary 기반 recall에는 영향. 원천 summary 부재/미제공 후보로 추적한다. |
 | `member_titled_utterances_unmapped` | 9 | 의원 발언인데 member FK가 없는 후보. 이름 중복/직함 파싱 문제일 수 있다. |
 
 ## Scenario Results

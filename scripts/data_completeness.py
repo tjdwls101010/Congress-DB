@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""10% 데이터 완성도 follow-up CLI."""
+"""데이터 완성도 follow-up CLI."""
 
 from __future__ import annotations
 

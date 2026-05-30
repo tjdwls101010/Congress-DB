@@ -84,6 +84,29 @@ data-quality gaps are understood and either fixed or explicitly accepted.
 - Session group relink summary: 2,101 target meetings, 739 skipped meetings,
   30,663 groups, 916,823 linked utterances.
 
+## Confidence And Remaining Risk
+
+- High confidence: the current local database contains the target backfill data,
+  has no unresolved dead letters, passes session-group integrity checks, and
+  generates all S1-S7 review paths.
+- High confidence: the known operational failures from the monitored runs were
+  addressed in code: OpenAPI retry storms, retry-aware worker selection, failed
+  vote row retry, stdout/stderr breakage, late-stage rerun reuse, and
+  session-group relink write cost.
+- Accepted source gaps remain visible rather than hidden: 20 referenced member
+  stubs have no profile party, 1,028 vote-created bill rows lack source proposal
+  date and summary, 40 non-vote bill rows lack source summary, and 9
+  member-titled utterances have no safe member FK. These affect profile
+  completeness or search recall, not relational integrity.
+- Remaining uncertainty: run `103` reused healthy completed expensive stages
+  from earlier monitored runs. It proves the current local data state and the
+  resumed official path, but it is not strict proof that the current code can
+  populate an empty database in one uninterrupted run.
+- If strict audit confidence is required before migration execution, run one
+  destructive clean-DB rehearsal from a saved dump/snapshot and accept only if
+  the final row counts, S1-S7 outputs, dead letters, and readiness report match
+  this gate.
+
 ## Findings From The Monitored Run
 
 - OpenAPI summary calls are the sensitive external bottleneck. A 200-worker run
