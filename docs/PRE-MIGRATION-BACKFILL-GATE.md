@@ -107,6 +107,34 @@ data-quality gaps are understood and either fixed or explicitly accepted.
   the final row counts, S1-S7 outputs, dead letters, and readiness report match
   this gate.
 
+## Recovery Drill
+
+- Date: `2026-05-31`
+- Method: created a throwaway Postgres database from the accepted local DB,
+  deleted recent utterance/session-group data only inside that clone, then reran
+  the relevant ingest modules against the same meeting ids twice.
+- Target meetings: `56738`, `56737`, `56731` (latest dated meetings with
+  utterances).
+- Deleted and restored:
+  - `utterances`: 16 + 109 + 439 = 564 rows
+  - `session_groups`: 26 rows
+- Result after first repair run:
+  - scraped meetings: 3
+  - scrape errors: 0
+  - restored utterance counts matched the pre-delete counts for all 3 meetings
+  - restored session-group count matched the pre-delete count
+  - duplicate `(meeting_id, sequence)` rows: 0
+- Result after second same-target rerun:
+  - utterance count remained 564
+  - session-group count remained 26
+  - duplicate `(meeting_id, sequence)` rows remained 0
+- Scope boundary: this verified the recent meeting minutes, utterance, and
+  session-group repair path without touching the accepted local DB. It did not
+  run the full official `incremental` command because current bills/votes
+  incremental stages still perform broad source scans; testing those through the
+  official Interface should be done as a separate hosted-DB migration rehearsal
+  or after adding narrower windowed repair controls.
+
 ## Findings From The Monitored Run
 
 - OpenAPI summary calls are the sensitive external bottleneck. A 200-worker run
