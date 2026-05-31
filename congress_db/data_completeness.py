@@ -287,7 +287,7 @@ def _build_conclusions(
         f"{gap_counts['vote_created_bill_gaps']} vote-created bill rows still lack source proposal date and summary after full backfill; keep them as accepted source metadata gaps for migration unless a new source endpoint is added.",
         f"{gap_counts['non_vote_bill_gaps']} non-vote bill rows still lack source summary after full backfill; they affect summary-search recall, not relational integrity.",
         mapping_conclusion,
-        "Keep these metrics visible through Supabase migration so accepted source gaps do not get mistaken for ingest failures.",
+        "Keep these metrics visible through hosted Postgres migration so accepted source gaps do not get mistaken for ingest failures.",
     )
 
 

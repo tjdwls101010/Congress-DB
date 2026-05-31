@@ -142,9 +142,9 @@ def default_fts_decision() -> FtsDecision:
             "needs reliable substring matching across particles and spacing.",
             "PGroonga is the stronger multilingual search engine, but it is not "
             "available in the current local Postgres image and would add "
-            "environment churn before the first Supabase migration.",
+            "environment churn before the first hosted Postgres migration.",
             "pg_trgm works in the current Postgres 16 container, is available on "
-            "Supabase, and gives the API/SDK a practical first keyword-search "
+            "Neon, and gives the API/SDK a practical first keyword-search "
             "path for bills and utterances.",
         ),
         migration_path="db/migrations/001_search_indexes.sql",

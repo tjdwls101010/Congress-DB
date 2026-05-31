@@ -21,7 +21,7 @@ It separates source metadata gaps, safe fixes, and unsafe automatic mapping.
 - 1028 vote-created bill rows still lack source proposal date and summary after full backfill; keep them as accepted source metadata gaps for migration unless a new source endpoint is added.
 - 40 non-vote bill rows still lack source summary after full backfill; they affect summary-search recall, not relational integrity.
 - No unique member reference exists for sampled unmapped member-titled utterances, so the ingest path should not fabricate `speaker_mona_cd` values.
-- Keep these metrics visible through Supabase migration so accepted source gaps do not get mistaken for ingest failures.
+- Keep these metrics visible through hosted Postgres migration so accepted source gaps do not get mistaken for ingest failures.
 
 ## Missing Party Member Stubs
 

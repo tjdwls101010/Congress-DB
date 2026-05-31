@@ -1,4 +1,4 @@
--- Simplify meeting core schema for search-oriented Supabase migration.
+-- Simplify meeting core schema for search-oriented hosted Postgres migration.
 -- This migration is intentionally idempotent so existing local backfill DBs
 -- and fresh schema installs converge on the same pre-migration structure.
 

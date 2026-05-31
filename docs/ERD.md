@@ -75,7 +75,7 @@ erDiagram
 | `cmt_proc_dt` | DATE | 위원회 처리일자 |
 | `cmt_proc_result_cd` | TEXT | 위원회 처리결과 코드 |
 | `summary` | TEXT | 주요내용 |
-| `detail_link` | TEXT | 의안 상세 링크. 검색 core에는 낮은 우선순위이며 Supabase 전 제거 재검토 |
+| `detail_link` | TEXT | 의안 상세 링크. 검색 core에는 낮은 우선순위이며 hosted Postgres 전 제거 재검토 |
 | `age` | SMALLINT | 대수. 22대만 유지하는 동안 제거 재검토 |
 | `fetched_at` | TIMESTAMPTZ | 마지막 수집 시각 |
 

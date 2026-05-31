@@ -1,4 +1,4 @@
-"""Slice 16 — Supabase migration readiness report 검증."""
+"""Slice 16 — hosted Postgres migration readiness report 검증."""
 
 from __future__ import annotations
 

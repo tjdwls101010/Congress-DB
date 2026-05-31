@@ -1,4 +1,4 @@
-"""Supabase migration readiness report."""
+"""Hosted Postgres migration readiness report."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ CORE_TABLES = (
 
 @dataclass(frozen=True)
 class MigrationReadinessReport:
-    """Supabase migration human-review gate report."""
+    """Hosted Postgres migration human-review gate report."""
 
     recommendation: str
     blockers: tuple[str, ...]
@@ -43,7 +43,7 @@ class MigrationReadinessReport:
 def generate_migration_readiness_report(
     output_path: Path = DEFAULT_MIGRATION_READINESS_REPORT,
 ) -> MigrationReadinessReport:
-    """현재 로컬 DB가 Supabase migration review 준비 상태인지 리포트한다."""
+    """현재 로컬 DB가 hosted Postgres migration review 준비 상태인지 리포트한다."""
     report = load_migration_readiness()
     render_migration_readiness_report(report, output_path)
     return report
@@ -245,7 +245,7 @@ def _blockers(
 
 def _render_markdown(report: MigrationReadinessReport) -> str:
     lines = [
-        "# Supabase Migration Readiness",
+        "# Hosted Postgres Migration Readiness",
         "",
         f"Recommendation: `{report.recommendation}`",
         "",

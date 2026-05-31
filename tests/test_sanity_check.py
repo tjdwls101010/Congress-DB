@@ -31,7 +31,7 @@ def test_render_sanity_report_shows_all_scenarios_and_fts_decision(tmp_path) -> 
         fts_decision=FtsDecision(
             selected="pg_trgm",
             alternatives=("Postgres simple tsvector", "PGroonga"),
-            rationale=("Works in the local Postgres image and Supabase.",),
+            rationale=("Works in the local Postgres image and hosted Postgres.",),
             migration_path="db/migrations/001_search_indexes.sql",
         ),
     )

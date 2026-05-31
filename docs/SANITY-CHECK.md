@@ -21,8 +21,8 @@ It is a review artifact: code checks that the paths execute, and the PM can scan
 - Migration: `db/migrations/001_search_indexes.sql`
 - Alternatives considered: Postgres simple tsvector, PGroonga
 - Rationale: Postgres simple tsvector is easy to index, but Korean keyword search needs reliable substring matching across particles and spacing.
-- Rationale: PGroonga is the stronger multilingual search engine, but it is not available in the current local Postgres image and would add environment churn before the first Supabase migration.
-- Rationale: pg_trgm works in the current Postgres 16 container, is available on Supabase, and gives the API/SDK a practical first keyword-search path for bills and utterances.
+- Rationale: PGroonga is the stronger multilingual search engine, but it is not available in the current local Postgres image and would add environment churn before the first hosted Postgres migration.
+- Rationale: pg_trgm works in the current Postgres 16 container, is available on Neon, and gives the API/SDK a practical first keyword-search path for bills and utterances.
 
 ## Data Quality Signals
 

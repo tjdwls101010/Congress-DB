@@ -1,6 +1,6 @@
 -- Slice 10 search indexes.
 -- Decision: use pg_trgm for first-pass Korean keyword search because it works
--- in local Postgres and Supabase without changing the runtime image.
+-- in local Postgres and the target hosted Postgres without changing the runtime image.
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 

@@ -1,12 +1,12 @@
 # Pre-migration Local Backfill Gate
 
-This is the operating contract for issue #45. Supabase migration (#12) must wait until
+This is the operating contract for issue #45. Hosted Postgres migration (#12) must wait until
 this gate is complete.
 
 ## Goal
 
 Prove that the initial ~2 years of 22대 data can be loaded, verified, and rerun
-locally before any `pg_dump` / `pg_restore` migration to Supabase.
+locally before any `pg_dump` / `pg_restore` migration to hosted Postgres.
 
 The target is not "the command exits once." The target is a repeatable local
 backfill process whose slow stages, retries, skipped targets, dead letters, and
@@ -23,7 +23,7 @@ data-quality gaps are understood and either fixed or explicitly accepted.
 5. If any signal is abnormal, improve the ingest logic or classification, then
    rerun the affected path.
 6. After a clean full load, rerun the official command as an idempotency check.
-7. Only then mark the gate complete and proceed to Supabase migration planning.
+7. Only then mark the gate complete and proceed to hosted Postgres migration planning.
 
 ## Monitoring Signals
 

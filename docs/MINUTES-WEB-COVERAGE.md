@@ -4,7 +4,7 @@ Generated from a live check on 2026-05-27 against `https://record.assembly.go.kr
 
 ## Purpose
 
-Validate whether the local `meetings` universe should be based on the National Assembly minutes web listing rather than the public OpenAPI meeting endpoints. This is a pre-Supabase migration quality gate because utterances are parsed from HTML viewer pages, not from PDF/HWP files.
+Validate whether the local `meetings` universe should be based on the National Assembly minutes web listing rather than the public OpenAPI meeting endpoints. This is a pre-hosted-Postgres migration quality gate because utterances are parsed from HTML viewer pages, not from PDF/HWP files.
 
 ## Method
 

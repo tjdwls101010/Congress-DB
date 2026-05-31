@@ -2,7 +2,7 @@
 
 대한민국 국회 22대 임기(2024-05-30~) 데이터를 한 곳에 통합 적재하는 Postgres DB. 의원 한 명을 키로 그 의원의 발의 법안, 본회의 표결, 회의록 발언이 SQL JOIN 한 줄로 나오게 만드는 것이 목적이다.
 
-향후 검색 API/SDK를 그 위에 얹는다. 1차 적재 후 Supabase로 마이그레이션한다.
+향후 검색 API/SDK를 그 위에 얹는다. 1차 적재 후 hosted Postgres로 마이그레이션한다.
 
 ## Language
 
@@ -155,4 +155,4 @@ _Avoid_: 터미널 로그만 남기기, 실패 item 무시
 - **회의 식별자 3종**: `mnts_id`(HTML 상세 URL의 id, canonical key), `CONFER_NUM`(본회의/위원회 API의 회의번호, mnts_id와 동일), `CONF_ID`(N0xxxxx, 별도 식별자). 통합 키는 `mnts_id`.
 - **대수 파라미터 형식 혼재**: `DAE_NUM=22` (정수) vs `AGE=22` (정수) vs `ERACO=제22대` (한글 텍스트). API별로 다르므로 한 군데 wrapper에서 흡수.
 - **본회의·소위원회 의미 단위**: "불가능"으로 확정한 것이 아니라, `session_groups`와 다른 Interface가 필요하다고 정리했다. 후보는 본회의의 의사일정/대정부질문/표결 세그먼트, 소위원회의 법안 심사 세그먼트다.
-- **백필 vs 증분 동기화**: 별도 코드가 아니라 같은 적재 Module의 실행 mode다. 초기에는 로컬/별도 runner가 Supabase DB에 직접 upsert한다.
+- **백필 vs 증분 동기화**: 별도 코드가 아니라 같은 적재 Module의 실행 mode다. 초기에는 로컬/별도 runner가 hosted Postgres DB에 직접 upsert한다.

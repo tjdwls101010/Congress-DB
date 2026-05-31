@@ -1,4 +1,4 @@
-# Supabase Migration Readiness
+# Hosted Postgres Migration Readiness
 
 Recommendation: `ready_for_human_review`
 

@@ -96,7 +96,7 @@ validate-minutes-dom:
 ingest-session-groups:
 	uv run python -m scripts.ingest_session_groups
 
-# 진단용: 로컬 100% 백필 실행 (Supabase migration 전 PM gate의 입력)
+# 진단용: 로컬 100% 백필 실행 (hosted Postgres migration 전 PM gate의 입력)
 ingest-backfill:
 	uv run python -m scripts.ingest_backfill
 
@@ -116,6 +116,6 @@ sanity-check:
 data-completeness:
 	uv run python -m scripts.data_completeness
 
-# Supabase migration 전 로컬 백필 readiness 리포트 생성
+# hosted Postgres migration 전 로컬 백필 readiness 리포트 생성
 migration-readiness:
 	uv run python -m scripts.migration_readiness
