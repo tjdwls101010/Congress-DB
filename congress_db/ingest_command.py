@@ -39,13 +39,17 @@ RunMode = Literal["backfill", "incremental"]
 
 REQUIRED_CURSOR_SPECS: tuple[tuple[str, str, int], ...] = (
     ("members", "full_refresh", 0),
-    ("bills", "propose_or_proc_dt", 30),
-    ("votes", "vote_date", 30),
-    ("meetings", "conf_date", 30),
-    ("utterances", "meeting_id_set", 30),
-    ("session_groups", "meeting_id_set", 30),
+    ("bills", "last_success_at", 0),
+    ("votes", "last_success_at", 0),
+    ("meetings", "last_success_at", 0),
+    ("utterances", "last_success_at", 0),
+    ("session_groups", "last_success_at", 0),
 )
 RESUMABLE_BACKFILL_STAGE_NAMES = frozenset({"members", "bills", "votes", "meetings"})
+INCREMENTAL_BILL_SUMMARY_WORKERS = 100
+INCREMENTAL_VOTE_ROW_WORKERS = 20
+INCREMENTAL_MEETING_BILL_WORKERS = 200
+INCREMENTAL_SCRAPE_WORKERS = 20
 
 
 @dataclass(frozen=True)
@@ -321,14 +325,29 @@ def build_incremental_stages(
         return _stage_from_result(ingest_members())
 
     def run_bills() -> StageResult:
-        return _stage_from_result(ingest_bills(limit_pct=1.0))
+        return _stage_from_result(
+            ingest_bills(
+                limit_pct=1.0,
+                summary_fetch_mode="missing",
+                summary_worker_count=INCREMENTAL_BILL_SUMMARY_WORKERS,
+            )
+        )
 
     def run_votes() -> StageResult:
-        return _stage_from_result(ingest_votes(limit_pct=1.0))
+        return _stage_from_result(
+            ingest_votes(
+                limit_pct=1.0,
+                vote_row_fetch_mode="missing",
+                vote_row_worker_count=INCREMENTAL_VOTE_ROW_WORKERS,
+            )
+        )
 
     def run_meetings() -> StageResult:
         nonlocal touched_meeting_ids
-        result = ingest_meetings(calibration_limit=None)
+        result = ingest_meetings(
+            calibration_limit=None,
+            vconfbill_worker_count=INCREMENTAL_MEETING_BILL_WORKERS,
+        )
         touched_meeting_ids = tuple(
             sorted(set(result.new_meeting_ids) | set(result.changed_meeting_ids) | set(forced_ids))
         )
@@ -359,6 +378,7 @@ def build_incremental_stages(
             calibration_limit=max(len(target_ids), 1),
             meeting_ids=target_ids,
             allow_partial=True,
+            scrape_worker_count=INCREMENTAL_SCRAPE_WORKERS,
         )
         regroup_meeting_ids = tuple(result.scraped_meeting_ids)
         failures = tuple(

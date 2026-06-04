@@ -39,15 +39,27 @@ def test_incremental_stages_scope_utterances_and_session_groups_to_touched_meeti
 
     monkeypatch.setattr(ingest_command, "retry_dead_letters", lambda: {"retried": 0})
     monkeypatch.setattr(ingest_command, "ingest_members", lambda: {"stage": "members"})
-    monkeypatch.setattr(ingest_command, "ingest_bills", lambda **kwargs: {"stage": "bills"})
-    monkeypatch.setattr(ingest_command, "ingest_votes", lambda **kwargs: {"stage": "votes"})
+
+    def fake_bills(**kwargs):
+        calls["bills_kwargs"] = kwargs
+        return {"stage": "bills"}
+
+    def fake_votes(**kwargs):
+        calls["votes_kwargs"] = kwargs
+        return {"stage": "votes"}
+
+    monkeypatch.setattr(ingest_command, "ingest_bills", fake_bills)
+    monkeypatch.setattr(ingest_command, "ingest_votes", fake_votes)
     monkeypatch.setattr(
         ingest_command,
         "ingest_meetings",
-        lambda **kwargs: SimpleNamespace(
-            new_meeting_ids=(920101,),
-            changed_meeting_ids=(920102,),
-            stale_meeting_ids=(),
+        lambda **kwargs: (
+            calls.__setitem__("meetings_kwargs", kwargs)
+            or SimpleNamespace(
+                new_meeting_ids=(920101,),
+                changed_meeting_ids=(920102,),
+                stale_meeting_ids=(),
+            )
         ),
     )
     monkeypatch.setattr(
@@ -57,6 +69,7 @@ def test_incremental_stages_scope_utterances_and_session_groups_to_touched_meeti
     )
 
     def fake_utterances(**kwargs):
+        calls["utterances_kwargs"] = kwargs
         calls["utterance_meeting_ids"] = kwargs["meeting_ids"]
         return SimpleNamespace(
             meeting_count=len(kwargs["meeting_ids"]),
@@ -94,6 +107,12 @@ def test_incremental_stages_scope_utterances_and_session_groups_to_touched_meeti
 
     assert calls["utterance_meeting_ids"] == (920101, 920102, 920103, 920104)
     assert calls["session_group_meeting_ids"] == (920101, 920102, 920103, 920104)
+    assert calls["bills_kwargs"]["summary_fetch_mode"] == "missing"
+    assert calls["bills_kwargs"]["summary_worker_count"] > 0
+    assert calls["votes_kwargs"]["vote_row_fetch_mode"] == "missing"
+    assert calls["votes_kwargs"]["vote_row_worker_count"] > 0
+    assert calls["meetings_kwargs"]["vconfbill_worker_count"] > 0
+    assert calls["utterances_kwargs"]["scrape_worker_count"] > 0
 
 
 def test_resumable_stage_summary_health_checks_completed_ingest_stages() -> None:

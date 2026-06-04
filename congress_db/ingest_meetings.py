@@ -15,7 +15,6 @@ from .agenda_parser import parse_agenda_item
 from .api_client import ApiResponse, fetch_endpoint_with_retry, fetch_with_age_attempts
 from .benchmark import (
     DEFAULT_WORKER_LEVELS,
-    BenchmarkResult,
     measure_workers,
     representative_sample,
     render_parallel_benchmark,
@@ -119,6 +118,7 @@ def ingest_meetings(
     benchmark_sample_size: int = 100,
     worker_levels: tuple[int, ...] = DEFAULT_WORKER_LEVELS,
     benchmark_output_path: Path = DEFAULT_MEETINGS_BENCHMARK_OUTPUT,
+    vconfbill_worker_count: int | None = None,
 ) -> IngestMeetingsResult:
     """22대 회의 메타를 캘리브레이션 분량만큼 적재한다."""
     safe_print(
@@ -147,12 +147,13 @@ def ingest_meetings(
     )
     agenda_rows = _attach_agenda_bill_ids(agenda_drafts)
     agenda_pairs = _meeting_bill_pairs_from_agenda(agenda_rows)
-    vconf_pairs, benchmark = _fetch_vconfbill_pairs(
+    vconf_pairs, selected_worker_count = _fetch_vconfbill_pairs(
         sorted({row["bill_id"] for row in agenda_rows if row.get("bill_id")}),
         known_meeting_ids=web_meeting_ids,
         sample_size=benchmark_sample_size,
         worker_levels=worker_levels,
         output_path=benchmark_output_path,
+        worker_count=vconfbill_worker_count,
     )
     meeting_bill_rows = _merge_meeting_bill_pairs(agenda_pairs, vconf_pairs)
     new_meeting_ids, changed_meeting_ids = _reconcile_meeting_rows(meeting_rows)
@@ -176,7 +177,7 @@ def ingest_meetings(
         meeting_count=upserted_meetings,
         agenda_candidate_count=len(agenda_rows),
         meeting_bill_count=inserted_meeting_bills,
-        selected_worker_count=benchmark.selected_worker_count if benchmark else 0,
+        selected_worker_count=selected_worker_count,
         new_meeting_ids=new_meeting_ids,
         changed_meeting_ids=changed_meeting_ids,
         stale_meeting_ids=stale_meeting_ids,
@@ -575,18 +576,23 @@ def _fetch_vconfbill_pairs(
     sample_size: int,
     worker_levels: tuple[int, ...],
     output_path: Path,
-) -> tuple[set[tuple[int, str]], BenchmarkResult | None]:
+    worker_count: int | None,
+) -> tuple[set[tuple[int, str]], int]:
     if not bill_ids:
-        return set(), None
-    benchmark = measure_workers(
-        lambda bill_id, worker_count: _fetch_vconfbill_rows(str(bill_id)),
-        items=representative_sample(bill_ids, sample_size),
-        levels=worker_levels,
-    )
-    render_parallel_benchmark(benchmark, output_path)
+        return set(), 0
+    if worker_count is None:
+        benchmark = measure_workers(
+            lambda bill_id, measured_worker_count: _fetch_vconfbill_rows(str(bill_id)),
+            items=representative_sample(bill_ids, sample_size),
+            levels=worker_levels,
+        )
+        render_parallel_benchmark(benchmark, output_path)
+        selected_worker_count = benchmark.selected_worker_count
+    else:
+        selected_worker_count = worker_count
     rows_by_bill = _fetch_vconfbill_rows_for_bills(
         bill_ids,
-        worker_count=benchmark.selected_worker_count,
+        worker_count=selected_worker_count,
     )
     pairs: set[tuple[int, str]] = set()
     for bill_id, rows in rows_by_bill.items():
@@ -594,7 +600,7 @@ def _fetch_vconfbill_pairs(
             meeting_id = extract_mnts_id(row.get("DOWN_URL"))
             if meeting_id in known_meeting_ids:
                 pairs.add((meeting_id, bill_id))
-    return pairs, benchmark
+    return pairs, selected_worker_count
 
 
 def _fetch_vconfbill_rows_for_bills(

@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from .api_client import ApiResponse, fetch_endpoint_with_retry, fetch_with_age_attempts
@@ -28,6 +28,7 @@ VOTE_ROWS_ENDPOINT = "nojepdqqaweusdfbi"
 SEOUL = ZoneInfo("Asia/Seoul")
 DEFAULT_VOTE_BENCHMARK_OUTPUT = Path("docs/VOTES-PARALLEL-BENCHMARK.md")
 DEFAULT_VOTE_ROW_RETRY_DELAYS = (1.0, 4.0, 16.0)
+VoteRowFetchMode = Literal["all", "missing"]
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,8 @@ class IngestVotesResult:
     ensured_member_refs: int
     upserted_votes: int
     selected_worker_count: int
+    vote_row_target_bill_count: int
+    vote_row_skipped_bill_count: int
     tolerated_distribution_mismatches: int
     failed_vote_bill_count: int
     vote_row_failures: tuple["VoteRowFailure", ...]
@@ -125,6 +128,8 @@ def ingest_votes(
     benchmark_output_path: Path = DEFAULT_VOTE_BENCHMARK_OUTPUT,
     retry_delays: tuple[float, ...] = DEFAULT_VOTE_ROW_RETRY_DELAYS,
     allow_partial: bool = False,
+    vote_row_fetch_mode: VoteRowFetchMode = "all",
+    vote_row_worker_count: int | None = None,
 ) -> IngestVotesResult:
     """22대 본회의 표결 10%를 votes에 적재한다."""
     vote_bill_list = _fetch_vote_bill_list(limit_pct=limit_pct, page_size=page_size)
@@ -133,27 +138,27 @@ def ingest_votes(
         f"{vote_bill_list.target_count}/{vote_bill_list.total_count}",
         flush=True,
     )
-    bill_ids = [str(row["BILL_ID"]) for row in vote_bill_list.rows]
-    benchmark = measure_workers(
-        lambda bill_id, worker_count: _fetch_vote_rows_with_retry(
-            str(bill_id),
-            retry_delays=retry_delays,
-        ),
-        items=representative_sample(bill_ids, benchmark_sample_size),
-        levels=worker_levels,
+    canonical_bill_ids = _load_canonical_bill_ids(vote_bill_list.rows)
+    source_bill_ids = [str(row["BILL_ID"]) for row in vote_bill_list.rows]
+    vote_row_target_bill_ids, skipped_bill_ids = _vote_row_target_bill_ids(
+        source_bill_ids,
+        canonical_bill_ids=canonical_bill_ids,
+        mode=vote_row_fetch_mode,
     )
-    render_parallel_benchmark(benchmark, benchmark_output_path)
-    fetch_result = _fetch_vote_rows_for_bills(
-        bill_ids,
-        worker_count=benchmark.selected_worker_count,
+    selected_worker_count, fetch_result = _fetch_target_vote_rows(
+        vote_row_target_bill_ids,
+        benchmark_sample_size=benchmark_sample_size,
+        worker_levels=worker_levels,
+        benchmark_output_path=benchmark_output_path,
         retry_delays=retry_delays,
+        vote_row_worker_count=vote_row_worker_count,
     )
     vote_rows_by_bill = dict(fetch_result.rows_by_bill)
     vote_row_failures = fetch_result.failures
     if vote_row_failures:
         retry_result = _retry_failed_vote_bills(
             vote_row_failures,
-            selected_worker_count=benchmark.selected_worker_count,
+            selected_worker_count=selected_worker_count,
             retry_delays=retry_delays,
         )
         vote_rows_by_bill.update(retry_result.rows_by_bill)
@@ -180,7 +185,6 @@ def ingest_votes(
         if not matched:
             tolerated_distribution_mismatches += 1
 
-    canonical_bill_ids = _load_canonical_bill_ids(vote_bill_list.rows)
     bill_refs = [
         _normalize_bill_ref(
             row,
@@ -209,11 +213,78 @@ def ingest_votes(
         upserted_bill_refs=upserted_bill_refs,
         ensured_member_refs=ensured_member_refs,
         upserted_votes=upserted_votes,
-        selected_worker_count=benchmark.selected_worker_count,
+        selected_worker_count=selected_worker_count,
+        vote_row_target_bill_count=len(vote_row_target_bill_ids),
+        vote_row_skipped_bill_count=len(skipped_bill_ids),
         tolerated_distribution_mismatches=tolerated_distribution_mismatches,
         failed_vote_bill_count=len(vote_row_failures),
         vote_row_failures=vote_row_failures,
         age_param_used=vote_bill_list.age_param_used,
+    )
+
+
+def _vote_row_target_bill_ids(
+    source_bill_ids: list[str],
+    *,
+    canonical_bill_ids: dict[str, str],
+    mode: VoteRowFetchMode,
+) -> tuple[list[str], list[str]]:
+    if mode == "all":
+        return source_bill_ids, []
+    if mode != "missing":
+        raise ValueError("vote_row_fetch_mode must be one of: all, missing")
+    existing_vote_bill_ids = _load_bill_ids_with_votes(canonical_bill_ids.values())
+    target: list[str] = []
+    skipped: list[str] = []
+    for source_bill_id in source_bill_ids:
+        canonical_bill_id = canonical_bill_ids[source_bill_id]
+        if canonical_bill_id in existing_vote_bill_ids:
+            skipped.append(source_bill_id)
+        else:
+            target.append(source_bill_id)
+    return target, skipped
+
+
+def _load_bill_ids_with_votes(bill_ids: Any) -> set[str]:
+    unique_bill_ids = sorted({str(bill_id) for bill_id in bill_ids})
+    if not unique_bill_ids:
+        return set()
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT bill_id FROM votes WHERE bill_id = ANY(%s)",
+            (unique_bill_ids,),
+        )
+        return {str(row[0]) for row in cur.fetchall()}
+
+
+def _fetch_target_vote_rows(
+    bill_ids: list[str],
+    *,
+    benchmark_sample_size: int,
+    worker_levels: tuple[int, ...],
+    benchmark_output_path: Path,
+    retry_delays: tuple[float, ...],
+    vote_row_worker_count: int | None,
+) -> tuple[int, _VoteRowsFetchResult]:
+    if not bill_ids:
+        return 0, _VoteRowsFetchResult(rows_by_bill={}, failures=())
+    if vote_row_worker_count is None:
+        benchmark = measure_workers(
+            lambda bill_id, worker_count: _fetch_vote_rows_with_retry(
+                str(bill_id),
+                retry_delays=retry_delays,
+            ),
+            items=representative_sample(bill_ids, benchmark_sample_size),
+            levels=worker_levels,
+        )
+        render_parallel_benchmark(benchmark, benchmark_output_path)
+        worker_count = benchmark.selected_worker_count
+    else:
+        worker_count = vote_row_worker_count
+    return worker_count, _fetch_vote_rows_for_bills(
+        bill_ids,
+        worker_count=worker_count,
+        retry_delays=retry_delays,
     )
 
 
