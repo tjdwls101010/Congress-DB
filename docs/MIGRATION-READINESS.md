@@ -37,11 +37,11 @@ Recommendation: `ready_for_human_review`
 | Table | Rows |
 |---|---:|
 | `members` | 306 |
-| `bills` | 18333 |
-| `bill_lead_proposers` | 17531 |
-| `bill_coproposers` | 206014 |
+| `bills` | 18345 |
+| `bill_lead_proposers` | 17543 |
+| `bill_coproposers` | 206138 |
 | `votes` | 473594 |
-| `meetings` | 2103 |
-| `meeting_bills` | 40353 |
-| `utterances` | 1373867 |
-| `session_groups` | 30663 |
+| `meetings` | 2105 |
+| `meeting_bills` | 40355 |
+| `utterances` | 1378071 |
+| `session_groups` | 30755 |

@@ -310,3 +310,96 @@ def test_ingest_bills_returns_structured_summary_failures(
     assert result.summary_error_count == 1
     assert result.summary_failures[0].bill_no == "9000002"
     assert result.summary_failures[0].error == "summary API overloaded"
+
+
+def test_ingest_bills_incremental_fetches_only_missing_summaries(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    rows = [
+        {
+            **_bill_row(
+                "TEST_BILL_1",
+                "9000001",
+                "테스트 법안 1",
+                "TEST_BILL_MEMBER_1",
+                "",
+                "",
+            ),
+            "PROC_RESULT": "가결",
+        },
+        _bill_row(
+            "TEST_BILL_2",
+            "9000002",
+            "테스트 법안 2",
+            "TEST_BILL_MEMBER_2",
+            "",
+            "",
+        ),
+    ]
+    summary_calls: list[str] = []
+    benchmark_output = tmp_path / "PARALLEL-BENCHMARK.md"
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO bills (bill_id, bill_no, bill_name, summary, proc_result)
+            VALUES ('TEST_BILL_1', '9000001', '기존 법안명', '기존 요약', '계류')
+            """
+        )
+        conn.commit()
+
+    def fake_get(url: str, **kwargs: Any) -> MagicMock:
+        endpoint = url.rsplit("/", 1)[-1]
+        params = kwargs["params"]
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        if endpoint == "nzmimeepazxkubdpn" and "AGE" not in params:
+            response.json.return_value = _no_data()
+        elif endpoint == "nzmimeepazxkubdpn":
+            response.json.return_value = _envelope(endpoint, total=2, rows=rows)
+        elif endpoint == "BPMBILLSUMMARY":
+            summary_calls.append(params["BILL_NO"])
+            if params["BILL_NO"] == "9000001":
+                raise AssertionError("existing summary should not be refetched")
+            response.json.return_value = _envelope(
+                endpoint,
+                total=1,
+                rows=[{"BILL_NO": params["BILL_NO"], "SUMMARY": "새 요약"}],
+            )
+        else:
+            raise AssertionError(endpoint)
+        return response
+
+    monkeypatch.setattr("congress_db.api_client.requests.get", fake_get)
+
+    result = ingest_bills(
+        limit_pct=1.0,
+        page_size=2,
+        benchmark_sample_size=1,
+        worker_levels=(1,),
+        benchmark_output_path=benchmark_output,
+        summary_fetch_mode="missing",
+        summary_worker_count=1,
+    )
+
+    assert summary_calls == ["9000002"]
+    assert result.summary_success_count == 1
+    assert result.summary_error_count == 0
+    assert result.summary_skipped_count == 1
+    assert not benchmark_output.exists()
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT bill_id, summary, proc_result
+            FROM bills
+            WHERE bill_id = ANY(%s)
+            ORDER BY bill_id
+            """,
+            (list(TEST_BILLS),),
+        )
+        bills = cur.fetchall()
+
+    assert bills == [
+        ("TEST_BILL_1", "기존 요약", "가결"),
+        ("TEST_BILL_2", "새 요약", None),
+    ]

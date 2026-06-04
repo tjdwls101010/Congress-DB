@@ -10,7 +10,7 @@ import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import psycopg
 
@@ -30,6 +30,7 @@ BILLS_ENDPOINT = "nzmimeepazxkubdpn"
 SUMMARY_ENDPOINT = "BPMBILLSUMMARY"
 DEFAULT_BENCHMARK_OUTPUT = Path("docs/PARALLEL-BENCHMARK.md")
 SUMMARY_MAX_RETRY_RATE = 0.02
+SummaryFetchMode = Literal["all", "missing"]
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,8 @@ class IngestBillsResult:
     upserted_coproposers: int
     ensured_member_refs: int
     selected_worker_count: int
+    summary_target_count: int
+    summary_skipped_count: int
     summary_success_count: int
     summary_error_count: int
     summary_retry_count: int
@@ -161,7 +164,7 @@ _UPSERT_BILLS_SQL = """
         committee_dt       = EXCLUDED.committee_dt,
         cmt_proc_dt        = EXCLUDED.cmt_proc_dt,
         cmt_proc_result_cd = EXCLUDED.cmt_proc_result_cd,
-        summary            = EXCLUDED.summary,
+        summary            = COALESCE(EXCLUDED.summary, bills.summary),
         detail_link        = EXCLUDED.detail_link,
         age                = EXCLUDED.age,
         fetched_at         = now()
@@ -193,6 +196,8 @@ def ingest_bills(
     benchmark_sample_size: int = 100,
     worker_levels: tuple[int, ...] = DEFAULT_WORKER_LEVELS,
     benchmark_output_path: Path = DEFAULT_BENCHMARK_OUTPUT,
+    summary_fetch_mode: SummaryFetchMode = "all",
+    summary_worker_count: int | None = None,
 ) -> IngestBillsResult:
     """22대 법안 목록 10%와 summary를 적재한다."""
     bill_list = _fetch_bill_list(limit_pct=limit_pct, page_size=page_size)
@@ -201,15 +206,25 @@ def ingest_bills(
         flush=True,
     )
     bill_nos = [str(row["BILL_NO"]) for row in bill_list.rows]
-
-    benchmark = _benchmark_summary_workers(
-        representative_sample(bill_nos, benchmark_sample_size),
-        worker_levels=worker_levels,
-        output_path=benchmark_output_path,
+    existing_summaries = (
+        _load_existing_summaries(bill_nos) if summary_fetch_mode == "missing" else {}
     )
-    summary_result = _fetch_summaries(bill_nos, benchmark.selected_worker_count)
+    summary_targets = _summary_target_bill_nos(
+        bill_nos,
+        existing_summaries=existing_summaries,
+        mode=summary_fetch_mode,
+    )
+
+    selected_worker_count, summary_result = _fetch_target_summaries(
+        summary_targets,
+        benchmark_sample_size=benchmark_sample_size,
+        worker_levels=worker_levels,
+        benchmark_output_path=benchmark_output_path,
+        summary_worker_count=summary_worker_count,
+    )
+    summaries = {**existing_summaries, **summary_result.summaries}
     bill_rows = [
-        _normalize_bill_row(row, summary_result.summaries.get(str(row["BILL_NO"])))
+        _normalize_bill_row(row, summaries.get(str(row["BILL_NO"])))
         for row in bill_list.rows
     ]
     lead_proposer_rows = _normalize_lead_proposer_rows(bill_list.rows)
@@ -239,7 +254,9 @@ def ingest_bills(
         upserted_lead_proposers=upserted_lead_proposers,
         upserted_coproposers=upserted_coproposers,
         ensured_member_refs=ensured_member_refs,
-        selected_worker_count=benchmark.selected_worker_count,
+        selected_worker_count=selected_worker_count,
+        summary_target_count=len(summary_targets),
+        summary_skipped_count=len(bill_nos) - len(summary_targets),
         summary_success_count=summary_result.success_count,
         summary_error_count=summary_result.error_count,
         summary_retry_count=summary_result.retry_count,
@@ -247,6 +264,65 @@ def ingest_bills(
         summary_failures=summary_result.failures,
         age_param_used=bill_list.age_param_used,
     )
+
+
+def _load_existing_summaries(bill_nos: list[str]) -> dict[str, str]:
+    if not bill_nos:
+        return {}
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT bill_no, summary
+            FROM bills
+            WHERE bill_no = ANY(%s)
+              AND summary IS NOT NULL
+              AND summary <> ''
+            """,
+            (bill_nos,),
+        )
+        return {str(bill_no): str(summary) for bill_no, summary in cur.fetchall()}
+
+
+def _summary_target_bill_nos(
+    bill_nos: list[str],
+    *,
+    existing_summaries: dict[str, str],
+    mode: SummaryFetchMode,
+) -> list[str]:
+    if mode == "all":
+        return bill_nos
+    if mode == "missing":
+        return [bill_no for bill_no in bill_nos if bill_no not in existing_summaries]
+    raise ValueError("summary_fetch_mode must be one of: all, missing")
+
+
+def _fetch_target_summaries(
+    bill_nos: list[str],
+    *,
+    benchmark_sample_size: int,
+    worker_levels: tuple[int, ...],
+    benchmark_output_path: Path,
+    summary_worker_count: int | None,
+) -> tuple[int, _SummaryResult]:
+    if not bill_nos:
+        return 0, _SummaryResult(
+            summaries={},
+            success_count=0,
+            error_count=0,
+            retry_count=0,
+            retry_item_count=0,
+            failures=(),
+        )
+    if summary_worker_count is None:
+        benchmark = _benchmark_summary_workers(
+            representative_sample(bill_nos, benchmark_sample_size),
+            worker_levels=worker_levels,
+            output_path=benchmark_output_path,
+        )
+        worker_count = benchmark.selected_worker_count
+    else:
+        worker_count = summary_worker_count
+    return worker_count, _fetch_summaries(bill_nos, worker_count)
 
 
 def _fetch_bill_list(*, limit_pct: float, page_size: int) -> _BillListResult:
