@@ -31,15 +31,17 @@ connection string.
 - Unresolved dead letters: `0`.
 - Local readiness blockers: `0`.
 - Local readiness warnings after the pre-Neon quality-gate pass:
-  - `session_group` semantic accuracy has an agent first-pass measurement, not a
-    final PM-reviewed measurement: `620` correct, `164` incorrect, `3` missing,
-    precision `79.1%`, recall `99.5%`.
+  - `session_group` semantic accuracy is Codex-reviewed and complete for the
+    pre-Neon gate: `620` correct, `164` incorrect, `3` missing, precision
+    `79.1%`, recall `99.5%`.
+  - All sampled meeting types are below the standalone-use precision threshold
+    (`90.0%`), so downstream API/SDK paths must keep the `utterances`
+    sequence-window fallback instead of relying on `session_groups` alone.
   - The current local DB has no sampled `인사청문회` meetings, so that meeting type
     is reported as missing from the semantic accuracy sample instead of being
     silently treated as passed.
-  - These warnings do not change the restore mechanics, but they must be visible
-    before any downstream API/SDK treats `session_groups` as a fully validated
-    meaning unit.
+  - These warnings do not change the restore mechanics, but they define how
+    downstream API/SDK search must treat `session_groups`.
 - 발언↔의원 mapping quality is now measured in `docs/DATA-COMPLETENESS.md`:
   `847,480` member-titled utterances, `9` unmapped, actionable mapping rate
   `100.0%`.
@@ -92,7 +94,7 @@ Expected readiness:
 - data completeness signal available
 - 발언↔의원 mapping-rate signal visible
 - session-group semantic accuracy signal visible as either complete metrics or
-  explicit pending/missing-type warnings
+  explicit pending/missing-type/fallback warnings
 
 ## Dump
 
@@ -168,10 +170,10 @@ for:
 - Unresolved dead letters: `0`.
 - Session group integrity metrics: all `0`.
 - Session group semantic accuracy signal is present separately from integrity:
-  current local state has agent first-pass labels (`620` correct, `164`
-  incorrect, `3` missing; precision `79.1%`, recall `99.5%`) and has no sampled
-  `인사청문회` meetings. PM verification remains before treating the numbers as
-  final.
+  current local state has Codex-reviewed labels (`620` correct, `164`
+  incorrect, `3` missing; precision `79.1%`, recall `99.5%`), marks all sampled
+  types below the standalone-use threshold, and has no sampled `인사청문회`
+  meetings.
 - S1-S7 query outputs or checksums.
 - Accepted data quality gaps from `docs/DATA-COMPLETENESS.md` remain visible and
   unchanged unless a new source endpoint is intentionally added.
@@ -201,10 +203,10 @@ Acceptance:
 
 - Current utterance/session-group repair is verified by the 2026-05-31 recovery
   drill.
-- Complete PM verification or explicitly waive the agent first-pass
-  `session_group` semantic label review before exposing Q&A groups as a
-  high-confidence public API/SDK meaning unit. Until then, the SDK/API search
-  path should keep using `utterances` sequence-window fallback for recall.
+- Do not expose `session_groups` as the sole high-confidence public API/SDK
+  meaning unit for below-threshold meeting types. Keep the SDK/API search path
+  paired with `utterances` sequence-window fallback until a later search-quality
+  slice raises or explicitly waives the standalone-use threshold.
 - Bills/votes still need either one full hosted incremental rehearsal or narrower
   windowed repair controls before calling the hosted DB production-ready.
 - App/serverless runtimes should use the Neon pooled connection string. Native

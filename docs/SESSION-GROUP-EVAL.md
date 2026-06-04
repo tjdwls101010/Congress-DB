@@ -6,11 +6,13 @@ metrics after a reviewer or agent marks labels.
 
 ## Status
 
-- Labeled review status: complete agent first-pass; PM verification pending
+- Labeled review status: complete Codex-reviewed
 - Label file: `docs/session-group-eval/labels.csv`
 - Pending auto candidates: 0
-- Agent first-pass labels: 787
-- Human/PM-reviewed labels: 0
+- Agent-reviewed labels: 787
+- Human-reviewed labels: 0
+- Standalone-use threshold: precision >= 90.0%, recall >= 70.0%
+- Types requiring `utterances` sequence-window fallback: 국정감사(P=80.0%, R=98.3%), 국정조사(P=69.9%, R=100.0%), 상임위(P=87.8%, R=100.0%), 특별위(P=89.1%, R=100.0%)
 
 ## Metrics
 
@@ -40,7 +42,7 @@ metrics after a reviewer or agent marks labels.
 - Mark an auto-generated row `correct` if the questioner and start point form a real Q&A meaning unit.
 - Mark it `incorrect` if it is a procedural/noisy group rather than a Q&A meaning unit.
 - Add a new row with `missing` if the meeting has a real Q&A group that automation missed.
-- Leave `label` blank for rows not yet reviewed. PM review is only needed for disputed examples.
+- Leave `label` blank for rows not yet reviewed. Human review is only needed for disputed examples.
 
 ## Sampled Meetings
 
