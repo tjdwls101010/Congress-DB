@@ -3,6 +3,22 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-06-04 — Search strategy: agentic + ranked keyword, defer vector embeddings
+
+The search layer (roadmap steps 2-4) will use agentic keyword search — Claude issues
+multiple domain-informed query variants, follows structural JOINs
+(bill→votes→meetings→utterances), and iterates — over a keyword layer upgraded from
+substring-only to relevance-ranked + snippets (Postgres-native `similarity()`/snippet, no
+new infra). Vector/embedding semantic search is deferred, not adopted: this terminological,
+citation-critical, low-QPS legislative domain lets Claude's own vocabulary + agentic
+iteration recover most semantic recall, while embeddings carry ongoing maintenance (Korean
+model hosting, weekly re-embedding of new utterances, model-version re-embeds, pgvector
+storage/cost). Deferring is low-risk because pgvector is additive later (Neon supports it;
+source text already stored) — no DB rebuild; revisit only if a measured recall failure
+proves agentic+ranked-keyword insufficient. The `legislative-copilot` prototype already
+validated keyword+agentic without vectors. DB implication: add relevance-ranking support
+when the SDK slice begins.
+
 ## 2026-06-04 — Four-project roadmap: this repo is the 국회 DB only
 
 The legislative-design harness needs three sources — 국회 (proposed/discussed/voted
