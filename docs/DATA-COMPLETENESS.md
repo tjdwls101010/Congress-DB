@@ -27,12 +27,12 @@ It separates source metadata gaps, safe fixes, and unsafe automatic mapping.
 
 | name | mona_cd | latest_vote_party | utterances | votes | lead_bills | co_bills | classification |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 추미애 | URV1689Q | 더불어민주당 | 7982 | 1479 | 29 | 517 | referenced_member_stub |
+| 추미애 | URV1689Q | 더불어민주당 | 8222 | 1479 | 29 | 517 | referenced_member_stub |
 | 민형배 | VRY5522V | 더불어민주당 | 6919 | 1479 | 240 | 1151 | referenced_member_stub |
 | 위성곤 | RQQ3807K | 더불어민주당 | 6068 | 1479 | 102 | 997 | referenced_member_stub |
 | 이원택 | DAV7257X | 더불어민주당 | 3536 | 1479 | 73 | 801 | referenced_member_stub |
 | 박찬대 | BT62420K | 더불어민주당 | 2619 | 1479 | 24 | 126 | referenced_member_stub |
-| 양문석 | 3OQ8273H | 더불어민주당 | 2513 | 1233 | 28 | 460 | referenced_member_stub |
+| 양문석 | 3OQ8273H | 더불어민주당 | 2512 | 1233 | 28 | 460 | referenced_member_stub |
 | 이병진 | HFV52269 | 더불어민주당 | 2229 | 1056 | 89 | 1464 | referenced_member_stub |
 | 정을호 | NA61091D | 더불어민주당 | 2009 | 1233 | 62 | 459 | referenced_member_stub |
 | 박수현 | 5TQ6306B | 더불어민주당 | 1991 | 1479 | 49 | 858 | referenced_member_stub |

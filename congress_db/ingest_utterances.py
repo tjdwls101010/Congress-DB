@@ -126,6 +126,7 @@ def ingest_utterances(
     benchmark_output_path: Path = DEFAULT_SCRAPE_BENCHMARK_OUTPUT,
     retry_delays: tuple[float, ...] = DEFAULT_RETRY_DELAYS,
     allow_partial: bool = False,
+    scrape_worker_count: int | None = None,
 ) -> IngestUtterancesResult:
     """회의록 HTML을 스크래핑해 발언을 적재한다."""
     target_meetings = _load_target_meetings(
@@ -137,17 +138,21 @@ def ingest_utterances(
         f"[ingest-utterances] target meetings={len(target_meeting_ids)}",
         flush=True,
     )
-    benchmark = _benchmark_scrape_workers(
-        representative_sample(target_meetings, benchmark_sample_size),
-        levels=worker_levels,
-        retry_delays=retry_delays,
-    )
-    _write_scrape_benchmark(benchmark, benchmark_output_path)
-    _ensure_benchmark_acceptable(benchmark)
+    if scrape_worker_count is None:
+        benchmark = _benchmark_scrape_workers(
+            representative_sample(target_meetings, benchmark_sample_size),
+            levels=worker_levels,
+            retry_delays=retry_delays,
+        )
+        _write_scrape_benchmark(benchmark, benchmark_output_path)
+        _ensure_benchmark_acceptable(benchmark)
+        selected_worker_count = benchmark.selected_worker_count
+    else:
+        selected_worker_count = scrape_worker_count
 
     scraped, errors, scrape_telemetry = _scrape_meetings(
         target_meetings,
-        worker_count=benchmark.selected_worker_count,
+        worker_count=selected_worker_count,
         retry_delays=retry_delays,
     )
     retry_count = scrape_telemetry.retry_count
@@ -155,7 +160,7 @@ def ingest_utterances(
     if errors:
         retried, errors, final_retry_telemetry = _retry_failed_meetings(
             errors,
-            selected_worker_count=benchmark.selected_worker_count,
+            selected_worker_count=selected_worker_count,
             retry_delays=retry_delays,
         )
         scraped.update(retried)
@@ -175,7 +180,7 @@ def ingest_utterances(
         scraped_meeting_count=len(scraped),
         scraped_meeting_ids=tuple(scraped_meeting_ids),
         utterance_count=upserted_utterances,
-        selected_worker_count=benchmark.selected_worker_count,
+        selected_worker_count=selected_worker_count,
         retry_count=retry_count,
         retried_meeting_count=len(retried_meeting_ids),
         scrape_error_count=len(errors),

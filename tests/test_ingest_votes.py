@@ -395,3 +395,122 @@ def test_ingest_votes_uses_existing_bill_when_vote_api_reuses_bill_no(
 
     assert alias_bill_count == (0,)
     assert vote_bill_ids == [("TEST_VOTE_BILL_EXISTING",)]
+
+
+def test_ingest_votes_incremental_fetches_only_missing_vote_rows(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    existing_vote_bill = {
+        **_vote_bill_row("TEST_VOTE_BILL_1", "9100001", "테스트 표결 법안 1"),
+        "PROC_RESULT_CD": "수정가결",
+    }
+    new_vote_bill = _vote_bill_row("TEST_VOTE_BILL_2", "9100002", "테스트 표결 법안 2")
+    vote_bills = [existing_vote_bill, new_vote_bill]
+    vote_rows_by_bill = {
+        "TEST_VOTE_BILL_2": [
+            _vote_row("TEST_VOTE_BILL_2", "9100002", "TEST_VOTE_MEMBER_1", "표결일", "찬성"),
+            _vote_row("TEST_VOTE_BILL_2", "9100002", "TEST_VOTE_MEMBER_2", "표결이", "반대"),
+            _vote_row("TEST_VOTE_BILL_2", "9100002", "TEST_VOTE_MEMBER_3", "표결삼", "기권"),
+        ],
+    }
+    detail_calls: list[str] = []
+    benchmark_output = tmp_path / "VOTES-PARALLEL-BENCHMARK.md"
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO bills (bill_id, bill_no, bill_name, proc_result)
+            VALUES ('TEST_VOTE_BILL_1', '9100001', '기존 표결 법안', '원안가결')
+            """
+        )
+        for row in (
+            _vote_row("TEST_VOTE_BILL_1", "9100001", "TEST_VOTE_MEMBER_1", "표결일", "찬성"),
+            _vote_row("TEST_VOTE_BILL_1", "9100001", "TEST_VOTE_MEMBER_2", "표결이", "반대"),
+            _vote_row("TEST_VOTE_BILL_1", "9100001", "TEST_VOTE_MEMBER_3", "표결삼", "기권"),
+        ):
+            cur.execute(
+                """
+                INSERT INTO members (mona_cd, hg_nm)
+                VALUES (%s, %s)
+                ON CONFLICT (mona_cd) DO NOTHING
+                """,
+                (row["MONA_CD"], row["HG_NM"]),
+            )
+            cur.execute(
+                """
+                INSERT INTO votes (
+                    bill_id, mona_cd, vote_date, result_vote_mod,
+                    poly_nm_at_vote, session_cd, currents_cd
+                )
+                VALUES (%s, %s, '2026-05-07 18:16:30+09', %s, %s, %s, %s)
+                """,
+                (
+                    row["BILL_ID"],
+                    row["MONA_CD"],
+                    row["RESULT_VOTE_MOD"],
+                    row["POLY_NM"],
+                    row["SESSION_CD"],
+                    row["CURRENTS_CD"],
+                ),
+            )
+        conn.commit()
+
+    def fake_get(url: str, **kwargs: Any) -> MagicMock:
+        endpoint = url.rsplit("/", 1)[-1]
+        params = kwargs["params"]
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        if "AGE" not in params and endpoint == "ncocpgfiaoituanbr":
+            response.json.return_value = _no_data()
+        elif endpoint == "ncocpgfiaoituanbr":
+            response.json.return_value = _envelope(endpoint, total=2, rows=vote_bills)
+        elif endpoint == "nojepdqqaweusdfbi":
+            detail_calls.append(params["BILL_ID"])
+            if params["BILL_ID"] == "TEST_VOTE_BILL_1":
+                raise AssertionError("existing vote rows should not be refetched")
+            rows = vote_rows_by_bill[params["BILL_ID"]]
+            response.json.return_value = _envelope(endpoint, total=len(rows), rows=rows)
+        else:
+            raise AssertionError(endpoint)
+        return response
+
+    monkeypatch.setattr("congress_db.api_client.requests.get", fake_get)
+
+    result = ingest_votes(
+        limit_pct=1.0,
+        page_size=2,
+        benchmark_sample_size=1,
+        worker_levels=(1,),
+        benchmark_output_path=benchmark_output,
+        vote_row_fetch_mode="missing",
+        vote_row_worker_count=1,
+    )
+
+    assert detail_calls == ["TEST_VOTE_BILL_2"]
+    assert result.vote_row_count == 3
+    assert result.upserted_votes == 3
+    assert result.vote_row_skipped_bill_count == 1
+    assert result.failed_vote_bill_count == 0
+    assert not benchmark_output.exists()
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT bill_id, proc_result
+            FROM bills
+            WHERE bill_id = ANY(%s)
+            ORDER BY bill_id
+            """,
+            (["TEST_VOTE_BILL_1", "TEST_VOTE_BILL_2"],),
+        )
+        bills = cur.fetchall()
+        cur.execute("SELECT COUNT(*) FROM votes WHERE bill_id = 'TEST_VOTE_BILL_1'")
+        existing_vote_count = cur.fetchone()
+        cur.execute("SELECT COUNT(*) FROM votes WHERE bill_id = 'TEST_VOTE_BILL_2'")
+        new_vote_count = cur.fetchone()
+
+    assert bills == [
+        ("TEST_VOTE_BILL_1", "수정가결"),
+        ("TEST_VOTE_BILL_2", "원안가결"),
+    ]
+    assert existing_vote_count == (3,)
+    assert new_vote_count == (3,)

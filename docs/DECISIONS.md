@@ -17,16 +17,16 @@ text is explicitly out of this repo (it belongs to the 법제처 SDK), and the p
 ## 2026-06-04 — Incremental sync re-scans cheap lists, skips immutable items (drops the 30-day window)
 
 The documented "source-specific cursor + 30-day overlap window" incremental design
-(ADR-0006, PRD #37/#39, CONTEXT 증분 동기화) was never wired in: `incremental_plan.py` is
-dead code and the live path full-refetches everything every run — re-pulling ~18k immutable
+(ADR-0006, PRD #37/#39, CONTEXT 증분 동기화) was never wired in: `incremental_plan.py` was
+dead code and the live path full-refetched everything every run — re-pulling ~18k immutable
 bill summaries and ~1,600 bills' vote rows, and re-running worker benchmarks. Decision:
 incremental re-scans the cheap list endpoints in full each run (so late edits to old
 records, e.g. a year-old bill's `proc_result` changing, are always caught) and upserts all,
 but skips per-item fetches for items already present (bill summaries and vote rows are
 immutable once set) and runs benchmarks only at first calibration; the date-window model is
 dropped because legislative records are edited late and a 30-day window misses them.
-Verified by an end-to-end orchestration test plus one real-source dry run (issue #46).
-Supersedes the windowing aspect of ADR-0006.
+Issue #46 removes the unused planner and verifies the behavior with public-interface tests
+plus one real-source dry run. Supersedes the windowing aspect of ADR-0006.
 
 ## 2026-05-31 — Target Neon for the first hosted Postgres migration
 

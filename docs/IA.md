@@ -280,6 +280,8 @@ FROM ingest_cursors
 ORDER BY source;
 ```
 
+`overlap_days`는 과거 windowing 설계의 잔여 컬럼이며, 현재 공식 증분 경로에서는 fetch 범위 결정에 쓰지 않는다. 정상적인 신규 cursor는 source별 `last_success_at` 기준점과 `overlap_days = 0`을 기록한다.
+
 상태 의미:
 
 - `success`: 실패 item 없이 완료.
