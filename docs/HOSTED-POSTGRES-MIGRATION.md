@@ -31,8 +31,9 @@ connection string.
 - Unresolved dead letters: `0`.
 - Local readiness blockers: `0`.
 - Local readiness warnings after the pre-Neon quality-gate pass:
-  - `session_group` semantic accuracy labels are still pending
-    (`784` auto candidates, `0` reviewed).
+  - `session_group` semantic accuracy has an agent first-pass measurement, not a
+    final PM-reviewed measurement: `620` correct, `164` incorrect, `3` missing,
+    precision `79.1%`, recall `99.5%`.
   - The current local DB has no sampled `인사청문회` meetings, so that meeting type
     is reported as missing from the semantic accuracy sample instead of being
     silently treated as passed.
@@ -167,8 +168,10 @@ for:
 - Unresolved dead letters: `0`.
 - Session group integrity metrics: all `0`.
 - Session group semantic accuracy signal is present separately from integrity:
-  current local state is pending review (`784` candidates, `0` reviewed) and has
-  no sampled `인사청문회` meetings.
+  current local state has agent first-pass labels (`620` correct, `164`
+  incorrect, `3` missing; precision `79.1%`, recall `99.5%`) and has no sampled
+  `인사청문회` meetings. PM verification remains before treating the numbers as
+  final.
 - S1-S7 query outputs or checksums.
 - Accepted data quality gaps from `docs/DATA-COMPLETENESS.md` remain visible and
   unchanged unless a new source endpoint is intentionally added.
@@ -198,10 +201,10 @@ Acceptance:
 
 - Current utterance/session-group repair is verified by the 2026-05-31 recovery
   drill.
-- Complete or explicitly waive the `session_group` semantic label review before
-  exposing Q&A groups as a high-confidence public API/SDK meaning unit. Until then,
-  the SDK/API search path should keep using `utterances` sequence-window fallback
-  for recall.
+- Complete PM verification or explicitly waive the agent first-pass
+  `session_group` semantic label review before exposing Q&A groups as a
+  high-confidence public API/SDK meaning unit. Until then, the SDK/API search
+  path should keep using `utterances` sequence-window fallback for recall.
 - Bills/votes still need either one full hosted incremental rehearsal or narrower
   windowed repair controls before calling the hosted DB production-ready.
 - App/serverless runtimes should use the Neon pooled connection string. Native

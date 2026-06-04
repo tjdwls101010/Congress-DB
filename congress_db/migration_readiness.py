@@ -262,6 +262,8 @@ def _load_session_group_semantic_accuracy() -> dict[str, Any]:
         "missing_count": result.missing_count,
         "pending_count": result.pending_count,
         "reviewed_count": result.reviewed_count,
+        "agent_labeled_count": result.agent_labeled_count,
+        "human_labeled_count": result.human_labeled_count,
         "precision": result.precision,
         "recall": result.recall,
         "by_type": [
@@ -410,6 +412,11 @@ def _warnings(
             "session_group semantic accuracy review is incomplete "
             f"(pending={semantic_accuracy.get('pending_count')}, "
             f"reviewed={semantic_accuracy.get('reviewed_count')})"
+        )
+    elif semantic_accuracy.get("agent_labeled_count"):
+        warnings.append(
+            "session_group semantic accuracy is based on agent first-pass labels; "
+            "PM verification remains before treating it as final"
         )
     missing_types = semantic_accuracy.get("missing_meeting_types")
     if missing_types:

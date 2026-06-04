@@ -8,7 +8,7 @@ Recommendation: `ready_for_human_review`
 
 ## Warnings
 
-- session_group semantic accuracy review is incomplete (pending=784, reviewed=0)
+- session_group semantic accuracy is based on agent first-pass labels; PM verification remains before treating it as final
 - session_group semantic accuracy has no sampled meetings for: 인사청문회
 
 ## Latest Backfill Run
@@ -34,7 +34,7 @@ Recommendation: `ready_for_human_review`
 
 ## Session Group Semantic Accuracy
 
-- signal: `{'available': True, 'labels_path': 'docs/session-group-eval/labels.csv', 'complete': False, 'missing_meeting_types': ('인사청문회',), 'correct_count': 0, 'incorrect_count': 0, 'missing_count': 0, 'pending_count': 784, 'reviewed_count': 0, 'precision': None, 'recall': None, 'by_type': [{'meeting_type': '국정감사', 'correct_count': 0, 'incorrect_count': 0, 'missing_count': 0, 'pending_count': 220, 'precision': None, 'recall': None}, {'meeting_type': '국정조사', 'correct_count': 0, 'incorrect_count': 0, 'missing_count': 0, 'pending_count': 296, 'precision': None, 'recall': None}, {'meeting_type': '상임위', 'correct_count': 0, 'incorrect_count': 0, 'missing_count': 0, 'pending_count': 131, 'precision': None, 'recall': None}, {'meeting_type': '특별위', 'correct_count': 0, 'incorrect_count': 0, 'missing_count': 0, 'pending_count': 137, 'precision': None, 'recall': None}]}`
+- signal: `{'available': True, 'labels_path': 'docs/session-group-eval/labels.csv', 'complete': True, 'missing_meeting_types': ('인사청문회',), 'correct_count': 620, 'incorrect_count': 164, 'missing_count': 3, 'pending_count': 0, 'reviewed_count': 787, 'agent_labeled_count': 787, 'human_labeled_count': 0, 'precision': 0.7908163265306123, 'recall': 0.9951845906902087, 'by_type': [{'meeting_type': '국정감사', 'correct_count': 176, 'incorrect_count': 44, 'missing_count': 3, 'pending_count': 0, 'precision': 0.8, 'recall': 0.9832402234636871}, {'meeting_type': '국정조사', 'correct_count': 207, 'incorrect_count': 89, 'missing_count': 0, 'pending_count': 0, 'precision': 0.6993243243243243, 'recall': 1.0}, {'meeting_type': '상임위', 'correct_count': 115, 'incorrect_count': 16, 'missing_count': 0, 'pending_count': 0, 'precision': 0.8778625954198473, 'recall': 1.0}, {'meeting_type': '특별위', 'correct_count': 122, 'incorrect_count': 15, 'missing_count': 0, 'pending_count': 0, 'precision': 0.8905109489051095, 'recall': 1.0}]}`
 
 ## Sanity And Completeness
 

@@ -6,26 +6,28 @@ metrics after a reviewer or agent marks labels.
 
 ## Status
 
-- Labeled review status: pending labeled review
+- Labeled review status: complete agent first-pass; PM verification pending
 - Label file: `docs/session-group-eval/labels.csv`
-- Pending auto candidates: 784
+- Pending auto candidates: 0
+- Agent first-pass labels: 787
+- Human/PM-reviewed labels: 0
 
 ## Metrics
 
-- Correct auto groups: 0
-- Incorrect auto groups: 0
-- Missing expected groups: 0
-- Precision: pending
-- Recall: pending
+- Correct auto groups: 620
+- Incorrect auto groups: 164
+- Missing expected groups: 3
+- Precision: 79.1%
+- Recall: 99.5%
 
 ## Metrics By Meeting Type
 
 | Type | Correct | Incorrect | Missing | Pending | Precision | Recall |
 |---|---:|---:|---:|---:|---:|---:|
-| 국정감사 | 0 | 0 | 0 | 220 | pending | pending |
-| 국정조사 | 0 | 0 | 0 | 296 | pending | pending |
-| 상임위 | 0 | 0 | 0 | 131 | pending | pending |
-| 특별위 | 0 | 0 | 0 | 137 | pending | pending |
+| 국정감사 | 176 | 44 | 3 | 0 | 80.0% | 98.3% |
+| 국정조사 | 207 | 89 | 0 | 0 | 69.9% | 100.0% |
+| 상임위 | 115 | 16 | 0 | 0 | 87.8% | 100.0% |
+| 특별위 | 122 | 15 | 0 | 0 | 89.1% | 100.0% |
 
 ## Coverage Notes
 

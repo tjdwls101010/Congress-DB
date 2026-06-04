@@ -130,6 +130,8 @@ class SessionGroupEvalResult:
     incorrect_count: int
     missing_count: int
     pending_count: int
+    agent_labeled_count: int = 0
+    human_labeled_count: int = 0
     by_type: tuple[SessionGroupTypeEvalResult, ...] = ()
 
     @property
@@ -310,6 +312,8 @@ def evaluate_labels(labels_path: Path) -> SessionGroupEvalResult:
 
 def evaluate_label_rows(rows: Sequence[Mapping[str, str]]) -> SessionGroupEvalResult:
     counts: dict[str, dict[str, int]] = {}
+    agent_labeled = 0
+    human_labeled = 0
     invalid_labels: set[str] = set()
 
     for row in rows:
@@ -324,10 +328,22 @@ def evaluate_label_rows(rows: Sequence[Mapping[str, str]]) -> SessionGroupEvalRe
         )
         if label == LABEL_CORRECT:
             bucket["correct"] += 1
+            if _is_agent_first_pass(row):
+                agent_labeled += 1
+            else:
+                human_labeled += 1
         elif label == LABEL_INCORRECT:
             bucket["incorrect"] += 1
+            if _is_agent_first_pass(row):
+                agent_labeled += 1
+            else:
+                human_labeled += 1
         elif label == LABEL_MISSING:
             bucket["missing"] += 1
+            if _is_agent_first_pass(row):
+                agent_labeled += 1
+            else:
+                human_labeled += 1
         else:
             bucket["pending"] += 1
 
@@ -349,6 +365,8 @@ def evaluate_label_rows(rows: Sequence[Mapping[str, str]]) -> SessionGroupEvalRe
         incorrect_count=sum(row.incorrect_count for row in by_type),
         missing_count=sum(row.missing_count for row in by_type),
         pending_count=sum(row.pending_count for row in by_type),
+        agent_labeled_count=agent_labeled,
+        human_labeled_count=human_labeled,
         by_type=by_type,
     )
 
@@ -404,6 +422,10 @@ def _normalize_label(value: str) -> str:
     return str(value or "").strip().lower()
 
 
+def _is_agent_first_pass(row: Mapping[str, str]) -> bool:
+    return "agent-first-pass" in str(row.get("notes") or "").lower()
+
+
 def _pct(value: float | None) -> str:
     if value is None:
         return "pending"
@@ -415,7 +437,12 @@ def _render_markdown(
     meetings: Sequence[EvalMeeting],
     labels_path: Path,
 ) -> str:
-    status = "complete" if result.is_complete else "pending labeled review"
+    if result.is_complete and result.agent_labeled_count:
+        status = "complete agent first-pass; PM verification pending"
+    elif result.is_complete:
+        status = "complete"
+    else:
+        status = "pending labeled review"
     lines = [
         "# Session Group Evaluation",
         "",
@@ -428,6 +455,8 @@ def _render_markdown(
         f"- Labeled review status: {status}",
         f"- Label file: `{labels_path}`",
         f"- Pending auto candidates: {result.pending_count}",
+        f"- Agent first-pass labels: {result.agent_labeled_count}",
+        f"- Human/PM-reviewed labels: {result.human_labeled_count}",
         "",
         "## Metrics",
         "",
