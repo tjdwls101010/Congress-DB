@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Supabase migration readiness report CLI."""
+"""Hosted Postgres migration readiness report CLI."""
 
 from __future__ import annotations
 

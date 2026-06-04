@@ -1,10 +1,10 @@
 # Parallel Benchmark
 
-Measured at: `2026-05-26T15:03:14+00:00`
+Measured at: `2026-05-29T14:52:09+00:00`
 
 ## Selected worker count
 
-`50` (error rate threshold: < 1%)
+`100` (error rate threshold: < 1%)
 
 Selection policy: choose the lowest worker count that stays under the error threshold and reaches at least 95% of the best measured throughput.
 
@@ -12,30 +12,18 @@ Selection policy: choose the lowest worker count that stays under the error thre
 
 | Workers | Calls | Success | Errors | Error rate | Seconds | Calls/sec |
 |---:|---:|---:|---:|---:|---:|---:|
-| 5 | 100 | 100 | 0 | 0.0% | 6.95 | 14.38 |
-| 20 | 100 | 100 | 0 | 0.0% | 4.59 | 21.79 |
-| 50 | 100 | 100 | 0 | 0.0% | 4.11 | 24.35 |
-| 100 | 100 | 100 | 0 | 0.0% | 4.30 | 23.26 |
-| 200 | 100 | 100 | 0 | 0.0% | 4.12 | 24.27 |
+| 5 | 1000 | 1000 | 0 | 0.0% | 144.05 | 6.94 |
+| 20 | 1000 | 1000 | 0 | 0.0% | 234.72 | 4.26 |
+| 50 | 1000 | 1000 | 0 | 0.0% | 115.81 | 8.63 |
+| 100 | 1000 | 1000 | 0 | 0.0% | 58.78 | 17.01 |
+| 200 | 1000 | 1000 | 0 | 0.0% | 217.29 | 4.60 |
 
 ## Calls/sec chart
 
 ```text
-  5: ################## 14.38/s
- 20: ########################### 21.79/s
- 50: ############################## 24.35/s
-100: ############################# 23.26/s
-200: ############################## 24.27/s
+  5: ############ 6.94/s
+ 20: ######## 4.26/s
+ 50: ############### 8.63/s
+100: ############################## 17.01/s
+200: ######## 4.60/s
 ```
-
-<!-- SCRAPE_BENCHMARK_START -->
-## Scraping Stage
-
-Measured at: `2026-05-27T00:11:39+00:00`
-
-Selected worker count: `5`
-
-| Workers | Calls | Success | Errors | Error rate | Seconds | Calls/sec |
-|---:|---:|---:|---:|---:|---:|---:|
-| 5 | 100 | 100 | 0 | 0.0% | 68.01 | 1.47 |
-<!-- SCRAPE_BENCHMARK_END -->

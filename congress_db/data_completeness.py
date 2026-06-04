@@ -1,4 +1,4 @@
-"""10% 데이터 완성도 follow-up 리포트."""
+"""데이터 완성도 follow-up 리포트."""
 
 from __future__ import annotations
 
@@ -50,10 +50,10 @@ def generate_data_completeness_report(
             metrics=_build_metrics(missing_party_rows, gap_counts),
             tables=(
                 SampleTable("Missing Party Member Stubs", missing_party_rows),
-                SampleTable("Vote-created Bill Metadata Gaps", bill_gap_rows),
+                SampleTable("Bill Metadata Gaps", bill_gap_rows),
                 SampleTable("Unmapped Member-titled Speakers", unmapped_speaker_rows),
             ),
-            conclusions=_build_conclusions(unmapped_speaker_rows),
+            conclusions=_build_conclusions(unmapped_speaker_rows, gap_counts),
         )
     render_data_completeness_report(report, output_path)
     return report
@@ -129,7 +129,10 @@ def _load_bill_metadata_gaps(cur: object) -> tuple[dict[str, object], ...]:
                 CASE WHEN b.propose_dt IS NULL THEN 'propose_dt' END,
                 CASE WHEN b.summary IS NULL OR b.summary = '' THEN 'summary' END
             ) AS "missing_fields",
-            'vote_created_bill_stub_until_full_bill_load' AS "classification"
+            CASE
+                WHEN v.bill_id IS NOT NULL THEN 'vote_created_source_metadata_gap_after_full_backfill'
+                ELSE 'source_summary_gap_after_full_backfill'
+            END AS "classification"
         FROM bills b
         LEFT JOIN (SELECT DISTINCT bill_id FROM votes) v USING (bill_id)
         WHERE b.propose_dt IS NULL
@@ -172,6 +175,7 @@ def _load_gap_counts(cur: object) -> dict[str, int]:
             (SELECT COUNT(*) FROM bill_gaps WHERE propose_dt IS NULL) AS bills_missing_propose_dt,
             (SELECT COUNT(*) FROM bill_gaps WHERE summary IS NULL OR summary = '') AS bills_missing_summary,
             (SELECT COUNT(*) FROM bill_gaps WHERE has_votes) AS vote_created_bill_gaps,
+            (SELECT COUNT(*) FROM bill_gaps WHERE NOT has_votes) AS non_vote_bill_gaps,
             COALESCE((SELECT SUM(utterances)::int FROM matches), 0)
                 AS unmapped_member_titled_utterances,
             COALESCE((
@@ -266,6 +270,7 @@ def _build_metrics(
 
 def _build_conclusions(
     unmapped_speaker_rows: Sequence[Mapping[str, object]],
+    gap_counts: Mapping[str, int],
 ) -> tuple[str, ...]:
     safe_candidates = [
         row for row in unmapped_speaker_rows
@@ -279,9 +284,10 @@ def _build_conclusions(
     )
     return (
         "Do not backfill `members.poly_nm` from `votes.poly_nm_at_vote` in this slice; vote party is point-in-time data, while `members.poly_nm` is profile metadata.",
-        "Vote-created bill references are expected during 10% calibration because the votes slice can touch bills outside the 10% bill-list slice; full bill load should enrich them.",
+        f"{gap_counts['vote_created_bill_gaps']} vote-created bill rows still lack source proposal date and summary after full backfill; keep them as accepted source metadata gaps for migration unless a new source endpoint is added.",
+        f"{gap_counts['non_vote_bill_gaps']} non-vote bill rows still lack source summary after full backfill; they affect summary-search recall, not relational integrity.",
         mapping_conclusion,
-        "Keep these metrics visible in the sanity report until they are either resolved by full load or explicitly accepted for Supabase migration.",
+        "Keep these metrics visible through hosted Postgres migration so accepted source gaps do not get mistaken for ingest failures.",
     )
 
 
@@ -294,8 +300,8 @@ def _render_markdown(report: CompletenessReport) -> str:
     lines = [
         "# Data Completeness Follow-up",
         "",
-        "This report classifies the data quality signals surfaced by the 10% sanity check.",
-        "It separates safe fixes from expected calibration artifacts and unsafe automatic mapping.",
+        "This report classifies the data quality signals surfaced by the current local backfill.",
+        "It separates source metadata gaps, safe fixes, and unsafe automatic mapping.",
         "",
         "## Metrics",
         "",

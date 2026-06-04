@@ -4,6 +4,7 @@ from congress_db.sanity_check import (
     FtsDecision,
     SanityCheckResult,
     SanitySection,
+    _S3_MEETING_STREAMS_SQL,
     render_sanity_report,
 )
 
@@ -30,7 +31,7 @@ def test_render_sanity_report_shows_all_scenarios_and_fts_decision(tmp_path) -> 
         fts_decision=FtsDecision(
             selected="pg_trgm",
             alternatives=("Postgres simple tsvector", "PGroonga"),
-            rationale=("Works in the local Postgres image and Supabase.",),
+            rationale=("Works in the local Postgres image and hosted Postgres.",),
             migration_path="db/migrations/001_search_indexes.sql",
         ),
     )
@@ -38,7 +39,7 @@ def test_render_sanity_report_shows_all_scenarios_and_fts_decision(tmp_path) -> 
     render_sanity_report(result, output)
 
     text = output.read_text()
-    assert "# 10% Integrated Sanity Check" in text
+    assert "# Integrated Sanity Check" in text
     assert "- members: 298" in text
     assert "## S1. 의원 통합 조회" in text
     assert "| 의원 | 발언수 |" in text
@@ -71,3 +72,11 @@ def test_render_sanity_report_escapes_markdown_table_cells(tmp_path) -> None:
     render_sanity_report(result, output)
 
     assert "A \\| B C" in output.read_text()
+
+
+def test_s3_meeting_streams_query_preaggregates_relation_counts() -> None:
+    assert "COUNT(DISTINCT" not in _S3_MEETING_STREAMS_SQL
+    assert "agenda_items" not in _S3_MEETING_STREAMS_SQL
+    assert "bill_counts AS" in _S3_MEETING_STREAMS_SQL
+    assert "utterance_counts AS" in _S3_MEETING_STREAMS_SQL
+    assert "group_counts AS" in _S3_MEETING_STREAMS_SQL

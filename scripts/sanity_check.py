@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""10% 통합 sanity check CLI."""
+"""통합 sanity check CLI."""
 
 from __future__ import annotations
 

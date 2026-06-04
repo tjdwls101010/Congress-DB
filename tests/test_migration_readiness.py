@@ -1,4 +1,4 @@
-"""Slice 16 — Supabase migration readiness report 검증."""
+"""Slice 16 — hosted Postgres migration readiness report 검증."""
 
 from __future__ import annotations
 
@@ -19,9 +19,11 @@ TEST_MEETING = 970101
 
 @pytest.fixture(autouse=True)
 def clean_readiness_rows() -> None:
+    parked_dead_letters = _park_non_test_dead_letters()
     _delete_rows()
     yield
     _delete_rows()
+    _restore_dead_letters(parked_dead_letters)
 
 
 def _delete_rows() -> None:
@@ -36,6 +38,47 @@ def _delete_rows() -> None:
         conn.commit()
 
 
+def _park_non_test_dead_letters() -> list[tuple[int, str, object]]:
+    """로컬 백필 실패 기록이 readiness 단위 테스트를 오염시키지 않게 잠시 숨긴다."""
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, status, resolved_at
+            FROM dead_letters
+            WHERE source NOT LIKE 'test.readiness.%'
+              AND status IN ('pending', 'retrying', 'blocked')
+            """
+        )
+        rows = cur.fetchall()
+        if rows:
+            cur.execute(
+                """
+                UPDATE dead_letters
+                SET status = 'ignored', resolved_at = now()
+                WHERE id = ANY(%s)
+                """,
+                ([row[0] for row in rows],),
+            )
+        conn.commit()
+    return rows
+
+
+def _restore_dead_letters(rows: list[tuple[int, str, object]]) -> None:
+    if not rows:
+        return
+    with get_conn() as conn, conn.cursor() as cur:
+        for dead_letter_id, status, resolved_at in rows:
+            cur.execute(
+                """
+                UPDATE dead_letters
+                SET status = %s, resolved_at = %s
+                WHERE id = %s
+                """,
+                (status, resolved_at, dead_letter_id),
+            )
+        conn.commit()
+
+
 def _complete_summary() -> dict[str, object]:
     return {
         "test": "migration_readiness",
@@ -45,7 +88,8 @@ def _complete_summary() -> dict[str, object]:
                     {"key": "S1"},
                     {"key": "S2"},
                     {"key": "S3"},
-                    {"key": "S4"},
+                    {"key": "S4a"},
+                    {"key": "S4b"},
                     {"key": "S5"},
                     {"key": "S6"},
                     {"key": "S7"},
@@ -121,8 +165,8 @@ def test_readiness_report_blocks_on_session_group_integrity_errors(tmp_path: Pat
         )
         cur.execute(
             """
-            INSERT INTO meetings (mnts_id, title, meeting_type, conf_date, source_api)
-            VALUES (%s, '테스트 위원회', '상임위', '2026-05-20', 'test')
+            INSERT INTO meetings (mnts_id, title, meeting_type, conf_date)
+            VALUES (%s, '테스트 위원회', '상임위', '2026-05-20')
             """,
             (TEST_MEETING,),
         )

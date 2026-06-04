@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Sequence
+from threading import Lock
+from typing import Any, Sequence
 
-from .benchmark import BenchmarkResult, measure_workers
+from .benchmark import BenchmarkResult, WorkerRun, representative_sample
 from .db import execute_many, get_conn
-from .progress import ProgressReporter
+from .progress import ProgressReporter, safe_print
 from .scrape_minutes import (
     MinutesInfo,
     UtteranceDraft,
@@ -22,7 +24,11 @@ from .scrape_minutes import (
 
 DEFAULT_SCRAPE_BENCHMARK_OUTPUT = Path("docs/PARALLEL-BENCHMARK.md")
 DEFAULT_RETRY_DELAYS = (1.0, 4.0, 16.0)
-DEFAULT_SCRAPE_WORKER_LEVELS = (5,)
+DEFAULT_SCRAPE_WORKER_LEVELS = (2, 5, 10, 20, 40)
+SCRAPE_MAX_ERROR_RATE = 0.01
+SCRAPE_MAX_RETRY_RATE = 0.05
+SCRAPE_MIN_THROUGHPUT_RATIO = 0.95
+KNOWN_HTML_UNAVAILABLE_MNTS_IDS = frozenset({52354, 52713})
 MEMBER_SPEAKER_TITLES = frozenset(
     {
         "의원",
@@ -45,8 +51,11 @@ class IngestUtterancesResult:
 
     meeting_count: int
     scraped_meeting_count: int
+    scraped_meeting_ids: tuple[int, ...]
     utterance_count: int
     selected_worker_count: int
+    retry_count: int
+    retried_meeting_count: int
     scrape_error_count: int
     member_mapped_count: int
     sample_errors: tuple[str, ...]
@@ -68,6 +77,28 @@ class _MeetingTarget:
     conf_date: str
     meeting_type: str
     title: str
+
+
+@dataclass
+class _RetryTelemetry:
+    retry_count: int = 0
+    retried_meeting_ids: set[int] = field(default_factory=set)
+    samples: list[str] = field(default_factory=list)
+    lock: Any = field(default_factory=Lock, repr=False)
+
+    def record(self, *, mnts_id: int, error: str) -> None:
+        with self.lock:
+            self.retry_count += 1
+            self.retried_meeting_ids.add(mnts_id)
+            if len(self.samples) < 5:
+                self.samples.append(f"{mnts_id}: {error}")
+
+    def record_final_retry(self, *, mnts_id: int) -> None:
+        with self.lock:
+            self.retry_count += 1
+            self.retried_meeting_ids.add(mnts_id)
+            if len(self.samples) < 5:
+                self.samples.append(f"{mnts_id}: final retry pass")
 
 
 _UPSERT_UTTERANCES_SQL = """
@@ -102,33 +133,34 @@ def ingest_utterances(
         meeting_ids=meeting_ids,
     )
     target_meeting_ids = [meeting.mnts_id for meeting in target_meetings]
-    print(
+    safe_print(
         f"[ingest-utterances] target meetings={len(target_meeting_ids)}",
         flush=True,
     )
-    benchmark = measure_workers(
-        lambda meeting, worker_count: _scrape_one_with_retry(
-            meeting,
-            retry_delays=retry_delays,
-        ),
-        items=target_meetings[:benchmark_sample_size],
+    benchmark = _benchmark_scrape_workers(
+        representative_sample(target_meetings, benchmark_sample_size),
         levels=worker_levels,
+        retry_delays=retry_delays,
     )
     _write_scrape_benchmark(benchmark, benchmark_output_path)
     _ensure_benchmark_acceptable(benchmark)
 
-    scraped, errors = _scrape_meetings(
+    scraped, errors, scrape_telemetry = _scrape_meetings(
         target_meetings,
         worker_count=benchmark.selected_worker_count,
         retry_delays=retry_delays,
     )
+    retry_count = scrape_telemetry.retry_count
+    retried_meeting_ids = set(scrape_telemetry.retried_meeting_ids)
     if errors:
-        retried, errors = _retry_failed_meetings(
+        retried, errors, final_retry_telemetry = _retry_failed_meetings(
             errors,
             selected_worker_count=benchmark.selected_worker_count,
             retry_delays=retry_delays,
         )
         scraped.update(retried)
+        retry_count += final_retry_telemetry.retry_count
+        retried_meeting_ids.update(final_retry_telemetry.retried_meeting_ids)
     member_map = _load_unique_member_name_map()
     utterance_rows = _normalize_utterance_rows(scraped, member_map)
     scraped_meeting_ids = sorted(scraped)
@@ -141,8 +173,11 @@ def ingest_utterances(
     result = IngestUtterancesResult(
         meeting_count=len(target_meeting_ids),
         scraped_meeting_count=len(scraped),
+        scraped_meeting_ids=tuple(scraped_meeting_ids),
         utterance_count=upserted_utterances,
         selected_worker_count=benchmark.selected_worker_count,
+        retry_count=retry_count,
+        retried_meeting_count=len(retried_meeting_ids),
         scrape_error_count=len(errors),
         member_mapped_count=sum(1 for row in utterance_rows if row["speaker_mona_cd"]),
         sample_errors=tuple(
@@ -236,6 +271,7 @@ def _scrape_one_with_retry(
     meeting: _MeetingTarget,
     *,
     retry_delays: tuple[float, ...],
+    retry_telemetry: _RetryTelemetry | None = None,
 ) -> list[UtteranceDraft]:
     attempts = 0
     while True:
@@ -246,7 +282,9 @@ def _scrape_one_with_retry(
             if attempts > len(retry_delays):
                 raise RuntimeError(f"after {attempts} attempts: {exc}") from exc
             delay = retry_delays[attempts - 1]
-            print(
+            if retry_telemetry is not None:
+                retry_telemetry.record(mnts_id=meeting.mnts_id, error=str(exc))
+            safe_print(
                 f"[retry] minutes scraping id={meeting.mnts_id} "
                 f"attempt={attempts} next_delay={delay:.1f}s error={exc}",
                 flush=True,
@@ -260,14 +298,20 @@ def _scrape_meetings(
     worker_count: int,
     retry_delays: tuple[float, ...],
     label: str = "minutes scraping",
-) -> tuple[dict[int, list[UtteranceDraft]], list[ScrapeFailure]]:
+) -> tuple[dict[int, list[UtteranceDraft]], list[ScrapeFailure], _RetryTelemetry]:
     scraped: dict[int, list[UtteranceDraft]] = {}
     errors: list[ScrapeFailure] = []
+    telemetry = _RetryTelemetry()
     progress = ProgressReporter(label, len(meetings))
     progress.start()
     with ThreadPoolExecutor(max_workers=worker_count) as pool:
         futures = {
-            pool.submit(_scrape_one_with_retry, meeting, retry_delays=retry_delays): meeting
+            pool.submit(
+                _scrape_one_with_retry,
+                meeting,
+                retry_delays=retry_delays,
+                retry_telemetry=telemetry,
+            ): meeting
             for meeting in meetings
         }
         for future in as_completed(futures):
@@ -285,7 +329,7 @@ def _scrape_meetings(
                 )
                 progress.advance(errors=1)
     progress.finish()
-    return scraped, errors
+    return scraped, errors, telemetry
 
 
 def _retry_failed_meetings(
@@ -293,21 +337,159 @@ def _retry_failed_meetings(
     *,
     selected_worker_count: int,
     retry_delays: tuple[float, ...],
-) -> tuple[dict[int, list[UtteranceDraft]], list[ScrapeFailure]]:
+) -> tuple[dict[int, list[UtteranceDraft]], list[ScrapeFailure], _RetryTelemetry]:
     failed_ids = [error.mnts_id for error in errors]
     failed_meetings = _load_meetings_by_ids(failed_ids)
     retry_worker_count = min(5, max(1, selected_worker_count))
-    print(
+    safe_print(
         "[retry] minutes scraping final pass "
         f"meetings={len(failed_ids)} workers={retry_worker_count}",
         flush=True,
     )
-    return _scrape_meetings(
+    retried, remaining_errors, telemetry = _scrape_meetings(
         failed_meetings,
         worker_count=retry_worker_count,
         retry_delays=retry_delays,
         label="minutes scraping final retry",
     )
+    for failed_id in failed_ids:
+        telemetry.record_final_retry(mnts_id=failed_id)
+    return retried, remaining_errors, telemetry
+
+
+def _benchmark_scrape_workers(
+    meetings: Sequence[_MeetingTarget],
+    *,
+    levels: tuple[int, ...],
+    retry_delays: tuple[float, ...],
+) -> BenchmarkResult:
+    """회의록 스크래핑 benchmark는 최종 실패뿐 아니라 retry storm도 탈락 신호로 본다."""
+    sample = list(meetings)
+    overall = ProgressReporter("worker benchmark", len(levels), step=1)
+    overall.start()
+    runs: list[WorkerRun] = []
+    for worker in levels:
+        run = _measure_scrape_worker(
+            sample,
+            worker_count=worker,
+            retry_delays=retry_delays,
+        )
+        runs.append(run)
+        overall.advance()
+        if (
+            any(
+                _is_scrape_run_acceptable(
+                    measured,
+                    max_error_rate=SCRAPE_MAX_ERROR_RATE,
+                    max_retry_rate=SCRAPE_MAX_RETRY_RATE,
+                )
+                for measured in runs
+            )
+            and not _is_scrape_run_acceptable(
+                run,
+                max_error_rate=SCRAPE_MAX_ERROR_RATE,
+                max_retry_rate=SCRAPE_MAX_RETRY_RATE,
+            )
+        ):
+            break
+    overall.finish()
+    selected = _select_scrape_worker(
+        runs,
+        max_error_rate=SCRAPE_MAX_ERROR_RATE,
+        max_retry_rate=SCRAPE_MAX_RETRY_RATE,
+        min_throughput_ratio=SCRAPE_MIN_THROUGHPUT_RATIO,
+    )
+    return BenchmarkResult(
+        measured_at=datetime.now(UTC).isoformat(timespec="seconds"),
+        runs=tuple(runs),
+        selected_worker_count=selected.worker_count,
+        max_error_rate=SCRAPE_MAX_ERROR_RATE,
+        min_throughput_ratio=SCRAPE_MIN_THROUGHPUT_RATIO,
+    )
+
+
+def _measure_scrape_worker(
+    meetings: Sequence[_MeetingTarget],
+    *,
+    worker_count: int,
+    retry_delays: tuple[float, ...],
+) -> WorkerRun:
+    telemetry = _RetryTelemetry()
+    start = time.perf_counter()
+    success_count = 0
+    errors: list[str] = []
+    progress = ProgressReporter(f"benchmark workers={worker_count}", len(meetings))
+    progress.start()
+    with ThreadPoolExecutor(max_workers=worker_count) as pool:
+        futures = [
+            pool.submit(
+                _scrape_one_with_retry,
+                meeting,
+                retry_delays=retry_delays,
+                retry_telemetry=telemetry,
+            )
+            for meeting in meetings
+        ]
+        for future in as_completed(futures):
+            try:
+                future.result()
+                success_count += 1
+                progress.advance()
+            except Exception as exc:  # noqa: BLE001 - benchmark records boundary failures
+                if len(errors) < 5:
+                    errors.append(str(exc))
+                progress.advance(errors=1)
+    progress.finish()
+
+    seconds = time.perf_counter() - start
+    call_count = len(meetings)
+    return WorkerRun(
+        worker_count=worker_count,
+        call_count=call_count,
+        success_count=success_count,
+        error_count=call_count - success_count,
+        seconds=seconds,
+        errors=tuple(errors),
+        retry_count=telemetry.retry_count,
+        retry_item_count=len(telemetry.retried_meeting_ids),
+        retry_samples=tuple(telemetry.samples),
+    )
+
+
+def _select_scrape_worker(
+    runs: Sequence[WorkerRun],
+    *,
+    max_error_rate: float,
+    max_retry_rate: float,
+    min_throughput_ratio: float,
+) -> WorkerRun:
+    acceptable = [
+        run
+        for run in runs
+        if _is_scrape_run_acceptable(
+            run,
+            max_error_rate=max_error_rate,
+            max_retry_rate=max_retry_rate,
+        )
+    ]
+    if acceptable:
+        best_throughput = max(run.calls_per_second for run in acceptable)
+        near_best = [
+            run
+            for run in acceptable
+            if run.calls_per_second >= best_throughput * min_throughput_ratio
+        ]
+        return min(near_best, key=lambda run: run.worker_count)
+    return min(runs, key=lambda run: (run.error_rate, run.retry_rate, -run.calls_per_second))
+
+
+def _is_scrape_run_acceptable(
+    run: WorkerRun,
+    *,
+    max_error_rate: float,
+    max_retry_rate: float,
+) -> bool:
+    return run.error_rate < max_error_rate and run.retry_rate <= max_retry_rate
 
 
 def _validate_minutes_info(info: MinutesInfo, meeting: _MeetingTarget) -> None:
@@ -393,6 +575,12 @@ def _ensure_benchmark_acceptable(result: BenchmarkResult) -> None:
             f"selected={selected.worker_count} error_rate={selected.error_rate:.1%} "
             f"threshold=<{result.max_error_rate:.1%}"
         )
+    if selected.retry_rate > SCRAPE_MAX_RETRY_RATE:
+        raise RuntimeError(
+            "scraping benchmark did not find a stable worker count: "
+            f"selected={selected.worker_count} retry_rate={selected.retry_rate:.1%} "
+            f"threshold<={SCRAPE_MAX_RETRY_RATE:.1%}"
+        )
 
 
 def _render_scrape_benchmark(result: BenchmarkResult) -> str:
@@ -403,13 +591,20 @@ def _render_scrape_benchmark(result: BenchmarkResult) -> str:
         "",
         f"Selected worker count: `{result.selected_worker_count}`",
         "",
-        "| Workers | Calls | Success | Errors | Error rate | Seconds | Calls/sec |",
-        "|---:|---:|---:|---:|---:|---:|---:|",
+        "Selection policy: choose the lowest worker count that stays under the "
+        f"{result.max_error_rate:.0%} final-error threshold, keeps retried meetings "
+        f"at or below {SCRAPE_MAX_RETRY_RATE:.0%}, and reaches at least "
+        f"{result.min_throughput_ratio:.0%} of the best stable throughput.",
+        "",
+        "| Workers | Calls | Success | Errors | Error rate | Retried meetings | Retry rate | Retry attempts | Seconds | Calls/sec |",
+        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for run in result.runs:
         lines.append(
             f"| {run.worker_count} | {run.call_count} | {run.success_count} | "
-            f"{run.error_count} | {run.error_rate:.1%} | {run.seconds:.2f} | "
+            f"{run.error_count} | {run.error_rate:.1%} | "
+            f"{run.retry_item_count} | {run.retry_rate:.1%} | {run.retry_count} | "
+            f"{run.seconds:.2f} | "
             f"{run.calls_per_second:.2f} |"
         )
     if any(run.errors for run in result.runs):
@@ -417,4 +612,9 @@ def _render_scrape_benchmark(result: BenchmarkResult) -> str:
         for run in result.runs:
             if run.errors:
                 lines.append(f"- `{run.worker_count}` workers: {', '.join(run.errors)}")
+    if any(run.retry_samples for run in result.runs):
+        lines.extend(["", "### Sample Retries", ""])
+        for run in result.runs:
+            if run.retry_samples:
+                lines.append(f"- `{run.worker_count}` workers: {', '.join(run.retry_samples)}")
     return "\n".join(lines)

@@ -8,6 +8,7 @@ from congress_db.benchmark import (
     WorkerRun,
     _select_worker,
     measure_workers,
+    representative_sample,
     render_parallel_benchmark,
 )
 
@@ -43,6 +44,20 @@ def test_measure_workers_selects_fastest_successful_level() -> None:
     ]
 
 
+def test_measure_workers_uses_all_explicit_items() -> None:
+    calls: list[int] = []
+
+    result = measure_workers(
+        lambda item, worker_count: calls.append(item),
+        items=list(range(5)),
+        levels=(1,),
+        n=2,
+    )
+
+    assert result.runs[0].call_count == 5
+    assert calls == [0, 1, 2, 3, 4]
+
+
 def test_measure_workers_prefers_lower_worker_when_throughput_is_close() -> None:
     selected = _select_worker(
         (
@@ -58,6 +73,44 @@ def test_measure_workers_prefers_lower_worker_when_throughput_is_close() -> None
     assert selected.worker_count == 20
 
 
+def test_select_worker_rejects_retry_storm() -> None:
+    selected = _select_worker(
+        (
+            WorkerRun(5, call_count=100, success_count=100, error_count=0, seconds=20.0),
+            WorkerRun(
+                20,
+                call_count=100,
+                success_count=100,
+                error_count=0,
+                seconds=2.0,
+                retry_item_count=30,
+            ),
+        ),
+        max_error_rate=0.01,
+        min_throughput_ratio=0.95,
+        max_retry_rate=0.02,
+    )
+
+    assert selected.worker_count == 5
+
+
+def test_measure_workers_tracks_retry_counts_from_results() -> None:
+    class Result:
+        def __init__(self, retry_count: int) -> None:
+            self.retry_count = retry_count
+
+    result = measure_workers(
+        lambda item, worker_count: Result(retry_count=item),
+        items=[0, 2, 0],
+        levels=(1,),
+        retry_count_from_result=lambda response: response.retry_count,
+    )
+
+    assert result.runs[0].retry_count == 2
+    assert result.runs[0].retry_item_count == 1
+    assert result.runs[0].retry_samples == ("2",)
+
+
 def test_render_parallel_benchmark_writes_table_and_chart(tmp_path: Path) -> None:
     result = measure_workers(
         lambda item, worker_count: item,
@@ -69,8 +122,14 @@ def test_render_parallel_benchmark_writes_table_and_chart(tmp_path: Path) -> Non
     render_parallel_benchmark(result, output)
 
     md = output.read_text()
-    assert "| Workers | Calls | Success | Errors | Error rate | Seconds | Calls/sec |" in md
+    assert "| Workers | Calls | Success | Errors | Error rate | Retried calls |" in md
     assert "## Selected worker count" in md
     assert "Selection policy" in md
     assert "`5`" in md
     assert "```text" in md
+
+
+def test_representative_sample_spans_full_sequence() -> None:
+    assert representative_sample(list(range(10)), 4) == [0, 3, 6, 9]
+    assert representative_sample(["a", "b"], 10) == ["a", "b"]
+    assert representative_sample(["a", "b"], 0) == []

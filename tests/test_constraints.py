@@ -44,7 +44,6 @@ def _pk_columns(table: str) -> list[str]:
         ("bill_lead_proposers", ["bill_id", "mona_cd"]),
         ("bill_coproposers", ["bill_id", "mona_cd"]),
         ("votes",            ["id"]),
-        ("agenda_items",     ["id"]),
         ("meeting_bills",    ["meeting_id", "bill_id"]),
         ("utterances",       ["id"]),
         ("session_groups",   ["id"]),
@@ -68,8 +67,8 @@ def test_meeting_type_rejects_invalid_value() -> None:
             cur.execute(
                 """
                 INSERT INTO meetings
-                    (mnts_id, title, meeting_type, conf_date, source_api)
-                VALUES (999991, 'test', '엉뚱회의', '2024-06-01', 'test')
+                    (mnts_id, title, meeting_type, conf_date)
+                VALUES (999991, 'test', '엉뚱회의', '2024-06-01')
                 """
             )
         conn.rollback()
@@ -84,8 +83,8 @@ def test_meeting_type_accepts_each_valid_value(valid_type: str) -> None:
         cur.execute(
             """
             INSERT INTO meetings
-                (mnts_id, title, meeting_type, conf_date, source_api)
-            VALUES (999992, 'test', %s, '2024-06-01', 'test')
+                (mnts_id, title, meeting_type, conf_date)
+            VALUES (999992, 'test', %s, '2024-06-01')
             """,
             (valid_type,),
         )
@@ -139,8 +138,8 @@ def test_utterances_unique_meeting_sequence() -> None:
         cur.execute(
             """
             INSERT INTO meetings
-                (mnts_id, title, meeting_type, conf_date, source_api)
-            VALUES (999993, 'test', '본회의', '2024-06-01', 'test')
+                (mnts_id, title, meeting_type, conf_date)
+            VALUES (999993, 'test', '본회의', '2024-06-01')
             """
         )
         cur.execute(

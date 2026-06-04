@@ -1,4 +1,4 @@
-"""10% 통합 sanity check 리포트 생성."""
+"""통합 sanity check 리포트 생성."""
 
 from __future__ import annotations
 
@@ -18,11 +18,50 @@ ROW_COUNT_TABLES = (
     "bill_coproposers",
     "votes",
     "meetings",
-    "agenda_items",
     "meeting_bills",
     "utterances",
     "session_groups",
 )
+
+_S3_MEETING_STREAMS_SQL = """
+    WITH bill_counts AS (
+        SELECT meeting_id, COUNT(*) AS bill_count
+        FROM meeting_bills
+        GROUP BY meeting_id
+    ), utterance_counts AS (
+        SELECT meeting_id, COUNT(*) AS utterance_count
+        FROM utterances
+        GROUP BY meeting_id
+    ), group_counts AS (
+        SELECT meeting_id, COUNT(*) AS group_count
+        FROM session_groups
+        GROUP BY meeting_id
+    )
+    SELECT
+        m.mnts_id AS "회의ID",
+        m.meeting_type AS "유형",
+        m.conf_date AS "일자",
+        left(m.title, 90) AS "회의명",
+        COALESCE(bc.bill_count, 0) AS "연결법안",
+        COALESCE(uc.utterance_count, 0) AS "발언",
+        COALESCE(gc.group_count, 0) AS "Q&A그룹",
+        first_u.speaker_name AS "첫발언자",
+        left(first_u.content, 120) AS "첫발언"
+    FROM meetings m
+    LEFT JOIN bill_counts bc ON bc.meeting_id = m.mnts_id
+    LEFT JOIN utterance_counts uc ON uc.meeting_id = m.mnts_id
+    LEFT JOIN group_counts gc ON gc.meeting_id = m.mnts_id
+    LEFT JOIN LATERAL (
+        SELECT speaker_name, content
+        FROM utterances u
+        WHERE u.meeting_id = m.mnts_id
+        ORDER BY sequence
+        LIMIT 1
+    ) first_u ON true
+    WHERE COALESCE(uc.utterance_count, 0) > 0
+    ORDER BY m.conf_date DESC, m.mnts_id DESC
+    LIMIT %s
+    """
 
 
 @dataclass(frozen=True)
@@ -57,7 +96,7 @@ class QualitySignal:
 
 @dataclass(frozen=True)
 class SanityCheckResult:
-    """10% 통합 검증 리포트 입력값."""
+    """통합 검증 리포트 입력값."""
 
     row_counts: Mapping[str, int]
     sections: Sequence[SanitySection]
@@ -103,9 +142,9 @@ def default_fts_decision() -> FtsDecision:
             "needs reliable substring matching across particles and spacing.",
             "PGroonga is the stronger multilingual search engine, but it is not "
             "available in the current local Postgres image and would add "
-            "environment churn before the first Supabase migration.",
+            "environment churn before the first hosted Postgres migration.",
             "pg_trgm works in the current Postgres 16 container, is available on "
-            "Supabase, and gives the API/SDK a practical first keyword-search "
+            "Neon, and gives the API/SDK a practical first keyword-search "
             "path for bills and utterances.",
         ),
         migration_path="db/migrations/001_search_indexes.sql",
@@ -228,52 +267,11 @@ def _load_s2_bill_process(cur: object, sample_size: int) -> SanitySection:
 
 
 def _load_s3_meeting_streams(cur: object, sample_size: int) -> SanitySection:
-    cur.execute(
-        """
-        WITH counts AS (
-            SELECT
-                m.mnts_id,
-                COUNT(DISTINCT ai.id) AS agenda_count,
-                COUNT(DISTINCT mb.bill_id) AS bill_count,
-                COUNT(DISTINCT u.id) AS utterance_count,
-                COUNT(DISTINCT sg.id) AS group_count
-            FROM meetings m
-            LEFT JOIN agenda_items ai ON ai.meeting_id = m.mnts_id
-            LEFT JOIN meeting_bills mb ON mb.meeting_id = m.mnts_id
-            LEFT JOIN utterances u ON u.meeting_id = m.mnts_id
-            LEFT JOIN session_groups sg ON sg.meeting_id = m.mnts_id
-            GROUP BY m.mnts_id
-        )
-        SELECT
-            m.mnts_id AS "회의ID",
-            m.meeting_type AS "유형",
-            m.conf_date AS "일자",
-            left(m.title, 90) AS "회의명",
-            c.agenda_count AS "안건",
-            c.bill_count AS "연결법안",
-            c.utterance_count AS "발언",
-            c.group_count AS "Q&A그룹",
-            first_u.speaker_name AS "첫발언자",
-            left(first_u.content, 120) AS "첫발언"
-        FROM meetings m
-        JOIN counts c ON c.mnts_id = m.mnts_id
-        LEFT JOIN LATERAL (
-            SELECT speaker_name, content
-            FROM utterances u
-            WHERE u.meeting_id = m.mnts_id
-            ORDER BY sequence
-            LIMIT 1
-        ) first_u ON true
-        WHERE c.utterance_count > 0
-        ORDER BY m.conf_date DESC, m.mnts_id DESC
-        LIMIT %s
-        """,
-        (sample_size,),
-    )
+    cur.execute(_S3_MEETING_STREAMS_SQL, (sample_size,))
     return SanitySection(
         key="S3",
-        title="회의 안건 + 발언 stream",
-        query_goal="최근 회의 5개의 안건/법안/발언/Q&A 그룹 연결 상태",
+        title="회의 본문 + 법안 + 발언 stream",
+        query_goal="최근 회의 5개의 연결법안/발언/Q&A 그룹 연결 상태",
         rows=_fetch_dicts(cur),
     )
 
@@ -478,12 +476,12 @@ def _load_quality_signals(cur: object) -> tuple[QualitySignal, ...]:
         (
             "bills_missing_propose_dt",
             "SELECT COUNT(*) FROM bills WHERE propose_dt IS NULL",
-            "표결 endpoint에서 먼저 들어온 법안 stub 가능성. 전체 법안 적재 때 줄어드는지 확인해야 한다.",
+            "표결 endpoint에서 들어온 대안/처리 법안의 원천 metadata gap. full backfill 이후에도 accepted gap으로 추적한다.",
         ),
         (
             "bills_missing_summary",
             "SELECT COUNT(*) FROM bills WHERE summary IS NULL OR summary = ''",
-            "법안 본문 검색 recall에 영향. summary API 실패/미적재 후보를 추적해야 한다.",
+            "법안명 검색은 가능하지만 summary 기반 recall에는 영향. 원천 summary 부재/미제공 후보로 추적한다.",
         ),
         (
             "member_titled_utterances_unmapped",
@@ -516,9 +514,9 @@ def _fetch_dicts(cur: object) -> tuple[dict[str, object], ...]:
 
 def _render_markdown(result: SanityCheckResult) -> str:
     lines = [
-        "# 10% Integrated Sanity Check",
+        "# Integrated Sanity Check",
         "",
-        "This report runs the IA S1-S7 query paths against the current 10% calibration load.",
+        "This report runs the IA S1-S7 query paths against the current local backfill load.",
         "It is a review artifact: code checks that the paths execute, and the PM can scan the rows for domain plausibility.",
         "",
         "## Dataset Row Counts",

@@ -1,6 +1,6 @@
 -- Congress-DB initial schema (Postgres 16)
 -- Source: docs/ERD.md
--- 10 core tables + 1 catalog table + 3 ingest operational tables = 14 tables.
+-- 9 core tables + 1 catalog table + 3 ingest operational tables = 13 tables.
 -- 자연키 우선, FK는 ON DELETE RESTRICT (참조 무결성 우선).
 -- CREATE TABLE IF NOT EXISTS로 idempotent 적용 (변경은 db-reset 또는 향후 migrations/).
 -- 적용은 psql -1 (single-transaction)으로 wrap — 이 파일에는 BEGIN/COMMIT 없음.
@@ -33,28 +33,22 @@ CREATE INDEX IF NOT EXISTS idx_members_hg_nm  ON members (hg_nm);
 CREATE INDEX IF NOT EXISTS idx_members_poly_nm ON members (poly_nm);
 
 -- =========================================================================
--- 2. meetings — 회의 (5종 통합, 자연키 PK = mnts_id)
+-- 2. meetings — 회의 (웹 HTML 회의록 기준, 자연키 PK = mnts_id)
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS meetings (
     mnts_id         INT PRIMARY KEY,
-    conf_id         TEXT,
     title           TEXT NOT NULL,
     meeting_type    TEXT NOT NULL
                     CHECK (meeting_type IN (
                         '본회의', '상임위', '특별위',
                         '국정감사', '국정조사', '인사청문회', '소위원회'
                     )),
-    class_name      TEXT,
-    dae_num         SMALLINT NOT NULL DEFAULT 22,
     session_no      INT,
     degree          TEXT,
     conf_date       DATE NOT NULL,
     comm_name       TEXT,
-    comm_code       TEXT,
-    pdf_link_url    TEXT,
-    vod_link_url    TEXT,
-    conf_link_url   TEXT,
-    source_api      TEXT NOT NULL,
+    is_temporary    BOOLEAN NOT NULL DEFAULT FALSE,
+    is_appendix     BOOLEAN NOT NULL DEFAULT FALSE,
     fetched_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -192,22 +186,7 @@ CREATE INDEX IF NOT EXISTS idx_utterances_speaker       ON utterances (speaker_m
 CREATE INDEX IF NOT EXISTS idx_utterances_session_group ON utterances (session_group_id) WHERE session_group_id IS NOT NULL;
 
 -- =========================================================================
--- 10. agenda_items — 회의 안건 (FK → meetings, bills)
--- =========================================================================
-CREATE TABLE IF NOT EXISTS agenda_items (
-    id          BIGSERIAL PRIMARY KEY,
-    meeting_id  INT  NOT NULL REFERENCES meetings (mnts_id) ON DELETE RESTRICT,
-    order_no    SMALLINT,
-    sub_name    TEXT NOT NULL,
-    bill_id     TEXT REFERENCES bills (bill_id) ON DELETE RESTRICT,
-    UNIQUE (meeting_id, order_no, sub_name)
-);
-
-CREATE INDEX IF NOT EXISTS idx_agenda_meeting ON agenda_items (meeting_id);
-CREATE INDEX IF NOT EXISTS idx_agenda_bill    ON agenda_items (bill_id) WHERE bill_id IS NOT NULL;
-
--- =========================================================================
--- 11. meeting_bills — 회의↔법안 N:M junction
+-- 10. meeting_bills — 회의↔법안 N:M junction
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS meeting_bills (
     meeting_id  INT  NOT NULL REFERENCES meetings (mnts_id) ON DELETE RESTRICT,
@@ -219,7 +198,7 @@ CREATE TABLE IF NOT EXISTS meeting_bills (
 CREATE INDEX IF NOT EXISTS idx_mb_bill ON meeting_bills (bill_id);
 
 -- =========================================================================
--- 12. ingest_runs — 수집 실행 기록
+-- 11. ingest_runs — 수집 실행 기록
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS ingest_runs (
     id              BIGSERIAL PRIMARY KEY,
@@ -247,7 +226,7 @@ CREATE INDEX IF NOT EXISTS idx_ingest_runs_status_started
     ON ingest_runs (status, started_at DESC);
 
 -- =========================================================================
--- 13. ingest_cursors — source별 증분 기준점
+-- 12. ingest_cursors — source별 증분 기준점
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS ingest_cursors (
     source          TEXT PRIMARY KEY,
@@ -262,7 +241,7 @@ CREATE INDEX IF NOT EXISTS idx_ingest_cursors_updated_run
     ON ingest_cursors (updated_run_id);
 
 -- =========================================================================
--- 14. dead_letters — 실패 item 보존
+-- 13. dead_letters — 실패 item 보존
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS dead_letters (
     id               BIGSERIAL PRIMARY KEY,

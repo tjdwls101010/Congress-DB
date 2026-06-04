@@ -1,16 +1,25 @@
-"""Slice 6 — meetings + agenda_items + meeting_bills 적재 검증."""
+"""Slice 6 — meetings + meeting_bills 적재 검증."""
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
 from congress_db.db import get_conn
-from congress_db.ingest_meetings import ingest_meetings
+from congress_db.ingest_meetings import (
+    _fetch_vconfbill_rows_for_bills,
+    _prune_stale_meetings,
+    ingest_meetings,
+)
+from congress_db.minutes_web_list import MinutesWebListCrawlResult, MinutesWebListMeeting
 
-TEST_MEETINGS = (910001, 910002, 910003, 910004)
+TEST_SOURCE_MEETINGS = (910001, 910002, 910003, 910004)
+TEST_WEB_ONLY_MEETING = 910005
+TEST_STALE_MEETING = 910099
+TEST_MEETINGS = (*TEST_SOURCE_MEETINGS, TEST_WEB_ONLY_MEETING, TEST_STALE_MEETING)
 TEST_BILLS = ("TEST_MEETING_BILL_1", "TEST_MEETING_BILL_2")
 
 
@@ -24,8 +33,19 @@ def clean_meeting_rows() -> None:
 
 def _delete_meeting_rows() -> None:
     with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM dead_letters WHERE source = 'minutes.html' AND item_key = ANY(%s)",
+            ([str(mnts_id) for mnts_id in TEST_MEETINGS],),
+        )
+        cur.execute(
+            """
+            DELETE FROM ingest_runs
+            WHERE summary @> '{"test_stale_meeting": true}'::jsonb
+            """
+        )
+        cur.execute("DELETE FROM utterances WHERE meeting_id = ANY(%s)", (list(TEST_MEETINGS),))
+        cur.execute("DELETE FROM session_groups WHERE meeting_id = ANY(%s)", (list(TEST_MEETINGS),))
         cur.execute("DELETE FROM meeting_bills WHERE meeting_id = ANY(%s)", (list(TEST_MEETINGS),))
-        cur.execute("DELETE FROM agenda_items WHERE meeting_id = ANY(%s)", (list(TEST_MEETINGS),))
         cur.execute("DELETE FROM meetings WHERE mnts_id = ANY(%s)", (list(TEST_MEETINGS),))
         cur.execute("DELETE FROM bills WHERE bill_id = ANY(%s)", (list(TEST_BILLS),))
         conn.commit()
@@ -189,6 +209,44 @@ def test_ingest_meetings_normalizes_sources_and_bills_idempotently(
         return response
 
     monkeypatch.setattr("congress_db.api_client.requests.get", fake_get)
+    monkeypatch.setattr(
+        "congress_db.ingest_meetings.collect_minutes_web_list",
+        lambda: MinutesWebListCrawlResult(
+            meetings=(
+                _web_meeting(910001, "제22대 제435회 제2차 국회본회의 (2026. 05. 08.)", "본회의", date(2026, 5, 8)),
+                _web_meeting(
+                    910002,
+                    "제22대 제435회 제1차 테스트위원회 법안심사소위원회 (2026. 05. 07.)",
+                    "소위원회",
+                    date(2026, 5, 7),
+                    comm_name="테스트위원회 법안심사소위원회",
+                ),
+                _web_meeting(
+                    910003,
+                    "조사특별위원회 국정조사 회의록 제1차 (2026. 05. 09.)",
+                    "국정조사",
+                    date(2026, 5, 9),
+                    comm_name="조사특별위원회",
+                ),
+                _web_meeting(
+                    910004,
+                    "인사청문특별위원회 인사청문회 회의록 제1차 (2026. 05. 10.)",
+                    "인사청문회",
+                    date(2026, 5, 10),
+                    comm_name="인사청문특별위원회",
+                ),
+                _web_meeting(
+                    TEST_WEB_ONLY_MEETING,
+                    "웹목록전용 회의 제1차 (2026. 05. 11.)",
+                    "상임위",
+                    date(2026, 5, 11),
+                    comm_name="웹목록위원회",
+                ),
+            ),
+            html_unavailable=(),
+        ),
+    )
+    _insert_existing_web_only_meeting_bill()
 
     first = ingest_meetings(
         calibration_limit=10,
@@ -207,19 +265,29 @@ def test_ingest_meetings_normalizes_sources_and_bills_idempotently(
         benchmark_output_path=tmp_path / "MEETINGS-PARALLEL-BENCHMARK.md",
     )
 
-    assert first.meeting_count == 4
-    assert first.agenda_item_count == 2
+    assert first.meeting_count == 5
+    assert first.total_count == 5
+    assert first.agenda_candidate_count == 2
     assert first.meeting_bill_count == 2
     assert first.selected_worker_count == 1
-    assert second.meeting_count == 4
-    assert second.agenda_item_count == 2
+    assert first.new_meeting_ids == TEST_SOURCE_MEETINGS
+    assert first.changed_meeting_ids == ()
+    assert first.stale_meeting_ids == ()
+    assert first.html_unavailable_mnts_ids == ()
+    assert first.web_only_mnts_ids == ()
+    assert first.openapi_only_mnts_ids == ()
+    assert second.meeting_count == 5
+    assert second.agenda_candidate_count == 2
     assert second.meeting_bill_count == 2
+    assert second.new_meeting_ids == ()
+    assert second.changed_meeting_ids == ()
+    assert second.stale_meeting_ids == ()
     assert (tmp_path / "MEETINGS-PARALLEL-BENCHMARK.md").exists()
 
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             """
-            SELECT mnts_id, meeting_type, source_api
+            SELECT mnts_id, meeting_type, is_temporary, is_appendix
             FROM meetings
             WHERE mnts_id = ANY(%s)
             ORDER BY mnts_id
@@ -227,16 +295,6 @@ def test_ingest_meetings_normalizes_sources_and_bills_idempotently(
             (list(TEST_MEETINGS),),
         )
         meetings = cur.fetchall()
-        cur.execute(
-            """
-            SELECT meeting_id, order_no, sub_name, bill_id
-            FROM agenda_items
-            WHERE meeting_id = ANY(%s)
-            ORDER BY meeting_id, order_no
-            """,
-            (list(TEST_MEETINGS),),
-        )
-        agenda_items = cur.fetchall()
         cur.execute(
             """
             SELECT meeting_id, bill_id, source
@@ -249,28 +307,16 @@ def test_ingest_meetings_normalizes_sources_and_bills_idempotently(
         meeting_bills = cur.fetchall()
 
     assert meetings == [
-        (910001, "본회의", "nzbyfwhwaoanttzje"),
-        (910002, "소위원회", "multi"),
-        (910003, "국정조사", "VCONFPIPCONFLIST"),
-        (910004, "인사청문회", "VCONFCFRMCONFLIST"),
-    ]
-    assert agenda_items == [
-        (
-            910001,
-            1,
-            "1. 항공안전법 일부개정법률안(의안번호 9908348)",
-            "TEST_MEETING_BILL_1",
-        ),
-        (
-            910002,
-            2,
-            "2. 인천광역시 서구 명칭 변경에 관한 법률안(의안번호 9906993)",
-            "TEST_MEETING_BILL_2",
-        ),
+        (910001, "본회의", False, False),
+        (910002, "소위원회", False, False),
+        (910003, "국정조사", False, False),
+        (910004, "인사청문회", False, False),
+        (910005, "상임위", False, False),
     ]
     assert meeting_bills == [
         (910001, "TEST_MEETING_BILL_1", "both"),
         (910002, "TEST_MEETING_BILL_2", "both"),
+        (910005, "TEST_MEETING_BILL_2", "existing"),
     ]
     assert {endpoint for endpoint, _ in calls} >= {
         "nzbyfwhwaoanttzje",
@@ -280,3 +326,169 @@ def test_ingest_meetings_normalizes_sources_and_bills_idempotently(
         "VCONFCFRMCONFLIST",
         "VCONFBILLCONFLIST",
     }
+
+
+def test_prune_stale_meetings_removes_non_web_meeting_state() -> None:
+    _insert_existing_web_only_meeting_bill()
+    _insert_stale_meeting_state()
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT mnts_id FROM meetings WHERE mnts_id <> %s", (TEST_STALE_MEETING,))
+        canonical_ids = {row[0] for row in cur.fetchall()}
+        stale_ids = _prune_stale_meetings(conn, canonical_ids)
+        conn.commit()
+
+    assert stale_ids == (TEST_STALE_MEETING,)
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM meetings WHERE mnts_id = %s", (TEST_STALE_MEETING,))
+        assert cur.fetchone()[0] == 0
+        cur.execute("SELECT COUNT(*) FROM meetings WHERE mnts_id = %s", (TEST_WEB_ONLY_MEETING,))
+        assert cur.fetchone()[0] == 1
+        cur.execute("SELECT COUNT(*) FROM meeting_bills WHERE meeting_id = %s", (TEST_STALE_MEETING,))
+        assert cur.fetchone()[0] == 0
+        cur.execute(
+            """
+            SELECT COUNT(*)
+            FROM dead_letters
+            WHERE source = 'minutes.html'
+              AND item_key = %s
+            """,
+            (str(TEST_STALE_MEETING),),
+        )
+        assert cur.fetchone()[0] == 0
+
+
+def test_fetch_vconfbill_rows_for_bills_retries_transient_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: dict[str, int] = {}
+
+    def fake_fetch(bill_id: str) -> list[dict[str, Any]]:
+        calls[bill_id] = calls.get(bill_id, 0) + 1
+        if bill_id == "TEST_MEETING_BILL_1" and calls[bill_id] == 1:
+            raise RuntimeError("temporary DNS failure")
+        return [{"BILL_ID": bill_id}]
+
+    monkeypatch.setattr("congress_db.ingest_meetings._fetch_vconfbill_rows", fake_fetch)
+
+    rows = _fetch_vconfbill_rows_for_bills(
+        ["TEST_MEETING_BILL_1", "TEST_MEETING_BILL_2"],
+        worker_count=2,
+        retry_delays=(0.0,),
+    )
+
+    assert rows == {
+        "TEST_MEETING_BILL_1": [{"BILL_ID": "TEST_MEETING_BILL_1"}],
+        "TEST_MEETING_BILL_2": [{"BILL_ID": "TEST_MEETING_BILL_2"}],
+    }
+    assert calls["TEST_MEETING_BILL_1"] == 2
+    assert calls["TEST_MEETING_BILL_2"] == 1
+
+
+def test_fetch_vconfbill_rows_for_bills_raises_after_final_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_fetch(bill_id: str) -> list[dict[str, Any]]:
+        if bill_id == "TEST_MEETING_BILL_1":
+            raise RuntimeError("persistent DNS failure")
+        return [{"BILL_ID": bill_id}]
+
+    monkeypatch.setattr("congress_db.ingest_meetings._fetch_vconfbill_rows", fake_fetch)
+
+    with pytest.raises(RuntimeError, match="persistent failures"):
+        _fetch_vconfbill_rows_for_bills(
+            ["TEST_MEETING_BILL_1", "TEST_MEETING_BILL_2"],
+            worker_count=2,
+            retry_delays=(),
+        )
+
+
+def _web_meeting(
+    mnts_id: int,
+    title: str,
+    meeting_type: str,
+    conf_date: date,
+    *,
+    comm_name: str | None = None,
+) -> MinutesWebListMeeting:
+    return MinutesWebListMeeting(
+        mnts_id=mnts_id,
+        title=title,
+        meeting_type=meeting_type,
+        conf_date=conf_date,
+        comm_name=comm_name,
+        session_no=None,
+        degree=None,
+        is_temporary=False,
+        is_appendix=False,
+        detail_url=f"https://record.assembly.go.kr/assembly/viewer/minutes/xml.do?id={mnts_id}&type=view",
+        source_class_id=0,
+        source_class_label="test",
+    )
+
+
+def _insert_existing_web_only_meeting_bill() -> None:
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO meetings (mnts_id, title, meeting_type, conf_date, comm_name)
+            VALUES (
+                %s,
+                '웹목록전용 회의 제1차 (2026. 05. 11.)',
+                '상임위',
+                '2026-05-11',
+                '웹목록위원회'
+            )
+            """,
+            (TEST_WEB_ONLY_MEETING,),
+        )
+        cur.execute(
+            """
+            INSERT INTO meeting_bills (meeting_id, bill_id, source)
+            VALUES (%s, 'TEST_MEETING_BILL_2', 'existing')
+            """,
+            (TEST_WEB_ONLY_MEETING,),
+        )
+        conn.commit()
+
+
+def _insert_stale_meeting_state() -> None:
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO meetings (mnts_id, title, meeting_type, conf_date, comm_name)
+            VALUES (%s, '웹목록에 없는 회의', '상임위', '2026-05-12', '테스트위원회')
+            """,
+            (TEST_STALE_MEETING,),
+        )
+        cur.execute(
+            """
+            INSERT INTO meeting_bills (meeting_id, bill_id, source)
+            VALUES (%s, 'TEST_MEETING_BILL_1', 'existing')
+            """,
+            (TEST_STALE_MEETING,),
+        )
+        cur.execute(
+            """
+            INSERT INTO ingest_runs (mode, status, summary)
+            VALUES ('backfill', 'failed', '{"test_stale_meeting": true}'::jsonb)
+            RETURNING id
+            """
+        )
+        run_id = cur.fetchone()[0]
+        cur.execute(
+            """
+            INSERT INTO dead_letters (run_id, source, stage, item_key, payload, error, status)
+            VALUES (
+                %s,
+                'minutes.html',
+                'fetch',
+                %s,
+                '{}'::jsonb,
+                'stale web detail',
+                'pending'
+            )
+            """,
+            (run_id, str(TEST_STALE_MEETING)),
+        )
+        conn.commit()

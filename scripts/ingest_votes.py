@@ -30,6 +30,7 @@ def main() -> None:
         f"votes={result.upserted_votes} "
         f"workers={result.selected_worker_count} "
         f"tolerated_distribution_mismatches={result.tolerated_distribution_mismatches} "
+        f"failed_vote_bills={result.failed_vote_bill_count} "
         f"{age[0]}={age[1]}"
     )
 

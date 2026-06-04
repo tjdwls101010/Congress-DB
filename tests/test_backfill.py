@@ -11,8 +11,10 @@ from congress_db.backfill import (
     DeadLetterDraft,
     StageResult,
     build_default_backfill_stages,
+    load_utterance_target_meeting_ids,
     run_backfill,
 )
+import congress_db.backfill as backfill_module
 from congress_db.db import get_conn
 
 
@@ -25,6 +27,10 @@ def clean_backfill_state() -> None:
 
 def _delete_test_state() -> None:
     with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM utterances WHERE meeting_id = ANY(%s)", ([930101, 930102],))
+        cur.execute("DELETE FROM session_groups WHERE meeting_id = ANY(%s)", ([930101, 930102],))
+        cur.execute("DELETE FROM meeting_bills WHERE meeting_id = ANY(%s)", ([930101, 930102],))
+        cur.execute("DELETE FROM meetings WHERE mnts_id = ANY(%s)", ([930101, 930102],))
         cur.execute("DELETE FROM dead_letters WHERE source LIKE 'test.backfill.%'")
         cur.execute("DELETE FROM ingest_runs WHERE summary->>'test' = 'backfill'")
         conn.commit()
@@ -142,6 +148,31 @@ def test_run_backfill_marks_run_failed_when_required_stage_raises() -> None:
     assert run == ("failed", "bills: bill list unavailable", "1")
 
 
+def test_run_backfill_marks_run_failed_when_interrupted() -> None:
+    def interrupting_stage() -> StageResult:
+        raise KeyboardInterrupt()
+
+    with pytest.raises(KeyboardInterrupt):
+        run_backfill(
+            stages=(BackfillStage("session_groups", interrupting_stage),),
+            run_metadata={"test": "backfill"},
+        )
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT status, error
+            FROM ingest_runs
+            WHERE summary->>'test' = 'backfill'
+            ORDER BY id DESC
+            LIMIT 1
+            """
+        )
+        run = cur.fetchone()
+
+    assert run == ("failed", "session_groups: KeyboardInterrupt")
+
+
 def test_default_backfill_stages_use_full_load_parameters() -> None:
     calls: dict[str, dict[str, Any]] = {}
 
@@ -182,8 +213,109 @@ def test_default_backfill_stages_use_full_load_parameters() -> None:
 
     assert calls["members"] == {}
     assert calls["bills"]["limit_pct"] == 1.0
+    assert calls["bills"]["benchmark_sample_size"] == 1000
     assert calls["votes"]["limit_pct"] == 1.0
+    assert calls["votes"]["benchmark_sample_size"] == 1000
+    assert calls["votes"]["allow_partial"] is True
     assert calls["meetings"]["calibration_limit"] is None
+    assert calls["meetings"]["benchmark_sample_size"] == 1000
     assert calls["utterances"]["meeting_ids"] == (920101, 920102)
+    assert calls["utterances"]["benchmark_sample_size"] == 300
     assert calls["utterances"]["allow_partial"] is True
     assert calls["session_groups"]["meeting_ids"] == (920101, 920102)
+
+
+def test_default_backfill_skips_utterance_and_session_groups_when_no_targets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(backfill_module, "load_utterance_target_meeting_ids", lambda: ())
+
+    def unexpected_utterances(**kwargs: Any) -> dict[str, object]:
+        raise AssertionError("utterance ingest should be skipped when there are no targets")
+
+    def unexpected_session_groups(**kwargs: Any) -> dict[str, object]:
+        raise AssertionError("session groups should be skipped when utterances did not change")
+
+    stages = build_default_backfill_stages(
+        ingest_members_fn=lambda **kwargs: {"stage": "members"},
+        ingest_bills_fn=lambda **kwargs: {"stage": "bills"},
+        ingest_votes_fn=lambda **kwargs: {"stage": "votes"},
+        ingest_meetings_fn=lambda **kwargs: {"stage": "meetings"},
+        ingest_utterances_fn=unexpected_utterances,
+        ingest_session_groups_fn=unexpected_session_groups,
+        validate_session_groups_fn=lambda **kwargs: {"stage": "validate"},
+        run_sanity_check_fn=lambda **kwargs: {"stage": "sanity"},
+        generate_data_completeness_report_fn=lambda **kwargs: {"stage": "completeness"},
+        load_meeting_ids_fn=lambda: (),
+    )
+
+    by_name = {stage.name: stage for stage in stages}
+
+    utterances = by_name["utterances"].run()
+    session_groups = by_name["session_groups"].run()
+
+    assert utterances.summary["meeting_count"] == 0
+    assert utterances.summary["skipped_reason"] == "no missing or explicitly targeted meetings"
+    assert session_groups.summary["meeting_count"] == 0
+    assert session_groups.summary["skipped_reason"] == "no utterance changes to regroup"
+
+
+def test_default_backfill_regroups_existing_utterances_when_no_missing_utterances(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(backfill_module, "load_utterance_target_meeting_ids", lambda: ())
+    monkeypatch.setattr(backfill_module, "load_all_meeting_ids", lambda: (930101, 930102))
+    calls: dict[str, Any] = {}
+
+    def capture_session_groups(**kwargs: Any) -> dict[str, object]:
+        calls["session_groups"] = kwargs
+        return {"stage": "session_groups"}
+
+    stages = build_default_backfill_stages(
+        ingest_members_fn=lambda **kwargs: {"stage": "members"},
+        ingest_bills_fn=lambda **kwargs: {"stage": "bills"},
+        ingest_votes_fn=lambda **kwargs: {"stage": "votes"},
+        ingest_meetings_fn=lambda **kwargs: {"stage": "meetings"},
+        ingest_utterances_fn=lambda **kwargs: {"stage": "utterances"},
+        ingest_session_groups_fn=capture_session_groups,
+        validate_session_groups_fn=lambda **kwargs: {"stage": "validate"},
+        run_sanity_check_fn=lambda **kwargs: {"stage": "sanity"},
+        generate_data_completeness_report_fn=lambda **kwargs: {"stage": "completeness"},
+    )
+
+    by_name = {stage.name: stage for stage in stages}
+
+    utterances = by_name["utterances"].run()
+    session_groups = by_name["session_groups"].run()
+
+    assert utterances.summary["meeting_count"] == 0
+    assert calls["session_groups"]["meeting_ids"] == (930101, 930102)
+    assert session_groups.summary["stage"] == "session_groups"
+
+
+def test_load_utterance_target_meeting_ids_only_returns_empty_meetings() -> None:
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO meetings (mnts_id, title, meeting_type, conf_date)
+            VALUES
+                (930101, '이미 발언이 있는 회의', '상임위', '2026-05-01'),
+                (930102, '발언 적재가 필요한 회의', '상임위', '2026-05-02')
+            """
+        )
+        cur.execute(
+            """
+            INSERT INTO utterances (
+                meeting_id, sequence, speaker_name, speaker_title, content
+            )
+            VALUES (930101, 1, '테스트', '위원', '이미 적재됨')
+            """
+        )
+        conn.commit()
+
+    targets = load_utterance_target_meeting_ids()
+
+    assert 930102 in targets
+    assert 930101 not in targets
+    assert 52354 not in targets
+    assert 52713 not in targets

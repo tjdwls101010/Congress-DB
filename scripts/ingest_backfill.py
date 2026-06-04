@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""로컬 100% 백필 CLI."""
+"""공식 로컬 100% 백필 CLI."""
 
 from __future__ import annotations
 
-from congress_db.backfill import run_backfill
+from congress_db.ingest_command import run_ingest
+from congress_db.progress import safe_print
 
 
 def main() -> None:
-    result = run_backfill()
-    print(
+    result = run_ingest(mode="backfill")
+    safe_print(
         "Completed backfill: "
+        f"mode={result.mode} "
         f"run_id={result.run_id} "
         f"status={result.status} "
         f"stages={len(result.stage_summaries)} "

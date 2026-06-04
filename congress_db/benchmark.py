@@ -31,12 +31,21 @@ class WorkerRun:
     error_count: int
     seconds: float
     errors: tuple[str, ...] = ()
+    retry_count: int = 0
+    retry_item_count: int = 0
+    retry_samples: tuple[str, ...] = ()
 
     @property
     def error_rate(self) -> float:
         if self.call_count == 0:
             return 0.0
         return self.error_count / self.call_count
+
+    @property
+    def retry_rate(self) -> float:
+        if self.call_count == 0:
+            return 0.0
+        return self.retry_item_count / self.call_count
 
     @property
     def calls_per_second(self) -> float:
@@ -54,6 +63,7 @@ class BenchmarkResult:
     selected_worker_count: int
     max_error_rate: float
     min_throughput_ratio: float
+    max_retry_rate: float | None = None
 
 
 def measure_workers(
@@ -63,7 +73,10 @@ def measure_workers(
     items: Sequence[T] | None = None,
     levels: Sequence[int] = DEFAULT_WORKER_LEVELS,
     max_error_rate: float = 0.01,
+    max_retry_rate: float | None = None,
     min_throughput_ratio: float = 0.95,
+    retry_count_from_result: Callable[[R], int] | None = None,
+    stop_after_unacceptable_after_acceptance: bool = False,
 ) -> BenchmarkResult:
     """worker 후보별로 같은 `items`를 호출하고 안정적인 후보를 고른다.
 
@@ -74,7 +87,7 @@ def measure_workers(
     에러율 기준을 통과한 후보 중 최고 처리량의 `min_throughput_ratio` 이상을 내는
     가장 낮은 worker count를 고른다.
     """
-    sample = list(items[:n] if items is not None else range(n))  # type: ignore[arg-type]
+    sample = list(items if items is not None else range(n))  # type: ignore[arg-type]
     overall = ProgressReporter(
         "worker benchmark",
         len(levels),
@@ -83,39 +96,81 @@ def measure_workers(
     overall.start()
     runs_list: list[WorkerRun] = []
     for worker in levels:
-        runs_list.append(_measure_one(api_callable, sample, worker))
+        run = _measure_one(
+            api_callable,
+            sample,
+            worker,
+            retry_count_from_result=retry_count_from_result,
+        )
+        runs_list.append(run)
         overall.advance()
+        if (
+            stop_after_unacceptable_after_acceptance
+            and any(_is_run_acceptable(measured, max_error_rate, max_retry_rate) for measured in runs_list)
+            and not _is_run_acceptable(run, max_error_rate, max_retry_rate)
+        ):
+            break
     runs = tuple(runs_list)
     overall.finish()
-    selected = _select_worker(runs, max_error_rate, min_throughput_ratio)
+    selected = _select_worker(
+        runs,
+        max_error_rate,
+        min_throughput_ratio,
+        max_retry_rate=max_retry_rate,
+    )
     return BenchmarkResult(
         measured_at=datetime.now(UTC).isoformat(timespec="seconds"),
         runs=runs,
         selected_worker_count=selected.worker_count,
         max_error_rate=max_error_rate,
         min_throughput_ratio=min_throughput_ratio,
+        max_retry_rate=max_retry_rate,
     )
+
+
+def representative_sample(items: Sequence[T], max_count: int) -> list[T]:
+    """전체 순서를 대표하도록 균등 간격 표본을 고른다."""
+    if max_count <= 0:
+        return []
+    total = len(items)
+    if total <= max_count:
+        return list(items)
+    if max_count == 1:
+        return [items[0]]
+    return [items[round(i * (total - 1) / (max_count - 1))] for i in range(max_count)]
 
 
 def _measure_one(
     api_callable: Callable[[T, int], R],
     items: Sequence[T],
     worker_count: int,
+    *,
+    retry_count_from_result: Callable[[R], int] | None = None,
 ) -> WorkerRun:
     start = time.perf_counter()
     success_count = 0
     errors: list[str] = []
+    retry_count = 0
+    retry_item_count = 0
+    retry_samples: list[str] = []
     progress = ProgressReporter(
         f"benchmark workers={worker_count}",
         len(items),
     )
     progress.start()
     with ThreadPoolExecutor(max_workers=worker_count) as pool:
-        futures = [pool.submit(api_callable, item, worker_count) for item in items]
+        futures = {pool.submit(api_callable, item, worker_count): item for item in items}
         for future in as_completed(futures):
             try:
-                future.result()
+                result = future.result()
                 success_count += 1
+                if retry_count_from_result is not None:
+                    item_retry_count = retry_count_from_result(result)
+                    retry_count += item_retry_count
+                    if item_retry_count:
+                        retry_item_count += 1
+                        if len(retry_samples) < 5:
+                            retry_samples.append(str(futures[future]))
                 progress.advance()
             except Exception as exc:  # noqa: BLE001 - benchmark records boundary failures
                 if len(errors) < 5:
@@ -133,6 +188,9 @@ def _measure_one(
         error_count=error_count,
         seconds=seconds,
         errors=tuple(errors),
+        retry_count=retry_count,
+        retry_item_count=retry_item_count,
+        retry_samples=tuple(retry_samples),
     )
 
 
@@ -140,8 +198,12 @@ def _select_worker(
     runs: Sequence[WorkerRun],
     max_error_rate: float,
     min_throughput_ratio: float,
+    *,
+    max_retry_rate: float | None = None,
 ) -> WorkerRun:
-    acceptable = [run for run in runs if run.error_rate < max_error_rate]
+    acceptable = [
+        run for run in runs if _is_run_acceptable(run, max_error_rate, max_retry_rate)
+    ]
     if acceptable:
         best_throughput = max(run.calls_per_second for run in acceptable)
         near_best = [
@@ -150,7 +212,19 @@ def _select_worker(
             if run.calls_per_second >= best_throughput * min_throughput_ratio
         ]
         return min(near_best, key=lambda run: run.worker_count)
-    return min(runs, key=lambda run: (run.error_rate, run.seconds, run.worker_count))
+    return min(runs, key=lambda run: (run.error_rate, run.retry_rate, run.seconds, run.worker_count))
+
+
+def _is_run_acceptable(
+    run: WorkerRun,
+    max_error_rate: float,
+    max_retry_rate: float | None,
+) -> bool:
+    if run.error_rate >= max_error_rate:
+        return False
+    if max_retry_rate is not None and run.retry_rate > max_retry_rate:
+        return False
+    return True
 
 
 def render_parallel_benchmark(result: BenchmarkResult, output_path: Path) -> None:
@@ -160,6 +234,11 @@ def render_parallel_benchmark(result: BenchmarkResult, output_path: Path) -> Non
 
 
 def _render_markdown(result: BenchmarkResult) -> str:
+    retry_threshold = (
+        ""
+        if result.max_retry_rate is None
+        else f", retry rate threshold: <= {result.max_retry_rate:.0%}"
+    )
     lines = [
         "# Parallel Benchmark",
         "",
@@ -169,22 +248,24 @@ def _render_markdown(result: BenchmarkResult) -> str:
         "",
         (
             f"`{result.selected_worker_count}` "
-            f"(error rate threshold: < {result.max_error_rate:.0%})"
+            f"(error rate threshold: < {result.max_error_rate:.0%}{retry_threshold})"
         ),
         "",
         "Selection policy: choose the lowest worker count that stays under the "
-        f"error threshold and reaches at least {result.min_throughput_ratio:.0%} "
+        f"error/retry thresholds and reaches at least {result.min_throughput_ratio:.0%} "
         "of the best measured throughput.",
         "",
         "## Results",
         "",
-        "| Workers | Calls | Success | Errors | Error rate | Seconds | Calls/sec |",
-        "|---:|---:|---:|---:|---:|---:|---:|",
+        "| Workers | Calls | Success | Errors | Error rate | Retried calls | Retry rate | Retries | Seconds | Calls/sec |",
+        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for run in result.runs:
         lines.append(
             f"| {run.worker_count} | {run.call_count} | {run.success_count} | "
-            f"{run.error_count} | {run.error_rate:.1%} | {run.seconds:.2f} | "
+            f"{run.error_count} | {run.error_rate:.1%} | "
+            f"{run.retry_item_count} | {run.retry_rate:.1%} | {run.retry_count} | "
+            f"{run.seconds:.2f} | "
             f"{run.calls_per_second:.2f} |"
         )
 
@@ -203,4 +284,11 @@ def _render_markdown(result: BenchmarkResult) -> str:
     ]
     if error_lines:
         lines.extend(["## Sample Errors", "", *error_lines, ""])
+    retry_lines = [
+        f"- `{run.worker_count}` workers: {', '.join(run.retry_samples)}"
+        for run in result.runs
+        if run.retry_samples
+    ]
+    if retry_lines:
+        lines.extend(["## Sample Retried Items", "", *retry_lines, ""])
     return "\n".join(lines)

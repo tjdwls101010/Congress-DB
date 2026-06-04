@@ -1,233 +1,157 @@
-"""dead letter 재처리 workflow."""
+"""dead letter 재시도 orchestration."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any
 
-import psycopg
-
 from .db import get_conn
-from .ingest_state import finish_run, record_dead_letter, resolve_dead_letter, start_run
+from .ingest_state import resolve_dead_letter
+from .ingest_utterances import ingest_utterances
 
 
 @dataclass(frozen=True)
-class DeadLetterItem:
-    """재처리 대상 dead letter."""
+class DeadLetter:
+    """재시도 대상 실패 item."""
 
     id: int
-    run_id: int
     source: str
     stage: str
     item_key: str
     payload: Mapping[str, Any]
-    error: str
     attempts: int
-    status: str
-    first_failed_at: datetime
-    last_failed_at: datetime
 
 
 @dataclass(frozen=True)
 class DeadLetterRetryResult:
-    """dead letter 재처리 실행 결과."""
+    """dead letter 재시도 결과."""
 
-    run_id: int
-    status: str
-    selected_count: int
+    unresolved_count: int
+    attempted_count: int
     resolved_count: int
+    unhandled_count: int
     failed_count: int
-    blocked_count: int
+    sample_failures: tuple[str, ...]
 
 
-RetryHandler = Callable[[DeadLetterItem], None]
+RetryHandler = Callable[[DeadLetter], bool]
 
 
-def retry_unresolved_dead_letters(
-    *,
-    handlers: Mapping[tuple[str, str], RetryHandler],
-    run_metadata: Mapping[str, Any] | None = None,
-    include_blocked: bool = False,
-    max_attempts: int = 3,
+def retry_dead_letters(
+    handlers: Mapping[tuple[str, str], RetryHandler] | None = None,
     source_prefix: str | None = None,
-    supported_sources: set[tuple[str, str]] | None = None,
 ) -> DeadLetterRetryResult:
-    """unresolved dead letter를 오래된 순서로 재처리한다."""
-    metadata = dict(run_metadata or {})
-    with get_conn() as conn:
-        run_id = start_run(conn, mode="dead_letter_retry", summary=metadata)
-        items = load_unresolved_dead_letters(
-            conn,
-            include_blocked=include_blocked,
-            source_prefix=source_prefix,
-        )
-        conn.commit()
-
-    print(f"[dead-letter-retry] selected={len(items)}", flush=True)
+    """unresolved dead letter를 가능한 handler로 재시도한다."""
+    selected_handlers = default_retry_handlers() if handlers is None else dict(handlers)
+    dead_letters = _load_unresolved_dead_letters(source_prefix=source_prefix)
+    attempted_count = 0
     resolved_count = 0
+    unhandled_count = 0
     failed_count = 0
-    blocked_count = 0
-    supported = supported_sources or set(handlers)
+    sample_failures: list[str] = []
 
-    for item in items:
-        _mark_retrying(item.id, run_id)
-        handler = handlers.get((item.source, item.stage))
-        if handler is None or (item.source, item.stage) not in supported:
-            _record_retry_failure(
-                item,
-                run_id,
-                error=f"no retry handler for {item.source}/{item.stage}",
-                max_attempts=max_attempts,
-                force_block=True,
-            )
-            blocked_count += 1
+    for dead_letter in dead_letters:
+        handler = selected_handlers.get((dead_letter.source, dead_letter.stage))
+        if handler is None:
+            unhandled_count += 1
             continue
 
+        attempted_count += 1
+        _mark_retrying(dead_letter.id)
         try:
-            handler(item)
-        except Exception as exc:  # noqa: BLE001 - retry boundary records source failures
-            blocked = _record_retry_failure(
-                item,
-                run_id,
-                error=str(exc),
-                max_attempts=max_attempts,
-            )
-            if blocked:
-                blocked_count += 1
-            else:
-                failed_count += 1
-        else:
-            _resolve_retry(item.id)
+            resolved = handler(dead_letter)
+        except Exception as exc:  # pragma: no cover - defensive audit path
+            resolved = False
+            sample_failures.append(f"{dead_letter.source}:{dead_letter.item_key}: {exc}")
+
+        if resolved:
+            _resolve(dead_letter.id)
             resolved_count += 1
+        else:
+            _mark_retry_failed(dead_letter.id)
+            failed_count += 1
 
-    status = _retry_status(
-        resolved_count=resolved_count,
-        failed_count=failed_count,
-        blocked_count=blocked_count,
-    )
-    summary = {
-        **metadata,
-        "selected_count": len(items),
-        "resolved_count": resolved_count,
-        "failed_count": failed_count,
-        "blocked_count": blocked_count,
-    }
-    with get_conn() as conn:
-        finish_run(conn, run_id, status=status, summary=summary)
-        conn.commit()
-
-    print(
-        "[dead-letter-retry] done "
-        f"resolved={resolved_count} failed={failed_count} blocked={blocked_count}",
-        flush=True,
-    )
     return DeadLetterRetryResult(
-        run_id=run_id,
-        status=status,
-        selected_count=len(items),
+        unresolved_count=len(dead_letters),
+        attempted_count=attempted_count,
         resolved_count=resolved_count,
+        unhandled_count=unhandled_count,
         failed_count=failed_count,
-        blocked_count=blocked_count,
+        sample_failures=tuple(sample_failures[:5]),
     )
 
 
-def load_unresolved_dead_letters(
-    conn: psycopg.Connection,
-    *,
-    include_blocked: bool = False,
-    source_prefix: str | None = None,
-) -> tuple[DeadLetterItem, ...]:
-    """재처리할 unresolved dead letter를 오래된 순서로 읽는다."""
-    statuses = ["pending", "retrying"]
-    if include_blocked:
-        statuses.append("blocked")
+def default_retry_handlers() -> dict[tuple[str, str], RetryHandler]:
+    """현재 자동 재시도가 가능한 dead letter handler 목록."""
+    return {("minutes.html", "fetch"): _retry_minutes_html}
 
-    with conn.cursor() as cur:
-        source_filter = ""
-        params: list[Any] = [statuses]
-        if source_prefix is not None:
-            source_filter = "AND source LIKE %s"
-            params.append(f"{source_prefix}%")
+
+def _retry_minutes_html(dead_letter: DeadLetter) -> bool:
+    mnts_id = int(dead_letter.item_key)
+    result = ingest_utterances(
+        calibration_limit=1,
+        meeting_ids=(mnts_id,),
+        allow_partial=True,
+    )
+    return result.scrape_error_count == 0
+
+
+def _load_unresolved_dead_letters(*, source_prefix: str | None = None) -> tuple[DeadLetter, ...]:
+    with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
-            f"""
-            SELECT
-                id, run_id, source, stage, item_key, payload, error,
-                attempts, status, first_failed_at, last_failed_at
+            """
+            SELECT id, source, stage, item_key, payload, attempts
             FROM dead_letters
-            WHERE status = ANY(%s)
-              {source_filter}
+            WHERE status IN ('pending', 'retrying', 'blocked')
+              AND (%s::text IS NULL OR source LIKE %s)
             ORDER BY last_failed_at ASC, id ASC
             """,
-            params,
+            (source_prefix, f"{source_prefix}%" if source_prefix is not None else None),
         )
         return tuple(
-            DeadLetterItem(
+            DeadLetter(
                 id=row[0],
-                run_id=row[1],
-                source=row[2],
-                stage=row[3],
-                item_key=row[4],
-                payload=row[5] or {},
-                error=row[6],
-                attempts=row[7],
-                status=row[8],
-                first_failed_at=row[9],
-                last_failed_at=row[10],
+                source=row[1],
+                stage=row[2],
+                item_key=row[3],
+                payload=row[4] or {},
+                attempts=row[5],
             )
             for row in cur.fetchall()
         )
 
 
-def _mark_retrying(dead_letter_id: int, run_id: int) -> None:
+def _mark_retrying(dead_letter_id: int) -> None:
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             """
             UPDATE dead_letters
             SET status = 'retrying',
-                run_id = %s
+                attempts = attempts + 1,
+                last_failed_at = now()
             WHERE id = %s
             """,
-            (run_id, dead_letter_id),
+            (dead_letter_id,),
         )
         conn.commit()
 
 
-def _resolve_retry(dead_letter_id: int) -> None:
+def _mark_retry_failed(dead_letter_id: int) -> None:
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE dead_letters
+            SET status = 'pending',
+                last_failed_at = now()
+            WHERE id = %s
+            """,
+            (dead_letter_id,),
+        )
+        conn.commit()
+
+
+def _resolve(dead_letter_id: int) -> None:
     with get_conn() as conn:
         resolve_dead_letter(conn, dead_letter_id)
         conn.commit()
-
-
-def _record_retry_failure(
-    item: DeadLetterItem,
-    run_id: int,
-    *,
-    error: str,
-    max_attempts: int,
-    force_block: bool = False,
-) -> bool:
-    next_attempts = item.attempts + 1
-    blocked = force_block or next_attempts >= max_attempts
-    with get_conn() as conn:
-        record_dead_letter(
-            conn,
-            run_id=run_id,
-            source=item.source,
-            stage=item.stage,
-            item_key=item.item_key,
-            payload=item.payload,
-            error=error,
-            status="blocked" if blocked else "pending",
-        )
-        conn.commit()
-    return blocked
-
-
-def _retry_status(*, resolved_count: int, failed_count: int, blocked_count: int) -> str:
-    if failed_count == 0 and blocked_count == 0:
-        return "success"
-    if resolved_count > 0:
-        return "degraded_success"
-    return "blocked"

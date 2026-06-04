@@ -6,7 +6,7 @@ from urllib.parse import parse_qs, urlparse
 
 
 def extract_mnts_id(value: str | int | None) -> int:
-    """PDF URL의 `id` 또는 `CONFER_NUM`을 `meetings.mnts_id` 정수로 바꾼다."""
+    """회의록 URL의 `id` 또는 `CONFER_NUM`을 `meetings.mnts_id` 정수로 바꾼다."""
     if value is None:
         raise ValueError("mnts_id source is missing")
     if isinstance(value, int):

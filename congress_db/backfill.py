@@ -20,11 +20,15 @@ from .ingest_state import (
     start_run,
     update_run_summary,
 )
-from .ingest_utterances import ingest_utterances
+from .ingest_utterances import KNOWN_HTML_UNAVAILABLE_MNTS_IDS, ingest_utterances
 from .ingest_votes import ingest_votes
+from .progress import safe_print
 from .sanity_check import run_sanity_check
 from .session_groups import ingest_session_groups
 from .validate_session_groups import validate_session_groups
+
+OFFICIAL_API_BENCHMARK_SAMPLE_SIZE = 1000
+OFFICIAL_SCRAPE_BENCHMARK_SAMPLE_SIZE = 300
 
 
 @dataclass(frozen=True)
@@ -70,23 +74,51 @@ def run_backfill(
     run_metadata: Mapping[str, Any] | None = None,
 ) -> BackfillRunResult:
     """로컬 100% 백필을 실행하고 ingest run 상태를 남긴다."""
+    return run_staged_ingest(
+        mode="backfill",
+        stages=stages or build_default_backfill_stages(),
+        run_metadata=run_metadata,
+    )
+
+
+def run_incremental_stages(
+    *,
+    stages: Sequence[BackfillStage],
+    run_metadata: Mapping[str, Any] | None = None,
+) -> BackfillRunResult:
+    """증분 동기화 stage 묶음을 실행하고 ingest run 상태를 남긴다."""
+    return run_staged_ingest(
+        mode="incremental",
+        stages=stages,
+        run_metadata=run_metadata,
+    )
+
+
+def run_staged_ingest(
+    *,
+    mode: str,
+    stages: Sequence[BackfillStage],
+    run_metadata: Mapping[str, Any] | None = None,
+) -> BackfillRunResult:
+    """지정한 mode로 stage 묶음을 실행하고 ingest run 상태를 남긴다."""
     selected_stages = tuple(stages or build_default_backfill_stages())
     metadata = dict(run_metadata or {})
-    run_id = _start_backfill_run(metadata)
+    run_id = _start_ingest_run(mode, metadata)
     stage_summaries: dict[str, Mapping[str, Any]] = {}
     dead_letter_count = 0
 
     try:
         for stage in selected_stages:
-            print(f"[backfill] stage={stage.name} start", flush=True)
+            safe_print(f"[backfill] stage={stage.name} start", flush=True)
             stage_result = stage.run()
             stage_summaries[stage.name] = _jsonable(stage_result.summary)
             dead_letter_count += _record_dead_letters(run_id, stage_result.dead_letters)
             _persist_summary(run_id, metadata, stage_summaries, dead_letter_count)
-            print(f"[backfill] stage={stage.name} done", flush=True)
-    except Exception as exc:
-        error = f"{stage.name}: {exc}"
-        _finish_backfill_run(
+            safe_print(f"[backfill] stage={stage.name} done", flush=True)
+    except BaseException as exc:
+        error_detail = str(exc) or exc.__class__.__name__
+        error = f"{stage.name}: {error_detail}"
+        _finish_ingest_run(
             run_id,
             status="failed",
             metadata=metadata,
@@ -97,7 +129,7 @@ def run_backfill(
         raise
 
     status = "degraded_success" if dead_letter_count else "success"
-    _finish_backfill_run(
+    _finish_ingest_run(
         run_id,
         status=status,
         metadata=metadata,
@@ -127,12 +159,17 @@ def build_default_backfill_stages(
 ) -> tuple[BackfillStage, ...]:
     """기존 ingest Module을 full-load 파라미터로 묶은 기본 stage 목록."""
     load_ids = load_meeting_ids_fn or load_all_meeting_ids
+    load_utterance_ids = load_meeting_ids_fn or load_utterance_target_meeting_ids
+    session_group_target_ids: tuple[int, ...] = ()
 
     def run_members() -> StageResult:
         return _stage_from_result(ingest_members_fn())
 
     def run_bills() -> StageResult:
-        result = ingest_bills_fn(limit_pct=1.0)
+        result = ingest_bills_fn(
+            limit_pct=1.0,
+            benchmark_sample_size=OFFICIAL_API_BENCHMARK_SAMPLE_SIZE,
+        )
         failures = getattr(result, "summary_failures", ())
         dead_letters = tuple(
             DeadLetterDraft(
@@ -147,17 +184,60 @@ def build_default_backfill_stages(
         return _stage_from_result(result, exclude=("summary_failures",), dead_letters=dead_letters)
 
     def run_votes() -> StageResult:
-        return _stage_from_result(ingest_votes_fn(limit_pct=1.0))
+        result = ingest_votes_fn(
+            limit_pct=1.0,
+            benchmark_sample_size=OFFICIAL_API_BENCHMARK_SAMPLE_SIZE,
+            allow_partial=True,
+        )
+        failures = getattr(result, "vote_row_failures", ())
+        dead_letters = tuple(
+            DeadLetterDraft(
+                source="votes.rows",
+                stage="fetch",
+                item_key=str(failure.bill_id),
+                payload={"bill_id": failure.bill_id},
+                error=failure.error,
+            )
+            for failure in failures
+        )
+        return _stage_from_result(result, exclude=("vote_row_failures",), dead_letters=dead_letters)
 
     def run_meetings() -> StageResult:
-        return _stage_from_result(ingest_meetings_fn(calibration_limit=None))
+        return _stage_from_result(
+            ingest_meetings_fn(
+                calibration_limit=None,
+                benchmark_sample_size=OFFICIAL_API_BENCHMARK_SAMPLE_SIZE,
+            )
+        )
 
     def run_utterances() -> StageResult:
-        meeting_ids = tuple(load_ids())
+        nonlocal session_group_target_ids
+        meeting_ids = tuple(load_utterance_ids())
+        if not meeting_ids:
+            session_group_target_ids = tuple(load_ids())
+            return StageResult(
+                summary={
+                    "meeting_count": 0,
+                    "scraped_meeting_count": 0,
+                    "scraped_meeting_ids": (),
+                    "utterance_count": 0,
+                    "selected_worker_count": None,
+                    "retry_count": 0,
+                    "retried_meeting_count": 0,
+                    "scrape_error_count": 0,
+                    "member_mapped_count": 0,
+                    "sample_errors": (),
+                    "skipped_reason": "no missing or explicitly targeted meetings",
+                }
+            )
         result = ingest_utterances_fn(
             calibration_limit=max(len(meeting_ids), 1),
             meeting_ids=meeting_ids,
+            benchmark_sample_size=OFFICIAL_SCRAPE_BENCHMARK_SAMPLE_SIZE,
             allow_partial=True,
+        )
+        session_group_target_ids = tuple(
+            getattr(result, "scraped_meeting_ids", meeting_ids),
         )
         failures = getattr(result, "scrape_failures", ())
         dead_letters = tuple(
@@ -173,7 +253,18 @@ def build_default_backfill_stages(
         return _stage_from_result(result, exclude=("scrape_failures",), dead_letters=dead_letters)
 
     def run_session_groups() -> StageResult:
-        return _stage_from_result(ingest_session_groups_fn(meeting_ids=tuple(load_ids())))
+        target_ids = tuple(load_ids()) if load_meeting_ids_fn else session_group_target_ids
+        if not target_ids:
+            return StageResult(
+                summary={
+                    "meeting_count": 0,
+                    "skipped_meeting_count": 0,
+                    "group_count": 0,
+                    "utterance_link_count": 0,
+                    "skipped_reason": "no utterance changes to regroup",
+                }
+            )
+        return _stage_from_result(ingest_session_groups_fn(meeting_ids=target_ids))
 
     def run_validation() -> StageResult:
         result = validate_session_groups_fn()
@@ -202,13 +293,35 @@ def build_default_backfill_stages(
 
 def load_all_meeting_ids() -> tuple[int, ...]:
     """현재 DB에 적재된 모든 meeting id를 안정적인 순서로 반환한다."""
+    excluded_ids = sorted(KNOWN_HTML_UNAVAILABLE_MNTS_IDS)
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             """
             SELECT mnts_id
             FROM meetings
+            WHERE NOT (mnts_id = ANY(%s))
             ORDER BY conf_date DESC, mnts_id DESC
+            """,
+            (excluded_ids,),
+        )
+        return tuple(row[0] for row in cur.fetchall())
+
+
+def load_utterance_target_meeting_ids() -> tuple[int, ...]:
+    """HTML 발언이 비어 있어 실제 스크래핑이 필요한 meeting id만 반환한다."""
+    excluded_ids = sorted(KNOWN_HTML_UNAVAILABLE_MNTS_IDS)
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
             """
+            SELECT m.mnts_id
+            FROM meetings m
+            LEFT JOIN utterances u ON u.meeting_id = m.mnts_id
+            WHERE NOT (m.mnts_id = ANY(%s))
+            GROUP BY m.mnts_id, m.conf_date
+            HAVING COUNT(u.id) = 0
+            ORDER BY m.conf_date DESC, m.mnts_id DESC
+            """,
+            (excluded_ids,),
         )
         return tuple(row[0] for row in cur.fetchall())
 
@@ -237,11 +350,11 @@ def _summary_from_result(result: object, *, exclude: Sequence[str] = ()) -> Mapp
     return _jsonable(raw)
 
 
-def _start_backfill_run(metadata: Mapping[str, Any]) -> int:
+def _start_ingest_run(mode: str, metadata: Mapping[str, Any]) -> int:
     with get_conn() as conn:
         run_id = start_run(
             conn,
-            mode="backfill",
+            mode=mode,
             summary=_run_summary(metadata, {}, 0),
         )
         conn.commit()
@@ -284,7 +397,7 @@ def _persist_summary(
         conn.commit()
 
 
-def _finish_backfill_run(
+def _finish_ingest_run(
     run_id: int,
     *,
     status: str,
