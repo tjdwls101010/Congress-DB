@@ -4,6 +4,11 @@ This document starts issue #12. It deliberately stops before executing the
 remote migration because project creation, billing, region, credentials, and the
 first hosted environment are human-owned decisions.
 
+As of 2026-06-04, the project is intentionally paused at the pre-restore
+boundary. The local database has been verified and dumped; the Neon restore and
+hosted smoke test wait for PM authorization and a direct, non-pooled hosted
+connection string.
+
 ## Provider Decision
 
 - Selected target for the first hosted database: Neon Launch.
@@ -21,19 +26,30 @@ first hosted environment are human-owned decisions.
 ## Current Status
 
 - Local pre-migration gate: `ready_for_human_review`.
-- Accepted local backfill run: `ingest_runs.id = 103`.
+- Accepted local backfill gate: `ingest_runs.id = 103`.
+- Latest verified incremental baseline: `ingest_runs.id = 190`.
 - Unresolved dead letters: `0`.
 - Local readiness blockers: `0`.
+- Local preflight on 2026-06-04:
+  - `uv run python -m compileall congress_db scripts tests -q`: pass.
+  - `uv run pytest -q`: `134 passed`.
+  - `make migration-readiness`: `ready_for_human_review`, blockers `0`.
+- Current local dump artifact:
+  `tmp/hosted-postgres-migration/congress-20260604-run190.dump` (`144M`).
+  This file is not committed.
 - The official local command is `uv run python -m scripts.ingest --mode backfill`
   or `make ingest-backfill`.
-- The accepted run proves the current local data state and resumed official
-  path. A strict empty-DB one-shot replay remains an optional final rehearsal
-  before executing the remote restore.
+- The accepted backfill run proves the local 100% gate. The latest incremental
+  run proves the current dump baseline after the #47 immutable-detail skip fix.
+  A strict empty-DB one-shot replay remains an optional final rehearsal before
+  executing the remote restore.
 
 ## Human Decisions Before Execution
 
 - Neon organization/project ownership and billing.
 - Neon region and plan. Recommended: Launch in `aws-ap-southeast-1`.
+- Direct, non-pooled Neon connection string for restore, exposed locally as
+  `NEON_DATABASE_URL_UNPOOLED` or `HOSTED_DATABASE_URL`.
 - Whether the first hosted DB is named `congress_staging`, `congress`, or another
   environment-specific name.
 - Whether the staging compute may scale to zero. Recommended: yes for staging.
@@ -48,6 +64,7 @@ first hosted environment are human-owned decisions.
 Run these immediately before taking the dump:
 
 ```sh
+uv run python -m compileall congress_db scripts tests -q
 uv run pytest -q
 make migration-readiness
 git status --short --branch
@@ -67,6 +84,8 @@ Create a portable dump without local ownership or privilege metadata:
 
 ```sh
 mkdir -p tmp/hosted-postgres-migration
+baseline_run_id="190"
+dump_path="tmp/hosted-postgres-migration/congress-$(date +%Y%m%d)-run${baseline_run_id}.dump"
 docker compose exec -T db pg_dump \
   -U "${POSTGRES_USER:-congress}" \
   -d "${POSTGRES_DB:-congress}" \
@@ -75,18 +94,22 @@ docker compose exec -T db pg_dump \
   --no-privileges \
   --no-subscriptions \
   --verbose \
-  > tmp/hosted-postgres-migration/congress.dump
+  > "$dump_path"
 ```
 
 Do not commit the dump. It is an operational artifact.
 
 ## Restore
 
+Do not run this section until the PM authorizes the hosted migration execution
+and provides the direct, non-pooled Neon connection string.
+
 Use the Neon direct, non-pooled connection string for `pg_restore`. Neon pooled
 connection strings use PgBouncer transaction pooling; they are for application
 traffic, not schema/data restore tools.
 
 ```sh
+dump_path="tmp/hosted-postgres-migration/congress-20260604-run190.dump"
 export HOSTED_DATABASE_URL="$NEON_DATABASE_URL_UNPOOLED"
 
 pg_restore \
@@ -97,7 +120,7 @@ pg_restore \
   --if-exists \
   --single-transaction \
   --verbose \
-  tmp/hosted-postgres-migration/congress.dump
+  "$dump_path"
 ```
 
 After restore:
@@ -118,14 +141,14 @@ for:
 
 - Core table row counts:
   - `members`: 306
-  - `bills`: 18,333
-  - `bill_lead_proposers`: 17,531
-  - `bill_coproposers`: 206,014
+  - `bills`: 18,345
+  - `bill_lead_proposers`: 17,543
+  - `bill_coproposers`: 206,138
   - `votes`: 473,594
-  - `meetings`: 2,103
-  - `meeting_bills`: 40,353
-  - `utterances`: 1,373,867
-  - `session_groups`: 30,663
+  - `meetings`: 2,105
+  - `meeting_bills`: 40,355
+  - `utterances`: 1,378,071
+  - `session_groups`: 30,755
 - Unresolved dead letters: `0`.
 - Session group integrity metrics: all `0`.
 - S1-S7 query outputs or checksums.
