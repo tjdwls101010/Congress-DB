@@ -3,6 +3,31 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-06-04 — Four-project roadmap: this repo is the 국회 DB only
+
+The legislative-design harness needs three sources — 국회 (proposed/discussed/voted
+bills, this repo), 법제처 (in-force statutes·decrees·official interpretations·precedents),
+and WebSearch (social context) — so the work is split into four sequential, independent
+projects: (1) 국회 data DB = this repo → (2) 국회 SDK → (3) 법제처 SDK → (4) harness skill,
+keeping each project's scope bounded. Consequently statute/decree/interpretation/precedent
+text is explicitly out of this repo (it belongs to the 법제처 SDK), and the prior
+`legislative-copilot` prototype is reference-only and will be rebuilt. See CONTEXT.md
+"프로젝트 경계 / 로드맵".
+
+## 2026-06-04 — Incremental sync re-scans cheap lists, skips immutable items (drops the 30-day window)
+
+The documented "source-specific cursor + 30-day overlap window" incremental design
+(ADR-0006, PRD #37/#39, CONTEXT 증분 동기화) was never wired in: `incremental_plan.py` is
+dead code and the live path full-refetches everything every run — re-pulling ~18k immutable
+bill summaries and ~1,600 bills' vote rows, and re-running worker benchmarks. Decision:
+incremental re-scans the cheap list endpoints in full each run (so late edits to old
+records, e.g. a year-old bill's `proc_result` changing, are always caught) and upserts all,
+but skips per-item fetches for items already present (bill summaries and vote rows are
+immutable once set) and runs benchmarks only at first calibration; the date-window model is
+dropped because legislative records are edited late and a 30-day window misses them.
+Verified by an end-to-end orchestration test plus one real-source dry run (issue #46).
+Supersedes the windowing aspect of ADR-0006.
+
 ## 2026-05-31 — Target Neon for the first hosted Postgres migration
 
 The project currently needs hosted Postgres, not Auth/Storage/Realtime/Edge
