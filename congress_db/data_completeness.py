@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from .db import get_conn
+from .utterance_mapping_quality import (
+    MemberUtteranceMappingQuality,
+    load_member_utterance_mapping_quality,
+)
 
 DEFAULT_DATA_COMPLETENESS_REPORT = Path("docs/DATA-COMPLETENESS.md")
 
@@ -16,7 +20,7 @@ class Metric:
     """데이터 완성도 지표."""
 
     name: str
-    value: int
+    value: int | float | str
     interpretation: str
 
 
@@ -44,16 +48,21 @@ def generate_data_completeness_report(
     with get_conn() as conn, conn.cursor() as cur:
         missing_party_rows = _load_missing_party_members(cur)
         bill_gap_rows = _load_bill_metadata_gaps(cur)
-        unmapped_speaker_rows = _load_unmapped_member_titled_speakers(cur)
+        member_mapping = load_member_utterance_mapping_quality(cur)
+        unmapped_speaker_rows = tuple(
+            row.as_report_row() for row in member_mapping.unmapped_speakers
+        )
+        mapping_by_title_rows = tuple(row.as_report_row() for row in member_mapping.by_title)
         gap_counts = _load_gap_counts(cur)
         report = CompletenessReport(
-            metrics=_build_metrics(missing_party_rows, gap_counts),
+            metrics=_build_metrics(missing_party_rows, gap_counts, member_mapping),
             tables=(
                 SampleTable("Missing Party Member Stubs", missing_party_rows),
                 SampleTable("Bill Metadata Gaps", bill_gap_rows),
+                SampleTable("Member-titled Utterance Mapping By Title", mapping_by_title_rows),
                 SampleTable("Unmapped Member-titled Speakers", unmapped_speaker_rows),
             ),
-            conclusions=_build_conclusions(unmapped_speaker_rows, gap_counts),
+            conclusions=_build_conclusions(member_mapping, gap_counts),
         )
     render_data_completeness_report(report, output_path)
     return report
@@ -155,32 +164,13 @@ def _load_gap_counts(cur: object) -> dict[str, int]:
             WHERE b.propose_dt IS NULL
                OR b.summary IS NULL
                OR b.summary = ''
-        ), unmapped AS (
-            SELECT speaker_name, COUNT(*) AS utterances
-            FROM utterances
-            WHERE speaker_title IN ('위원', '의원')
-              AND speaker_mona_cd IS NULL
-            GROUP BY speaker_name
-        ), matches AS (
-            SELECT
-                u.speaker_name,
-                u.utterances,
-                COUNT(m.mona_cd) AS member_matches
-            FROM unmapped u
-            LEFT JOIN members m ON m.hg_nm = u.speaker_name
-            GROUP BY u.speaker_name, u.utterances
         )
         SELECT
             (SELECT COUNT(*) FROM bill_gaps) AS bill_metadata_gaps,
             (SELECT COUNT(*) FROM bill_gaps WHERE propose_dt IS NULL) AS bills_missing_propose_dt,
             (SELECT COUNT(*) FROM bill_gaps WHERE summary IS NULL OR summary = '') AS bills_missing_summary,
             (SELECT COUNT(*) FROM bill_gaps WHERE has_votes) AS vote_created_bill_gaps,
-            (SELECT COUNT(*) FROM bill_gaps WHERE NOT has_votes) AS non_vote_bill_gaps,
-            COALESCE((SELECT SUM(utterances)::int FROM matches), 0)
-                AS unmapped_member_titled_utterances,
-            COALESCE((
-                SELECT SUM(utterances)::int FROM matches WHERE member_matches = 1
-            ), 0) AS safe_utterance_mapping_candidates
+            (SELECT COUNT(*) FROM bill_gaps WHERE NOT has_votes) AS non_vote_bill_gaps
         """
     )
     row = cur.fetchone()
@@ -188,44 +178,10 @@ def _load_gap_counts(cur: object) -> dict[str, int]:
     return dict(zip(columns, row, strict=True))
 
 
-def _load_unmapped_member_titled_speakers(cur: object) -> tuple[dict[str, object], ...]:
-    cur.execute(
-        """
-        WITH unmapped AS (
-            SELECT speaker_name, COUNT(*) AS utterances
-            FROM utterances
-            WHERE speaker_title IN ('위원', '의원')
-              AND speaker_mona_cd IS NULL
-            GROUP BY speaker_name
-        ), matches AS (
-            SELECT
-                u.speaker_name,
-                u.utterances,
-                COUNT(m.mona_cd) AS member_matches
-            FROM unmapped u
-            LEFT JOIN members m ON m.hg_nm = u.speaker_name
-            GROUP BY u.speaker_name, u.utterances
-        )
-        SELECT
-            speaker_name AS "speaker_name",
-            utterances AS "utterances",
-            member_matches AS "member_name_matches",
-            CASE
-                WHEN member_matches = 0 THEN 'no_member_reference'
-                WHEN member_matches = 1 THEN 'safe_mapping_candidate'
-                ELSE 'ambiguous_name'
-            END AS "classification"
-        FROM matches
-        ORDER BY utterances DESC, speaker_name
-        LIMIT 25
-        """
-    )
-    return _fetch_dicts(cur)
-
-
 def _build_metrics(
     missing_party_rows: Sequence[Mapping[str, object]],
     gap_counts: Mapping[str, int],
+    member_mapping: MemberUtteranceMappingQuality,
 ) -> tuple[Metric, ...]:
     missing_party_count = len(missing_party_rows)
     vote_party_available = sum(1 for row in missing_party_rows if row["latest_vote_party"])
@@ -256,39 +212,62 @@ def _build_metrics(
             "Bills whose summary cannot yet participate in keyword search.",
         ),
         Metric(
+            "member_titled_utterances_total",
+            member_mapping.total_utterances,
+            "Utterances whose speaker_title is one of the 10 member-like titles used by ingest mapping.",
+        ),
+        Metric(
             "unmapped_member_titled_utterances",
-            gap_counts["unmapped_member_titled_utterances"],
-            "Utterances with member-like title but no safe member FK in current members table.",
+            member_mapping.unmapped_utterances,
+            "Member-titled utterances with no member FK across the full ingest title set.",
+        ),
+        Metric(
+            "member_titled_utterance_mapping_rate_pct",
+            _metric_rate(member_mapping.mapping_rate_pct),
+            "Raw mapping rate across member-titled utterances.",
+        ),
+        Metric(
+            "ambiguous_name_unmapped_utterances",
+            member_mapping.ambiguous_name_unmapped,
+            "Unmapped rows intentionally left without FK because the normalized member name is ambiguous.",
+        ),
+        Metric(
+            "member_titled_utterance_actionable_mapping_rate_pct",
+            _metric_rate(member_mapping.actionable_mapping_rate_pct),
+            "Mapping rate excluding intentionally ambiguous member-name collisions from the denominator.",
         ),
         Metric(
             "safe_utterance_mapping_candidates",
-            gap_counts["safe_utterance_mapping_candidates"],
-            "Rows that can be auto-mapped by unique member name. Current sample should stay zero.",
+            member_mapping.safe_mapping_candidate_unmapped,
+            "Rows that can be auto-mapped by unique normalized member name. Current sample should stay zero.",
         ),
     )
 
 
 def _build_conclusions(
-    unmapped_speaker_rows: Sequence[Mapping[str, object]],
+    member_mapping: MemberUtteranceMappingQuality,
     gap_counts: Mapping[str, int],
 ) -> tuple[str, ...]:
-    safe_candidates = [
-        row for row in unmapped_speaker_rows
-        if row["classification"] == "safe_mapping_candidate"
-    ]
     mapping_conclusion = (
         "No unique member reference exists for sampled unmapped member-titled utterances, "
         "so the ingest path should not fabricate `speaker_mona_cd` values."
-        if not safe_candidates
+        if member_mapping.safe_mapping_candidate_unmapped == 0
         else "Some unique member references exist; those should be mapped in the utterance ingest path."
     )
     return (
         "Do not backfill `members.poly_nm` from `votes.poly_nm_at_vote` in this slice; vote party is point-in-time data, while `members.poly_nm` is profile metadata.",
         f"{gap_counts['vote_created_bill_gaps']} vote-created bill rows still lack source proposal date and summary after full backfill; keep them as accepted source metadata gaps for migration unless a new source endpoint is added.",
         f"{gap_counts['non_vote_bill_gaps']} non-vote bill rows still lack source summary after full backfill; they affect summary-search recall, not relational integrity.",
+        f"Member-titled utterance mapping is {_metric_rate(member_mapping.actionable_mapping_rate_pct)}% after excluding {member_mapping.ambiguous_name_unmapped} ambiguous-name rows from the denominator.",
         mapping_conclusion,
         "Keep these metrics visible through hosted Postgres migration so accepted source gaps do not get mistaken for ingest failures.",
     )
+
+
+def _metric_rate(value: float | None) -> float | str:
+    if value is None:
+        return "n/a"
+    return value
 
 
 def _fetch_dicts(cur: object) -> tuple[dict[str, object], ...]:

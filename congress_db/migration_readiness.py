@@ -7,10 +7,20 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .db import get_conn
+from .evaluate_session_groups import (
+    DEFAULT_EVAL_DIR,
+    DEFAULT_MEETING_TYPES,
+    evaluate_labels,
+)
+from .utterance_mapping_quality import (
+    MemberUtteranceMappingQuality,
+    load_member_utterance_mapping_quality,
+)
 
 DEFAULT_MIGRATION_READINESS_REPORT = Path("docs/MIGRATION-READINESS.md")
 READY = "ready_for_human_review"
 NOT_READY = "not_ready_for_human_review"
+MAPPING_RATE_REGRESSION_WARNING_PCT = 1.0
 SANITY_KEYS = frozenset({"S1", "S2", "S3", "S4a", "S4b", "S5", "S6", "S7"})
 CORE_TABLES = (
     "members",
@@ -35,8 +45,10 @@ class MigrationReadinessReport:
     dead_letter_counts: tuple[Mapping[str, Any], ...]
     session_group_integrity: Mapping[str, int]
     session_group_integrity_error_count: int
+    session_group_semantic_accuracy: Mapping[str, Any]
     sanity_signal: Mapping[str, Any]
     data_completeness_signal: Mapping[str, Any]
+    warnings: tuple[str, ...]
     row_counts: Mapping[str, int]
 
 
@@ -56,9 +68,16 @@ def load_migration_readiness() -> MigrationReadinessReport:
         dead_letters = _load_unresolved_dead_letters(cur)
         integrity = _load_session_group_integrity(cur)
         row_counts = _load_row_counts(cur)
+        member_mapping = load_member_utterance_mapping_quality(cur, sample_limit=0)
+        previous_mapping_rate = _load_previous_mapping_rate(cur, latest_backfill)
 
     sanity_signal = _extract_sanity_signal(latest_backfill)
-    data_completeness_signal = _extract_data_completeness_signal(latest_backfill)
+    semantic_accuracy = _load_session_group_semantic_accuracy()
+    data_completeness_signal = _extract_data_completeness_signal(
+        latest_backfill,
+        member_mapping=member_mapping,
+        previous_mapping_rate=previous_mapping_rate,
+    )
     integrity_errors = sum(integrity.values())
     blockers = _blockers(
         latest_backfill=latest_backfill,
@@ -67,6 +86,7 @@ def load_migration_readiness() -> MigrationReadinessReport:
         sanity_signal=sanity_signal,
         data_completeness_signal=data_completeness_signal,
     )
+    warnings = _warnings(data_completeness_signal, semantic_accuracy)
     return MigrationReadinessReport(
         recommendation=NOT_READY if blockers else READY,
         blockers=tuple(blockers),
@@ -74,8 +94,10 @@ def load_migration_readiness() -> MigrationReadinessReport:
         dead_letter_counts=tuple(dead_letters),
         session_group_integrity=integrity,
         session_group_integrity_error_count=integrity_errors,
+        session_group_semantic_accuracy=semantic_accuracy,
         sanity_signal=sanity_signal,
         data_completeness_signal=data_completeness_signal,
+        warnings=tuple(warnings),
         row_counts=row_counts,
     )
 
@@ -196,12 +218,134 @@ def _extract_sanity_signal(latest_backfill: Mapping[str, Any] | None) -> dict[st
     }
 
 
-def _extract_data_completeness_signal(latest_backfill: Mapping[str, Any] | None) -> dict[str, Any]:
+def _load_previous_mapping_rate(
+    cur: object,
+    latest_backfill: Mapping[str, Any] | None,
+) -> float | None:
+    if latest_backfill is None:
+        return None
+    cur.execute(
+        """
+        SELECT summary
+        FROM ingest_runs
+        WHERE mode = 'backfill'
+          AND status = 'success'
+          AND id <> %s
+        ORDER BY started_at DESC, id DESC
+        LIMIT 1
+        """,
+        (latest_backfill["id"],),
+    )
+    row = cur.fetchone()
+    if row is None:
+        return None
+    return _extract_data_completeness_mapping_rate({"summary": row[0] or {}})
+
+
+def _load_session_group_semantic_accuracy() -> dict[str, Any]:
+    labels_path = DEFAULT_EVAL_DIR / "labels.csv"
+    if not labels_path.exists():
+        return {"available": False, "labels_path": str(labels_path)}
+    result = evaluate_labels(labels_path)
+    evaluated_types = {row.meeting_type for row in result.by_type}
+    return {
+        "available": True,
+        "labels_path": str(labels_path),
+        "complete": result.is_complete,
+        "missing_meeting_types": tuple(
+            meeting_type
+            for meeting_type in DEFAULT_MEETING_TYPES
+            if meeting_type not in evaluated_types
+        ),
+        "correct_count": result.correct_count,
+        "incorrect_count": result.incorrect_count,
+        "missing_count": result.missing_count,
+        "pending_count": result.pending_count,
+        "reviewed_count": result.reviewed_count,
+        "precision": result.precision,
+        "recall": result.recall,
+        "by_type": [
+            {
+                "meeting_type": row.meeting_type,
+                "correct_count": row.correct_count,
+                "incorrect_count": row.incorrect_count,
+                "missing_count": row.missing_count,
+                "pending_count": row.pending_count,
+                "precision": row.precision,
+                "recall": row.recall,
+            }
+            for row in result.by_type
+        ],
+    }
+
+
+def _extract_data_completeness_signal(
+    latest_backfill: Mapping[str, Any] | None,
+    *,
+    member_mapping: MemberUtteranceMappingQuality,
+    previous_mapping_rate: float | None,
+) -> dict[str, Any]:
     completeness = _stage(latest_backfill, "data_completeness")
     metrics = completeness.get("metrics") if isinstance(completeness, Mapping) else None
     if not isinstance(metrics, Sequence) or isinstance(metrics, (str, bytes)):
-        return {"available": False, "metric_count": 0}
-    return {"available": True, "metric_count": len(metrics)}
+        signal: dict[str, Any] = {"available": False, "metric_count": 0}
+    else:
+        signal = {"available": True, "metric_count": len(metrics)}
+        latest_summary_rate = _metric_value(
+            metrics,
+            "member_titled_utterance_actionable_mapping_rate_pct",
+        )
+        if latest_summary_rate is not None:
+            signal["member_titled_utterance_actionable_mapping_rate_pct"] = latest_summary_rate
+
+    signal.setdefault("member_titled_utterances_total", member_mapping.total_utterances)
+    signal.setdefault("unmapped_member_titled_utterances", member_mapping.unmapped_utterances)
+    signal.setdefault("ambiguous_name_unmapped_utterances", member_mapping.ambiguous_name_unmapped)
+    signal.setdefault(
+        "member_titled_utterance_mapping_rate_pct",
+        member_mapping.mapping_rate_pct,
+    )
+    signal.setdefault(
+        "member_titled_utterance_actionable_mapping_rate_pct",
+        member_mapping.actionable_mapping_rate_pct,
+    )
+    signal["previous_actionable_mapping_rate_pct"] = previous_mapping_rate
+    current_rate = signal.get("member_titled_utterance_actionable_mapping_rate_pct")
+    if isinstance(current_rate, (int, float)) and previous_mapping_rate is not None:
+        delta = round(float(current_rate) - previous_mapping_rate, 2)
+        signal["actionable_mapping_rate_delta_pct"] = delta
+        signal["mapping_rate_regression_warning"] = (
+            delta <= -MAPPING_RATE_REGRESSION_WARNING_PCT
+        )
+    else:
+        signal["actionable_mapping_rate_delta_pct"] = None
+        signal["mapping_rate_regression_warning"] = False
+    return signal
+
+
+def _extract_data_completeness_mapping_rate(
+    latest_backfill: Mapping[str, Any] | None,
+) -> float | None:
+    completeness = _stage(latest_backfill, "data_completeness")
+    metrics = completeness.get("metrics") if isinstance(completeness, Mapping) else None
+    if not isinstance(metrics, Sequence) or isinstance(metrics, (str, bytes)):
+        return None
+    return _metric_value(metrics, "member_titled_utterance_actionable_mapping_rate_pct")
+
+
+def _metric_value(metrics: Sequence[Any], name: str) -> float | None:
+    for metric in metrics:
+        if not isinstance(metric, Mapping) or metric.get("name") != name:
+            continue
+        value = metric.get("value")
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value)
+            except ValueError:
+                return None
+    return None
 
 
 def _stage(latest_backfill: Mapping[str, Any] | None, name: str) -> Mapping[str, Any]:
@@ -243,6 +387,39 @@ def _blockers(
     return blockers
 
 
+def _warnings(
+    data_completeness_signal: Mapping[str, Any],
+    semantic_accuracy: Mapping[str, Any],
+) -> list[str]:
+    warnings: list[str] = []
+    if data_completeness_signal.get("mapping_rate_regression_warning"):
+        delta = data_completeness_signal.get("actionable_mapping_rate_delta_pct")
+        previous = data_completeness_signal.get("previous_actionable_mapping_rate_pct")
+        current = data_completeness_signal.get(
+            "member_titled_utterance_actionable_mapping_rate_pct"
+        )
+        warnings.append(
+            "member-titled utterance mapping rate dropped "
+            f"{delta} percentage points from previous success run "
+            f"(previous={previous}, current={current})"
+        )
+    if not semantic_accuracy.get("available"):
+        warnings.append("session_group semantic accuracy labels are unavailable")
+    elif not semantic_accuracy.get("complete"):
+        warnings.append(
+            "session_group semantic accuracy review is incomplete "
+            f"(pending={semantic_accuracy.get('pending_count')}, "
+            f"reviewed={semantic_accuracy.get('reviewed_count')})"
+        )
+    missing_types = semantic_accuracy.get("missing_meeting_types")
+    if missing_types:
+        warnings.append(
+            "session_group semantic accuracy has no sampled meetings for: "
+            + ", ".join(str(item) for item in missing_types)
+        )
+    return warnings
+
+
 def _render_markdown(report: MigrationReadinessReport) -> str:
     lines = [
         "# Hosted Postgres Migration Readiness",
@@ -254,6 +431,12 @@ def _render_markdown(report: MigrationReadinessReport) -> str:
     ]
     if report.blockers:
         lines.extend(f"- {blocker}" for blocker in report.blockers)
+    else:
+        lines.append("- None")
+
+    lines.extend(["", "## Warnings", ""])
+    if report.warnings:
+        lines.extend(f"- {warning}" for warning in report.warnings)
     else:
         lines.append("- None")
 
@@ -286,6 +469,9 @@ def _render_markdown(report: MigrationReadinessReport) -> str:
     lines.extend(["| Metric | Count |", "|---|---:|"])
     for key, value in report.session_group_integrity.items():
         lines.append(f"| `{key}` | {value} |")
+
+    lines.extend(["", "## Session Group Semantic Accuracy", ""])
+    lines.append(f"- signal: `{report.session_group_semantic_accuracy}`")
 
     lines.extend(["", "## Sanity And Completeness", ""])
     lines.append(f"- sanity_check: `{report.sanity_signal}`")

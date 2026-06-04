@@ -49,4 +49,5 @@ def test_render_eval_report_keeps_pending_state_visible(tmp_path) -> None:
     text = output.read_text()
     assert "Labeled review status: pending labeled review" in text
     assert "Precision: pending" in text
+    assert "Types without sampled meetings:" in text
     assert "| 국정감사 | 1 | 2026-05-20 | 7 | 테스트 회의 |" in text

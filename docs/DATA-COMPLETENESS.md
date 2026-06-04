@@ -12,14 +12,19 @@ It separates source metadata gaps, safe fixes, and unsafe automatic mapping.
 | `bill_metadata_gaps` | 1068 | Bills missing proposed date or summary. |
 | `vote_created_bill_metadata_gaps` | 1028 | Metadata gaps attached to bills already touched by votes ingest. |
 | `bills_missing_summary` | 1068 | Bills whose summary cannot yet participate in keyword search. |
-| `unmapped_member_titled_utterances` | 9 | Utterances with member-like title but no safe member FK in current members table. |
-| `safe_utterance_mapping_candidates` | 0 | Rows that can be auto-mapped by unique member name. Current sample should stay zero. |
+| `member_titled_utterances_total` | 847480 | Utterances whose speaker_title is one of the 10 member-like titles used by ingest mapping. |
+| `unmapped_member_titled_utterances` | 9 | Member-titled utterances with no member FK across the full ingest title set. |
+| `member_titled_utterance_mapping_rate_pct` | 100.0 | Raw mapping rate across member-titled utterances. |
+| `ambiguous_name_unmapped_utterances` | 0 | Unmapped rows intentionally left without FK because the normalized member name is ambiguous. |
+| `member_titled_utterance_actionable_mapping_rate_pct` | 100.0 | Mapping rate excluding intentionally ambiguous member-name collisions from the denominator. |
+| `safe_utterance_mapping_candidates` | 0 | Rows that can be auto-mapped by unique normalized member name. Current sample should stay zero. |
 
 ## Conclusions
 
 - Do not backfill `members.poly_nm` from `votes.poly_nm_at_vote` in this slice; vote party is point-in-time data, while `members.poly_nm` is profile metadata.
 - 1028 vote-created bill rows still lack source proposal date and summary after full backfill; keep them as accepted source metadata gaps for migration unless a new source endpoint is added.
 - 40 non-vote bill rows still lack source summary after full backfill; they affect summary-search recall, not relational integrity.
+- Member-titled utterance mapping is 100.0% after excluding 0 ambiguous-name rows from the denominator.
 - No unique member reference exists for sampled unmapped member-titled utterances, so the ingest path should not fabricate `speaker_mona_cd` values.
 - Keep these metrics visible through hosted Postgres migration so accepted source gaps do not get mistaken for ingest failures.
 
@@ -73,12 +78,27 @@ It separates source metadata gaps, safe fixes, and unsafe automatic mapping.
 | 2218841 | 지속가능한 연근해어업 발전법안(대안)(농림축산식품해양수산위원장) | true | propose_dt, summary | vote_created_source_metadata_gap_after_full_backfill |
 | 2218840 | 국가연구데이터 관리 및 활용 촉진에 관한 법률안(대안)(과학기술정보방송통신위원장) | true | propose_dt, summary | vote_created_source_metadata_gap_after_full_backfill |
 
+## Member-titled Utterance Mapping By Title
+
+| speaker_title | total_utterances | mapped_utterances | unmapped_utterances | ambiguous_name_unmapped | mapping_rate_pct |
+| --- | --- | --- | --- | --- | --- |
+| 의원 | 12414 | 12414 | 0 | 0 | 100.00 |
+| 위원 | 603127 | 603118 | 9 | 0 | 100.00 |
+| 의장 | 2890 | 2890 | 0 | 0 | 100.00 |
+| 부의장 | 905 | 905 | 0 | 0 | 100.00 |
+| 의장대리 | 88 | 88 | 0 | 0 | 100.00 |
+| 위원장 | 120457 | 120457 | 0 | 0 | 100.00 |
+| 부위원장 | 0 | 0 | 0 | 0 | n/a |
+| 위원장대리 | 5225 | 5225 | 0 | 0 | 100.00 |
+| 소위원장 | 101977 | 101977 | 0 | 0 | 100.00 |
+| 소위원장대리 | 397 | 397 | 0 | 0 | 100.00 |
+
 ## Unmapped Member-titled Speakers
 
-| speaker_name | utterances | member_name_matches | classification |
-| --- | --- | --- | --- |
-| 전종득 | 5 | 0 | no_member_reference |
-| 기왕 | 1 | 0 | no_member_reference |
-| 김상휘 | 1 | 0 | no_member_reference |
-| 깅대식 | 1 | 0 | no_member_reference |
-| 박상민 | 1 | 0 | no_member_reference |
+| speaker_name | speaker_title | utterances | member_name_matches | classification |
+| --- | --- | --- | --- | --- |
+| 전종득 | 위원 | 5 | 0 | no_member_reference |
+| 기왕 | 위원 | 1 | 0 | no_member_reference |
+| 김상휘 | 위원 | 1 | 0 | no_member_reference |
+| 깅대식 | 위원 | 1 | 0 | no_member_reference |
+| 박상민 | 위원 | 1 | 0 | no_member_reference |

@@ -11,7 +11,8 @@ from .db import get_conn
 
 DEFAULT_EVAL_DIR = Path("docs/session-group-eval")
 DEFAULT_EVAL_REPORT = Path("docs/SESSION-GROUP-EVAL.md")
-DEFAULT_MEETING_TYPES = ("상임위", "국정감사", "국정조사", "인사청문회")
+DEFAULT_MEETING_TYPES = ("상임위", "특별위", "국정감사", "국정조사", "인사청문회")
+MIN_RECOMMENDED_MEETINGS_PER_TYPE = 5
 LABEL_CORRECT = "correct"
 LABEL_INCORRECT = "incorrect"
 LABEL_MISSING = "missing"
@@ -89,6 +90,39 @@ class EvalCandidate:
 
 
 @dataclass(frozen=True)
+class SessionGroupTypeEvalResult:
+    """회의 유형별 라벨 기반 precision/recall 결과."""
+
+    meeting_type: str
+    correct_count: int
+    incorrect_count: int
+    missing_count: int
+    pending_count: int
+
+    @property
+    def reviewed_count(self) -> int:
+        return self.correct_count + self.incorrect_count + self.missing_count
+
+    @property
+    def precision(self) -> float | None:
+        denominator = self.correct_count + self.incorrect_count
+        if denominator == 0:
+            return None
+        return self.correct_count / denominator
+
+    @property
+    def recall(self) -> float | None:
+        denominator = self.correct_count + self.missing_count
+        if denominator == 0:
+            return None
+        return self.correct_count / denominator
+
+    @property
+    def is_complete(self) -> bool:
+        return self.pending_count == 0 and self.reviewed_count > 0
+
+
+@dataclass(frozen=True)
 class SessionGroupEvalResult:
     """라벨 기반 precision/recall 결과."""
 
@@ -96,6 +130,7 @@ class SessionGroupEvalResult:
     incorrect_count: int
     missing_count: int
     pending_count: int
+    by_type: tuple[SessionGroupTypeEvalResult, ...] = ()
 
     @property
     def reviewed_count(self) -> int:
@@ -187,11 +222,6 @@ def select_eval_meetings(
                 (meeting_type, min_groups, max_groups, per_type),
             )
             rows = cur.fetchall()
-            if len(rows) < per_type:
-                raise RuntimeError(
-                    f"not enough eval meetings for {meeting_type}: "
-                    f"found={len(rows)} required={per_type}"
-                )
             meetings.extend(
                 EvalMeeting(
                     meeting_id=row[0],
@@ -279,10 +309,7 @@ def evaluate_labels(labels_path: Path) -> SessionGroupEvalResult:
 
 
 def evaluate_label_rows(rows: Sequence[Mapping[str, str]]) -> SessionGroupEvalResult:
-    correct = 0
-    incorrect = 0
-    missing = 0
-    pending = 0
+    counts: dict[str, dict[str, int]] = {}
     invalid_labels: set[str] = set()
 
     for row in rows:
@@ -290,23 +317,39 @@ def evaluate_label_rows(rows: Sequence[Mapping[str, str]]) -> SessionGroupEvalRe
         if label not in LABEL_VALUES:
             invalid_labels.add(label)
             continue
+        meeting_type = str(row.get("meeting_type") or "unknown")
+        bucket = counts.setdefault(
+            meeting_type,
+            {"correct": 0, "incorrect": 0, "missing": 0, "pending": 0},
+        )
         if label == LABEL_CORRECT:
-            correct += 1
+            bucket["correct"] += 1
         elif label == LABEL_INCORRECT:
-            incorrect += 1
+            bucket["incorrect"] += 1
         elif label == LABEL_MISSING:
-            missing += 1
+            bucket["missing"] += 1
         else:
-            pending += 1
+            bucket["pending"] += 1
 
     if invalid_labels:
         raise ValueError(f"invalid labels: {sorted(invalid_labels)}")
 
+    by_type = tuple(
+        SessionGroupTypeEvalResult(
+            meeting_type=meeting_type,
+            correct_count=values["correct"],
+            incorrect_count=values["incorrect"],
+            missing_count=values["missing"],
+            pending_count=values["pending"],
+        )
+        for meeting_type, values in sorted(counts.items())
+    )
     return SessionGroupEvalResult(
-        correct_count=correct,
-        incorrect_count=incorrect,
-        missing_count=missing,
-        pending_count=pending,
+        correct_count=sum(row.correct_count for row in by_type),
+        incorrect_count=sum(row.incorrect_count for row in by_type),
+        missing_count=sum(row.missing_count for row in by_type),
+        pending_count=sum(row.pending_count for row in by_type),
+        by_type=by_type,
     )
 
 
@@ -394,18 +437,56 @@ def _render_markdown(
         f"- Precision: {_pct(result.precision)}",
         f"- Recall: {_pct(result.recall)}",
         "",
-        "## Labeling Guide",
+        "## Metrics By Meeting Type",
         "",
-        "- Mark an auto-generated row `correct` if the questioner and start point form a real Q&A meaning unit.",
-        "- Mark it `incorrect` if it is a procedural/noisy group rather than a Q&A meaning unit.",
-        "- Add a new row with `missing` if the meeting has a real Q&A group that automation missed.",
-        "- Leave `label` blank for rows not yet reviewed. PM review is only needed for disputed examples.",
-        "",
-        "## Sampled Meetings",
-        "",
-        "| Type | Meeting ID | Date | Groups | Title |",
-        "|---|---:|---|---:|---|",
+        "| Type | Correct | Incorrect | Missing | Pending | Precision | Recall |",
+        "|---|---:|---:|---:|---:|---:|---:|",
     ]
+    for row in result.by_type:
+        lines.append(
+            f"| {row.meeting_type} | {row.correct_count} | {row.incorrect_count} | "
+            f"{row.missing_count} | {row.pending_count} | {_pct(row.precision)} | "
+            f"{_pct(row.recall)} |"
+        )
+
+    sampled_counts = {
+        meeting_type: sum(1 for meeting in meetings if meeting.meeting_type == meeting_type)
+        for meeting_type in DEFAULT_MEETING_TYPES
+    }
+    missing_types = [
+        meeting_type
+        for meeting_type, count in sampled_counts.items()
+        if count == 0
+    ]
+    undersampled_types = [
+        f"{meeting_type}({count})"
+        for meeting_type, count in sampled_counts.items()
+        if 0 < count < MIN_RECOMMENDED_MEETINGS_PER_TYPE
+    ]
+    lines.extend(
+        [
+            "",
+            "## Coverage Notes",
+            "",
+            f"- Expected meeting types: {', '.join(DEFAULT_MEETING_TYPES)}",
+            "- Types without sampled meetings: "
+            + (", ".join(missing_types) if missing_types else "None"),
+            "- Types below recommended sample count: "
+            + (", ".join(undersampled_types) if undersampled_types else "None"),
+            "",
+            "## Labeling Guide",
+            "",
+            "- Mark an auto-generated row `correct` if the questioner and start point form a real Q&A meaning unit.",
+            "- Mark it `incorrect` if it is a procedural/noisy group rather than a Q&A meaning unit.",
+            "- Add a new row with `missing` if the meeting has a real Q&A group that automation missed.",
+            "- Leave `label` blank for rows not yet reviewed. PM review is only needed for disputed examples.",
+            "",
+            "## Sampled Meetings",
+            "",
+            "| Type | Meeting ID | Date | Groups | Title |",
+            "|---|---:|---|---:|---|",
+        ]
+    )
     for meeting in meetings:
         lines.append(
             f"| {meeting.meeting_type} | {meeting.meeting_id} | {meeting.conf_date} | "

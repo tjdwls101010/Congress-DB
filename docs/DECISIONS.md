@@ -3,6 +3,13 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-06-04 — Session-group semantic gate reports missing sample types instead of fabricating labels
+
+The current local DB has no `인사청문회` meetings even though the session-group accuracy
+gate expects five applicable meeting types. The evaluation now samples the available
+types, reports missing sample types explicitly, and keeps precision/recall pending until
+real labels are reviewed rather than inventing semantic accuracy numbers.
+
 ## 2026-06-04 — Four-project roadmap: this repo is the 국회 DB only
 
 The legislative-design harness needs three sources — 국회 (proposed/discussed/voted
