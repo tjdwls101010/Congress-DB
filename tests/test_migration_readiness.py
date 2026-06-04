@@ -101,6 +101,11 @@ def _complete_summary() -> dict[str, object]:
                         "name": "vote_created_bill_gaps",
                         "value": 0,
                         "interpretation": "accepted",
+                    },
+                    {
+                        "name": "member_titled_utterance_actionable_mapping_rate_pct",
+                        "value": 99.0,
+                        "interpretation": "stable",
                     }
                 ]
             },
@@ -211,3 +216,24 @@ def test_readiness_report_blocks_when_required_stage_signals_are_unavailable(tmp
     assert report.recommendation == "not_ready_for_human_review"
     assert "sanity_check signal unavailable" in report.blockers
     assert "data_completeness signal unavailable" in report.blockers
+
+
+def test_readiness_report_warns_when_member_mapping_rate_regresses(tmp_path: Path) -> None:
+    previous = _complete_summary()
+    previous["stages"]["data_completeness"]["metrics"][1]["value"] = 99.0
+    _create_backfill_run(summary=previous)
+    latest = _complete_summary()
+    latest["stages"]["data_completeness"]["metrics"][1]["value"] = 97.4
+    _create_backfill_run(summary=latest)
+
+    report = generate_migration_readiness_report(output_path=tmp_path / "warning.md")
+
+    assert report.recommendation == "ready_for_human_review"
+    assert report.data_completeness_signal[
+        "member_titled_utterance_actionable_mapping_rate_pct"
+    ] == 97.4
+    assert report.data_completeness_signal["mapping_rate_regression_warning"] is True
+    assert report.warnings
+    assert "member-titled utterance mapping rate dropped" in (
+        tmp_path / "warning.md"
+    ).read_text()

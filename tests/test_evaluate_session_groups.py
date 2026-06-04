@@ -11,7 +11,7 @@ def test_evaluate_label_rows_calculates_precision_and_recall() -> None:
     result = evaluate_label_rows(
         [
             {"label": "correct"},
-            {"label": "correct"},
+            {"label": "correct", "notes": "agent-first-pass: looks correct"},
             {"label": "incorrect"},
             {"label": "missing"},
             {"label": ""},
@@ -25,6 +25,8 @@ def test_evaluate_label_rows_calculates_precision_and_recall() -> None:
     assert result.precision == 2 / 3
     assert result.recall == 2 / 3
     assert result.is_complete is False
+    assert result.agent_labeled_count == 1
+    assert result.human_labeled_count == 3
 
 
 def test_render_eval_report_keeps_pending_state_visible(tmp_path) -> None:
@@ -49,4 +51,5 @@ def test_render_eval_report_keeps_pending_state_visible(tmp_path) -> None:
     text = output.read_text()
     assert "Labeled review status: pending labeled review" in text
     assert "Precision: pending" in text
+    assert "Types without sampled meetings:" in text
     assert "| 국정감사 | 1 | 2026-05-20 | 7 | 테스트 회의 |" in text

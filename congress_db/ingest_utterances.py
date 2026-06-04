@@ -21,6 +21,7 @@ from .scrape_minutes import (
     normalize_speaker_name,
     parse_minutes,
 )
+from .utterance_mapping_quality import MEMBER_SPEAKER_TITLES
 
 DEFAULT_SCRAPE_BENCHMARK_OUTPUT = Path("docs/PARALLEL-BENCHMARK.md")
 DEFAULT_RETRY_DELAYS = (1.0, 4.0, 16.0)
@@ -29,20 +30,6 @@ SCRAPE_MAX_ERROR_RATE = 0.01
 SCRAPE_MAX_RETRY_RATE = 0.05
 SCRAPE_MIN_THROUGHPUT_RATIO = 0.95
 KNOWN_HTML_UNAVAILABLE_MNTS_IDS = frozenset({52354, 52713})
-MEMBER_SPEAKER_TITLES = frozenset(
-    {
-        "의원",
-        "위원",
-        "의장",
-        "부의장",
-        "의장대리",
-        "위원장",
-        "부위원장",
-        "위원장대리",
-        "소위원장",
-        "소위원장대리",
-    }
-)
 
 
 @dataclass(frozen=True)
