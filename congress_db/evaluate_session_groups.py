@@ -13,6 +13,8 @@ DEFAULT_EVAL_DIR = Path("docs/session-group-eval")
 DEFAULT_EVAL_REPORT = Path("docs/SESSION-GROUP-EVAL.md")
 DEFAULT_MEETING_TYPES = ("상임위", "특별위", "국정감사", "국정조사", "인사청문회")
 MIN_RECOMMENDED_MEETINGS_PER_TYPE = 5
+SESSION_GROUP_STANDALONE_PRECISION_THRESHOLD = 0.90
+SESSION_GROUP_STANDALONE_RECALL_THRESHOLD = 0.70
 LABEL_CORRECT = "correct"
 LABEL_INCORRECT = "incorrect"
 LABEL_MISSING = "missing"
@@ -328,19 +330,19 @@ def evaluate_label_rows(rows: Sequence[Mapping[str, str]]) -> SessionGroupEvalRe
         )
         if label == LABEL_CORRECT:
             bucket["correct"] += 1
-            if _is_agent_first_pass(row):
+            if _is_agent_reviewed(row):
                 agent_labeled += 1
             else:
                 human_labeled += 1
         elif label == LABEL_INCORRECT:
             bucket["incorrect"] += 1
-            if _is_agent_first_pass(row):
+            if _is_agent_reviewed(row):
                 agent_labeled += 1
             else:
                 human_labeled += 1
         elif label == LABEL_MISSING:
             bucket["missing"] += 1
-            if _is_agent_first_pass(row):
+            if _is_agent_reviewed(row):
                 agent_labeled += 1
             else:
                 human_labeled += 1
@@ -422,8 +424,12 @@ def _normalize_label(value: str) -> str:
     return str(value or "").strip().lower()
 
 
-def _is_agent_first_pass(row: Mapping[str, str]) -> bool:
-    return "agent-first-pass" in str(row.get("notes") or "").lower()
+def _is_agent_reviewed(row: Mapping[str, str]) -> bool:
+    notes = str(row.get("notes") or "").lower()
+    return any(
+        marker in notes
+        for marker in ("agent-first-pass", "agent-reviewed", "codex-reviewed")
+    )
 
 
 def _pct(value: float | None) -> str:
@@ -432,17 +438,31 @@ def _pct(value: float | None) -> str:
     return f"{value * 100:.1f}%"
 
 
+def _needs_utterance_fallback(row: SessionGroupTypeEvalResult) -> bool:
+    return (
+        row.precision is None
+        or row.recall is None
+        or row.precision < SESSION_GROUP_STANDALONE_PRECISION_THRESHOLD
+        or row.recall < SESSION_GROUP_STANDALONE_RECALL_THRESHOLD
+    )
+
+
 def _render_markdown(
     result: SessionGroupEvalResult,
     meetings: Sequence[EvalMeeting],
     labels_path: Path,
 ) -> str:
     if result.is_complete and result.agent_labeled_count:
-        status = "complete agent first-pass; PM verification pending"
+        status = "complete Codex-reviewed"
     elif result.is_complete:
-        status = "complete"
+        status = "complete human-reviewed"
     else:
         status = "pending labeled review"
+    fallback_types = [
+        f"{row.meeting_type}(P={_pct(row.precision)}, R={_pct(row.recall)})"
+        for row in result.by_type
+        if _needs_utterance_fallback(row)
+    ]
     lines = [
         "# Session Group Evaluation",
         "",
@@ -455,8 +475,13 @@ def _render_markdown(
         f"- Labeled review status: {status}",
         f"- Label file: `{labels_path}`",
         f"- Pending auto candidates: {result.pending_count}",
-        f"- Agent first-pass labels: {result.agent_labeled_count}",
-        f"- Human/PM-reviewed labels: {result.human_labeled_count}",
+        f"- Agent-reviewed labels: {result.agent_labeled_count}",
+        f"- Human-reviewed labels: {result.human_labeled_count}",
+        "- Standalone-use threshold: "
+        f"precision >= {_pct(SESSION_GROUP_STANDALONE_PRECISION_THRESHOLD)}, "
+        f"recall >= {_pct(SESSION_GROUP_STANDALONE_RECALL_THRESHOLD)}",
+        "- Types requiring `utterances` sequence-window fallback: "
+        + (", ".join(fallback_types) if fallback_types else "None"),
         "",
         "## Metrics",
         "",
@@ -508,7 +533,7 @@ def _render_markdown(
             "- Mark an auto-generated row `correct` if the questioner and start point form a real Q&A meaning unit.",
             "- Mark it `incorrect` if it is a procedural/noisy group rather than a Q&A meaning unit.",
             "- Add a new row with `missing` if the meeting has a real Q&A group that automation missed.",
-            "- Leave `label` blank for rows not yet reviewed. PM review is only needed for disputed examples.",
+            "- Leave `label` blank for rows not yet reviewed. Human review is only needed for disputed examples.",
             "",
             "## Sampled Meetings",
             "",

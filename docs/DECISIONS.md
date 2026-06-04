@@ -3,6 +3,14 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-06-04 — Codex-reviewed session-group labels close the semantic gate
+
+The PM delegated the remaining `session_group` semantic label verification to Codex
+instead of a PM manual pass. Codex-reviewed labels are accepted for the pre-Neon
+semantic accuracy gate, while standalone API/SDK use requires per-type precision
+>= 90.0% and recall >= 70.0%; below-threshold types must keep the `utterances`
+sequence-window fallback.
+
 ## 2026-06-04 — Session-group semantic gate reports missing sample types instead of fabricating labels
 
 The current local DB has no `인사청문회` meetings even though the session-group accuracy

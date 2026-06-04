@@ -10,6 +10,8 @@ from .db import get_conn
 from .evaluate_session_groups import (
     DEFAULT_EVAL_DIR,
     DEFAULT_MEETING_TYPES,
+    SESSION_GROUP_STANDALONE_PRECISION_THRESHOLD,
+    SESSION_GROUP_STANDALONE_RECALL_THRESHOLD,
     evaluate_labels,
 )
 from .utterance_mapping_quality import (
@@ -248,10 +250,23 @@ def _load_session_group_semantic_accuracy() -> dict[str, Any]:
         return {"available": False, "labels_path": str(labels_path)}
     result = evaluate_labels(labels_path)
     evaluated_types = {row.meeting_type for row in result.by_type}
+    below_threshold_types = tuple(
+        row.meeting_type
+        for row in result.by_type
+        if (
+            row.precision is None
+            or row.recall is None
+            or row.precision < SESSION_GROUP_STANDALONE_PRECISION_THRESHOLD
+            or row.recall < SESSION_GROUP_STANDALONE_RECALL_THRESHOLD
+        )
+    )
     return {
         "available": True,
         "labels_path": str(labels_path),
         "complete": result.is_complete,
+        "standalone_precision_threshold": SESSION_GROUP_STANDALONE_PRECISION_THRESHOLD,
+        "standalone_recall_threshold": SESSION_GROUP_STANDALONE_RECALL_THRESHOLD,
+        "standalone_below_threshold_types": below_threshold_types,
         "missing_meeting_types": tuple(
             meeting_type
             for meeting_type in DEFAULT_MEETING_TYPES
@@ -413,10 +428,12 @@ def _warnings(
             f"(pending={semantic_accuracy.get('pending_count')}, "
             f"reviewed={semantic_accuracy.get('reviewed_count')})"
         )
-    elif semantic_accuracy.get("agent_labeled_count"):
+    below_threshold_types = semantic_accuracy.get("standalone_below_threshold_types")
+    if below_threshold_types:
         warnings.append(
-            "session_group semantic accuracy is based on agent first-pass labels; "
-            "PM verification remains before treating it as final"
+            "session_group semantic accuracy is below standalone-use threshold for: "
+            + ", ".join(str(item) for item in below_threshold_types)
+            + "; use utterances sequence-window fallback"
         )
     missing_types = semantic_accuracy.get("missing_meeting_types")
     if missing_types:
