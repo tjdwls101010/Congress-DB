@@ -41,14 +41,14 @@ _Avoid_: 의결, 통과, 가결(처리결과의 한 값일 뿐)
 
 **회의 (Meeting)**:
 국회 회의록 웹 목록에 노출되고 HTML viewer로 본문 확인이 가능한 한 차 회의 인스턴스. 자연키는 회의록 상세 URL의 `id` 파라미터인 `mnts_id`다.
-_Avoid_: 세션(아래 두 개념과 충돌)
+_Avoid_: 세션(회기와 혼동)
 
 **회기 (Session No)**:
 "제434회 국회" 같은 회기 번호. `meetings.session_no`에 정수로 저장 (예: 434). API의 SESS / SESSION_CD에 대응.
-_Avoid_: 세션(Session Group과 헷갈림)
+_Avoid_: 세션(한국어 대화에서는 회의와 혼동되기 쉬움)
 
 **차수 (Degree)**:
-한 회기 안에서의 "제3차" 같은 회의 차수. `meetings.degree`에 정수로 저장 (예: 3).
+한 회기 안에서의 "제3차" 같은 회의 차수. `meetings.degree`에 원문 텍스트로 저장 (예: '제3차', '개회식'). 정렬용 정수 차수가 필요하면 파생 컬럼을 둔다(스키마는 TEXT).
 
 **회의 안건 (Meeting Agenda Item)**:
 국회 원천의 `SUB_NAME`에 들어 있는 회의 상정 항목. 법안도 있지만 임명동의안·출석요구·연설·동의 등이 섞이며, core DB에는 별도 테이블로 보존하지 않고 법안-회의 연결을 만들 때 임시 입력으로만 사용한다.
@@ -62,13 +62,9 @@ _Avoid_: 안건(회의 공식 상정 항목과 혼동)
 **발언 (Utterance)**:
 회의록 본문의 한 발언. 화자(speaker_name + speaker_title)와 시퀀스(meeting 내 순번)로 식별. 의원의 발언은 `speaker_mona_cd`로 의원과 join 가능.
 
-**Q&A 세션 그룹 (Session Group)**:
-회의록 안에서 한 의원의 질의 + 정부 답변자의 응답 묶음. 의장이 의원을 호명하는 순간과 답변자 출현을 경계로 자동 감지한다. **본회의와 소위원회에는 적용하지 않는다** (Q&A가 아닌 절차·안건·토론 단위가 섞임).
-_Avoid_: 세션(회기와 헷갈림. "그룹" 붙여 구분)
-
-**회의록 세그먼트 (Proceeding Segment)**:
-본회의·소위원회처럼 Q&A 세션 그룹이 맞지 않는 회의에서 검토할 수 있는 미래 의미 단위. 본회의는 의사일정·대정부질문·표결 단위, 소위원회는 안건/법안 심사 단위가 후보이며 현재 스키마에는 아직 없다.
-_Avoid_: Q&A 그룹(질의자-답변자 묶음과 혼동)
+**주변 발언 창 (Neighbor Window)**:
+키워드 hit나 특정 화자 발언의 같은 회의 앞뒤 `sequence` 범위. Q&A 블록, 토론 단위, 안건 단위를 DB에 미리 저장하지 않고 에이전트/API가 발언 stream에서 즉석으로 문맥을 읽는 단위다.
+_Avoid_: Q&A 그룹, 세그먼트(저장된 의미 단위처럼 들림)
 
 **위원회 (Committee)**:
 상임위원회 / 특별위원회 / 소위원회. 의원은 시점마다 소속 위원회가 다를 수 있지만, **별도 history 테이블은 두지 않는다** — 위원회 시점은 회의(meetings)와 발언(utterances)에 자동으로 박혀 있기 때문.
@@ -116,20 +112,20 @@ _Avoid_: global cursor
 _Avoid_: 터미널 로그만 남기기, 실패 item 무시
 
 **Touched Meeting**:
-증분 동기화에서 새로 들어오거나 갱신된 회의. 해당 `meeting_id`만 utterances를 재스크래핑하고 session_groups를 재계산한다.
+증분 동기화에서 새로 들어오거나 갱신된 회의. 해당 `meeting_id`만 utterances를 재스크래핑한다.
 
 ## 회의 종류 (meeting_type 값)
 
-5가지 enum 값. 각각 다른 OpenAPI에서 가져온다:
+7가지 enum 값. 각각 다른 OpenAPI 또는 회의 제목 패턴에서 가져온다:
 
-| meeting_type | API 출처 | Q&A grouping |
-|---|---|---|
-| **본회의** | `nzbyfwhwaoanttzje` | ❌ |
-| **상임위** / **특별위** | `ncwgseseafwbuheph` (`CLASS_NAME`으로 구분) | ✅ |
-| **국정감사** | `VCONFAPIGCONFLIST` | ✅ |
-| **국정조사** | `VCONFPIPCONFLIST` | ✅ |
-| **인사청문회** | `VCONFCFRMCONFLIST` | ✅ |
-| **소위원회** | (별도 API 또는 회의 제목 패턴) | ❌ |
+| meeting_type | API 출처 |
+|---|---|
+| **본회의** | `nzbyfwhwaoanttzje` |
+| **상임위** / **특별위** | `ncwgseseafwbuheph` (`CLASS_NAME`·회의명·위원회명으로 구분) |
+| **국정감사** | `VCONFAPIGCONFLIST` |
+| **국정조사** | `VCONFPIPCONFLIST` |
+| **인사청문회** | `VCONFCFRMCONFLIST` |
+| **소위원회** | 회의 제목/위원회명 패턴 |
 
 ## Relationships
 
@@ -138,10 +134,7 @@ _Avoid_: 터미널 로그만 남기기, 실패 item 무시
 - **의원 ↔ 법안 (표결)**: N:M. votes 테이블 (의안 1개당 286 row).
 - **법안 ↔ 회의**: N:M. meeting_bills 정규화. 한 법안이 여러 회의에서 다뤄지고, 한 회의가 여러 법안을 다룬다.
 - **회의 → 발언**: 1:N. utterances.meeting_id FK.
-- **회의 → Q&A 그룹**: 1:N (Q&A grouping 가능한 회의에만). session_groups.meeting_id FK.
-- **Q&A 그룹 → 발언**: 1:N. utterances.session_group_id (nullable) FK.
 - **의원 → 발언**: 1:N. utterances.speaker_mona_cd (nullable — 비-의원 화자는 NULL).
-- **의원 → Q&A 그룹 (질의자)**: 1:N. session_groups.questioner_mona_cd FK.
 - **수집 실행 → 실패 편지**: 1:N. dead_letters.run_id FK.
 - **수집 커서 → 수집 실행**: source별 cursor가 마지막 성공 run을 가리킨다.
 
@@ -164,11 +157,11 @@ _Avoid_: 터미널 로그만 남기기, 실패 item 무시
 
 ## Flagged ambiguities
 
-- **"세션" 다중 의미**: 회기(Session No, 제434회) vs Q&A 세션 그룹(Session Group). 본 프로젝트에서는 후자를 항상 "**그룹**" 또는 "**Q&A 그룹**"으로 부른다.
+- **"세션" 다중 의미**: 한국어 대화에서 세션은 회의, 회기, 질의응답 묶음으로 섞이기 쉽다. 본 프로젝트에서는 공식 용어로 **회기**, **회의**, **발언**을 쓰고 "세션"은 피한다.
 - **"회의 안건" vs "정책 의제" vs "법안"**: 회의 안건은 국회 회의의 공식 상정 항목, 정책 의제는 사용자가 찾는 주제, 법안은 `BILL_ID`로 식별되는 의안이다. core DB에는 법안과 법안-회의 연결만 보존하고, 정책 의제는 향후 의미 레이어에서 다룬다.
 - **"의원" vs "위원"**: 같은 사람이지만 회의 컨텍스트(위원회 회의)에서는 "위원"으로 호칭됨. 화자 직함(`speaker_title`)에 그대로 보존하고, ID(`speaker_mona_cd`)로 의원과 join한다.
 - **의원 인적사항 API의 범위**: `nwvrqwxyaytdsfvhu`는 현재 286명만 반환하지만 법안 API는 그 밖의 22대 관련 MONA_CD도 참조한다. FK와 JOIN을 보존하기 위해 적재 중 발견한 누락 의원은 최소 이름만 가진 `members` stub으로 보존한다.
 - **회의 식별자 3종**: `mnts_id`(HTML 상세 URL의 id, canonical key), `CONFER_NUM`(본회의/위원회 API의 회의번호, mnts_id와 동일), `CONF_ID`(N0xxxxx, 별도 식별자). 통합 키는 `mnts_id`.
 - **대수 파라미터 형식 혼재**: `DAE_NUM=22` (정수) vs `AGE=22` (정수) vs `ERACO=제22대` (한글 텍스트). API별로 다르므로 한 군데 wrapper에서 흡수.
-- **본회의·소위원회 의미 단위**: "불가능"으로 확정한 것이 아니라, `session_groups`와 다른 Interface가 필요하다고 정리했다. 후보는 본회의의 의사일정/대정부질문/표결 세그먼트, 소위원회의 법안 심사 세그먼트다.
+- **회의록 의미 단위**: DB에는 미리 계산한 Q&A/토론/안건 세그먼트를 저장하지 않는다. 향후 SDK나 입법 harness가 필요하면 `utterances`의 `meeting_id + sequence` 주변 발언 창에서 즉석 재구성한다.
 - **백필 vs 증분 동기화**: 별도 코드가 아니라 같은 적재 Module의 실행 mode다. 초기에는 로컬/별도 runner가 hosted Postgres DB에 직접 upsert한다.

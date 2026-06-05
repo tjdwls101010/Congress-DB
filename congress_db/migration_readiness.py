@@ -7,13 +7,6 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .db import get_conn
-from .evaluate_session_groups import (
-    DEFAULT_EVAL_DIR,
-    DEFAULT_MEETING_TYPES,
-    SESSION_GROUP_STANDALONE_PRECISION_THRESHOLD,
-    SESSION_GROUP_STANDALONE_RECALL_THRESHOLD,
-    evaluate_labels,
-)
 from .utterance_mapping_quality import (
     MemberUtteranceMappingQuality,
     load_member_utterance_mapping_quality,
@@ -33,7 +26,6 @@ CORE_TABLES = (
     "meetings",
     "meeting_bills",
     "utterances",
-    "session_groups",
 )
 
 
@@ -45,9 +37,6 @@ class MigrationReadinessReport:
     blockers: tuple[str, ...]
     latest_backfill_run: Mapping[str, Any] | None
     dead_letter_counts: tuple[Mapping[str, Any], ...]
-    session_group_integrity: Mapping[str, int]
-    session_group_integrity_error_count: int
-    session_group_semantic_accuracy: Mapping[str, Any]
     sanity_signal: Mapping[str, Any]
     data_completeness_signal: Mapping[str, Any]
     warnings: tuple[str, ...]
@@ -68,35 +57,28 @@ def load_migration_readiness() -> MigrationReadinessReport:
     with get_conn() as conn, conn.cursor() as cur:
         latest_backfill = _load_latest_backfill(cur)
         dead_letters = _load_unresolved_dead_letters(cur)
-        integrity = _load_session_group_integrity(cur)
         row_counts = _load_row_counts(cur)
         member_mapping = load_member_utterance_mapping_quality(cur, sample_limit=0)
         previous_mapping_rate = _load_previous_mapping_rate(cur, latest_backfill)
 
     sanity_signal = _extract_sanity_signal(latest_backfill)
-    semantic_accuracy = _load_session_group_semantic_accuracy()
     data_completeness_signal = _extract_data_completeness_signal(
         latest_backfill,
         member_mapping=member_mapping,
         previous_mapping_rate=previous_mapping_rate,
     )
-    integrity_errors = sum(integrity.values())
     blockers = _blockers(
         latest_backfill=latest_backfill,
         dead_letters=dead_letters,
-        integrity_errors=integrity_errors,
         sanity_signal=sanity_signal,
         data_completeness_signal=data_completeness_signal,
     )
-    warnings = _warnings(data_completeness_signal, semantic_accuracy)
+    warnings = _warnings(data_completeness_signal)
     return MigrationReadinessReport(
         recommendation=NOT_READY if blockers else READY,
         blockers=tuple(blockers),
         latest_backfill_run=latest_backfill,
         dead_letter_counts=tuple(dead_letters),
-        session_group_integrity=integrity,
-        session_group_integrity_error_count=integrity_errors,
-        session_group_semantic_accuracy=semantic_accuracy,
         sanity_signal=sanity_signal,
         data_completeness_signal=data_completeness_signal,
         warnings=tuple(warnings),
@@ -152,48 +134,6 @@ def _load_unresolved_dead_letters(cur: object) -> list[dict[str, Any]]:
     ]
 
 
-def _load_session_group_integrity(cur: object) -> dict[str, int]:
-    queries = {
-        "utterance_count_mismatch": """
-            SELECT COUNT(*)
-            FROM session_groups sg
-            LEFT JOIN (
-                SELECT session_group_id, COUNT(*) AS cnt
-                FROM utterances
-                WHERE session_group_id IS NOT NULL
-                GROUP BY session_group_id
-            ) u ON u.session_group_id = sg.id
-            WHERE COALESCE(u.cnt, 0) <> sg.utterance_count
-        """,
-        "total_chars_mismatch": """
-            SELECT COUNT(*)
-            FROM session_groups sg
-            LEFT JOIN (
-                SELECT session_group_id, SUM(char_length(content)) AS chars
-                FROM utterances
-                WHERE session_group_id IS NOT NULL
-                GROUP BY session_group_id
-            ) u ON u.session_group_id = sg.id
-            WHERE COALESCE(u.chars, 0) <> sg.total_chars
-        """,
-        "respondents_format_invalid": """
-            SELECT COUNT(*)
-            FROM session_groups
-            WHERE respondents IS NULL OR jsonb_typeof(respondents) <> 'array'
-        """,
-        "respondent_empty_groups": """
-            SELECT COUNT(*)
-            FROM session_groups
-            WHERE respondents IS NULL OR jsonb_array_length(respondents) = 0
-        """,
-    }
-    result: dict[str, int] = {}
-    for key, sql in queries.items():
-        cur.execute(sql)
-        result[key] = cur.fetchone()[0]
-    return result
-
-
 def _load_row_counts(cur: object) -> dict[str, int]:
     counts: dict[str, int] = {}
     for table in CORE_TABLES:
@@ -242,58 +182,6 @@ def _load_previous_mapping_rate(
     if row is None:
         return None
     return _extract_data_completeness_mapping_rate({"summary": row[0] or {}})
-
-
-def _load_session_group_semantic_accuracy() -> dict[str, Any]:
-    labels_path = DEFAULT_EVAL_DIR / "labels.csv"
-    if not labels_path.exists():
-        return {"available": False, "labels_path": str(labels_path)}
-    result = evaluate_labels(labels_path)
-    evaluated_types = {row.meeting_type for row in result.by_type}
-    below_threshold_types = tuple(
-        row.meeting_type
-        for row in result.by_type
-        if (
-            row.precision is None
-            or row.recall is None
-            or row.precision < SESSION_GROUP_STANDALONE_PRECISION_THRESHOLD
-            or row.recall < SESSION_GROUP_STANDALONE_RECALL_THRESHOLD
-        )
-    )
-    return {
-        "available": True,
-        "labels_path": str(labels_path),
-        "complete": result.is_complete,
-        "standalone_precision_threshold": SESSION_GROUP_STANDALONE_PRECISION_THRESHOLD,
-        "standalone_recall_threshold": SESSION_GROUP_STANDALONE_RECALL_THRESHOLD,
-        "standalone_below_threshold_types": below_threshold_types,
-        "missing_meeting_types": tuple(
-            meeting_type
-            for meeting_type in DEFAULT_MEETING_TYPES
-            if meeting_type not in evaluated_types
-        ),
-        "correct_count": result.correct_count,
-        "incorrect_count": result.incorrect_count,
-        "missing_count": result.missing_count,
-        "pending_count": result.pending_count,
-        "reviewed_count": result.reviewed_count,
-        "agent_labeled_count": result.agent_labeled_count,
-        "human_labeled_count": result.human_labeled_count,
-        "precision": result.precision,
-        "recall": result.recall,
-        "by_type": [
-            {
-                "meeting_type": row.meeting_type,
-                "correct_count": row.correct_count,
-                "incorrect_count": row.incorrect_count,
-                "missing_count": row.missing_count,
-                "pending_count": row.pending_count,
-                "precision": row.precision,
-                "recall": row.recall,
-            }
-            for row in result.by_type
-        ],
-    }
 
 
 def _extract_data_completeness_signal(
@@ -382,7 +270,6 @@ def _blockers(
     *,
     latest_backfill: Mapping[str, Any] | None,
     dead_letters: Sequence[Mapping[str, Any]],
-    integrity_errors: int,
     sanity_signal: Mapping[str, Any],
     data_completeness_signal: Mapping[str, Any],
 ) -> list[str]:
@@ -395,8 +282,6 @@ def _blockers(
     unresolved_count = sum(int(row["count"]) for row in dead_letters)
     if unresolved_count:
         blockers.append(f"unresolved dead letters remain: {unresolved_count}")
-    if integrity_errors:
-        blockers.append(f"session group integrity errors remain: {integrity_errors}")
     if not sanity_signal.get("available") or sanity_signal.get("missing_keys"):
         blockers.append("sanity_check signal unavailable")
     if not data_completeness_signal.get("available"):
@@ -406,7 +291,6 @@ def _blockers(
 
 def _warnings(
     data_completeness_signal: Mapping[str, Any],
-    semantic_accuracy: Mapping[str, Any],
 ) -> list[str]:
     warnings: list[str] = []
     if data_completeness_signal.get("mapping_rate_regression_warning"):
@@ -419,27 +303,6 @@ def _warnings(
             "member-titled utterance mapping rate dropped "
             f"{delta} percentage points from previous success run "
             f"(previous={previous}, current={current})"
-        )
-    if not semantic_accuracy.get("available"):
-        warnings.append("session_group semantic accuracy labels are unavailable")
-    elif not semantic_accuracy.get("complete"):
-        warnings.append(
-            "session_group semantic accuracy review is incomplete "
-            f"(pending={semantic_accuracy.get('pending_count')}, "
-            f"reviewed={semantic_accuracy.get('reviewed_count')})"
-        )
-    below_threshold_types = semantic_accuracy.get("standalone_below_threshold_types")
-    if below_threshold_types:
-        warnings.append(
-            "session_group semantic accuracy is below standalone-use threshold for: "
-            + ", ".join(str(item) for item in below_threshold_types)
-            + "; use utterances sequence-window fallback"
-        )
-    missing_types = semantic_accuracy.get("missing_meeting_types")
-    if missing_types:
-        warnings.append(
-            "session_group semantic accuracy has no sampled meetings for: "
-            + ", ".join(str(item) for item in missing_types)
         )
     return warnings
 
@@ -488,14 +351,6 @@ def _render_markdown(report: MigrationReadinessReport) -> str:
             )
     else:
         lines.append("- None")
-
-    lines.extend(["", "## Session Group Integrity", ""])
-    lines.extend(["| Metric | Count |", "|---|---:|"])
-    for key, value in report.session_group_integrity.items():
-        lines.append(f"| `{key}` | {value} |")
-
-    lines.extend(["", "## Session Group Semantic Accuracy", ""])
-    lines.append(f"- signal: `{report.session_group_semantic_accuracy}`")
 
     lines.extend(["", "## Sanity And Completeness", ""])
     lines.append(f"- sanity_check: `{report.sanity_signal}`")

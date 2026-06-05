@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Literal, Sequence
 from zoneinfo import ZoneInfo
 
 from .agenda_parser import parse_agenda_item
@@ -33,6 +33,7 @@ VCONFBILL_ENDPOINT = "VCONFBILLCONFLIST"
 SEOUL = ZoneInfo("Asia/Seoul")
 DEFAULT_MEETINGS_BENCHMARK_OUTPUT = Path("docs/MEETINGS-PARALLEL-BENCHMARK.md")
 DEFAULT_VCONFBILL_RETRY_DELAYS = (1.0, 4.0, 16.0)
+VconfBillFetchMode = Literal["all", "missing"]
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,9 @@ class IngestMeetingsResult:
     new_meeting_ids: tuple[int, ...]
     changed_meeting_ids: tuple[int, ...]
     stale_meeting_ids: tuple[int, ...]
+    vconfbill_target_bill_count: int
+    vconfbill_skipped_bill_count: int
+    vconfbill_failures: tuple["VconfBillFailure", ...]
     html_unavailable_mnts_ids: tuple[int, ...]
     web_only_mnts_ids: tuple[int, ...]
     openapi_only_mnts_ids: tuple[int, ...]
@@ -75,6 +79,14 @@ class _FetchState:
     rows: list[dict[str, Any]]
     age_param_used: dict[str, str] | None
     next_page: int = 2
+
+
+@dataclass(frozen=True)
+class VconfBillFailure:
+    """VCONFBILLCONFLIST 최종 실패."""
+
+    bill_id: str
+    error: str
 
 
 _UPSERT_MEETINGS_SQL = """
@@ -119,6 +131,9 @@ def ingest_meetings(
     worker_levels: tuple[int, ...] = DEFAULT_WORKER_LEVELS,
     benchmark_output_path: Path = DEFAULT_MEETINGS_BENCHMARK_OUTPUT,
     vconfbill_worker_count: int | None = None,
+    vconfbill_fetch_mode: VconfBillFetchMode = "all",
+    vconfbill_force_meeting_ids: Sequence[int] = (),
+    allow_partial_vconfbill: bool = False,
 ) -> IngestMeetingsResult:
     """22대 회의 메타를 캘리브레이션 분량만큼 적재한다."""
     safe_print(
@@ -140,23 +155,32 @@ def ingest_meetings(
     }
     web_meeting_ids = set(meeting_rows)
     agenda_drafts = [row for row in agenda_drafts if row["meeting_id"] in web_meeting_ids]
-    meeting_bill_scope_ids = (
-        web_meeting_ids
-        if calibration_limit is None
-        else {row["meeting_id"] for row in agenda_drafts}
+    new_meeting_ids, changed_meeting_ids = _reconcile_meeting_rows(meeting_rows)
+    meeting_bill_replace_scope_ids = _meeting_bill_replace_scope(
+        calibration_limit=calibration_limit,
+        fetch_mode=vconfbill_fetch_mode,
+        web_meeting_ids=web_meeting_ids,
+        agenda_drafts=agenda_drafts,
     )
     agenda_rows = _attach_agenda_bill_ids(agenda_drafts)
+    vconfbill_bill_ids, skipped_vconfbill_bill_ids = _select_vconfbill_bill_ids(
+        agenda_rows,
+        fetch_mode=vconfbill_fetch_mode,
+        touched_meeting_ids=set(new_meeting_ids)
+        | set(changed_meeting_ids)
+        | set(vconfbill_force_meeting_ids),
+    )
     agenda_pairs = _meeting_bill_pairs_from_agenda(agenda_rows)
-    vconf_pairs, selected_worker_count = _fetch_vconfbill_pairs(
-        sorted({row["bill_id"] for row in agenda_rows if row.get("bill_id")}),
+    vconf_pairs, selected_worker_count, vconfbill_failures = _fetch_vconfbill_pairs(
+        vconfbill_bill_ids,
         known_meeting_ids=web_meeting_ids,
         sample_size=benchmark_sample_size,
         worker_levels=worker_levels,
         output_path=benchmark_output_path,
         worker_count=vconfbill_worker_count,
+        allow_partial=allow_partial_vconfbill,
     )
     meeting_bill_rows = _merge_meeting_bill_pairs(agenda_pairs, vconf_pairs)
-    new_meeting_ids, changed_meeting_ids = _reconcile_meeting_rows(meeting_rows)
     api_meeting_ids = set(api_meeting_rows)
     coverage_ids_available = calibration_limit is None
 
@@ -167,7 +191,7 @@ def ingest_meetings(
             else ()
         )
         upserted_meetings = execute_many(conn, _UPSERT_MEETINGS_SQL, meeting_rows.values())
-        _replace_meeting_bills_for_meetings(conn, list(meeting_bill_scope_ids))
+        _replace_meeting_bills_for_meetings(conn, sorted(meeting_bill_replace_scope_ids))
         inserted_meeting_bills = execute_many(conn, _INSERT_MEETING_BILLS_SQL, meeting_bill_rows)
         conn.commit()
 
@@ -181,6 +205,9 @@ def ingest_meetings(
         new_meeting_ids=new_meeting_ids,
         changed_meeting_ids=changed_meeting_ids,
         stale_meeting_ids=stale_meeting_ids,
+        vconfbill_target_bill_count=len(vconfbill_bill_ids),
+        vconfbill_skipped_bill_count=len(skipped_vconfbill_bill_ids),
+        vconfbill_failures=tuple(vconfbill_failures),
         html_unavailable_mnts_ids=tuple(item.mnts_id for item in web_list.html_unavailable),
         web_only_mnts_ids=tuple(sorted(web_meeting_ids - api_meeting_ids)) if coverage_ids_available else (),
         openapi_only_mnts_ids=tuple(sorted(api_meeting_ids - web_meeting_ids)) if coverage_ids_available else (),
@@ -569,6 +596,62 @@ def _meeting_bill_pairs_from_agenda(rows: list[dict[str, Any]]) -> set[tuple[int
     }
 
 
+def _meeting_bill_replace_scope(
+    *,
+    calibration_limit: int | None,
+    fetch_mode: VconfBillFetchMode,
+    web_meeting_ids: set[int],
+    agenda_drafts: list[dict[str, Any]],
+) -> set[int]:
+    if fetch_mode == "missing":
+        return set()
+    if fetch_mode != "all":
+        raise ValueError("vconfbill_fetch_mode must be one of: all, missing")
+    if calibration_limit is None:
+        return set(web_meeting_ids)
+    return {row["meeting_id"] for row in agenda_drafts}
+
+
+def _select_vconfbill_bill_ids(
+    agenda_rows: list[dict[str, Any]],
+    *,
+    fetch_mode: VconfBillFetchMode,
+    touched_meeting_ids: set[int],
+) -> tuple[list[str], tuple[str, ...]]:
+    bill_ids = sorted({row["bill_id"] for row in agenda_rows if row.get("bill_id")})
+    if fetch_mode == "all":
+        return bill_ids, ()
+    if fetch_mode != "missing":
+        raise ValueError("vconfbill_fetch_mode must be one of: all, missing")
+    if not bill_ids:
+        return [], ()
+
+    linked_bill_ids = _load_bill_ids_with_meeting_links(bill_ids)
+    touched_bill_ids = {
+        row["bill_id"]
+        for row in agenda_rows
+        if row.get("bill_id") and row["meeting_id"] in touched_meeting_ids
+    }
+    target = sorted((set(bill_ids) - linked_bill_ids) | touched_bill_ids)
+    skipped = tuple(sorted(set(bill_ids) - set(target)))
+    return target, skipped
+
+
+def _load_bill_ids_with_meeting_links(bill_ids: list[str]) -> set[str]:
+    if not bill_ids:
+        return set()
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT DISTINCT bill_id
+            FROM meeting_bills
+            WHERE bill_id = ANY(%s)
+            """,
+            (bill_ids,),
+        )
+        return {row[0] for row in cur.fetchall()}
+
+
 def _fetch_vconfbill_pairs(
     bill_ids: list[str],
     *,
@@ -577,9 +660,10 @@ def _fetch_vconfbill_pairs(
     worker_levels: tuple[int, ...],
     output_path: Path,
     worker_count: int | None,
-) -> tuple[set[tuple[int, str]], int]:
+    allow_partial: bool,
+) -> tuple[set[tuple[int, str]], int, tuple[VconfBillFailure, ...]]:
     if not bill_ids:
-        return set(), 0
+        return set(), 0, ()
     if worker_count is None:
         benchmark = measure_workers(
             lambda bill_id, measured_worker_count: _fetch_vconfbill_rows(str(bill_id)),
@@ -590,17 +674,23 @@ def _fetch_vconfbill_pairs(
         selected_worker_count = benchmark.selected_worker_count
     else:
         selected_worker_count = worker_count
-    rows_by_bill = _fetch_vconfbill_rows_for_bills(
+    rows_by_bill, failures = _fetch_vconfbill_rows_for_bills_with_failures(
         bill_ids,
         worker_count=selected_worker_count,
     )
+    if failures and not allow_partial:
+        sample = "; ".join(f"{failure.bill_id}: {failure.error}" for failure in failures[:5])
+        raise RuntimeError(
+            "VCONFBILLCONFLIST finished with persistent failures: "
+            f"errors={len(failures)} sample={sample}"
+        )
     pairs: set[tuple[int, str]] = set()
     for bill_id, rows in rows_by_bill.items():
         for row in rows:
             meeting_id = extract_mnts_id(row.get("DOWN_URL"))
             if meeting_id in known_meeting_ids:
                 pairs.add((meeting_id, bill_id))
-    return pairs, selected_worker_count
+    return pairs, selected_worker_count, failures
 
 
 def _fetch_vconfbill_rows_for_bills(
@@ -609,6 +699,26 @@ def _fetch_vconfbill_rows_for_bills(
     worker_count: int,
     retry_delays: tuple[float, ...] = DEFAULT_VCONFBILL_RETRY_DELAYS,
 ) -> dict[str, list[dict[str, Any]]]:
+    rows_by_bill, failures = _fetch_vconfbill_rows_for_bills_with_failures(
+        bill_ids,
+        worker_count=worker_count,
+        retry_delays=retry_delays,
+    )
+    if failures:
+        sample = "; ".join(f"{failure.bill_id}: {failure.error}" for failure in failures[:5])
+        raise RuntimeError(
+            "VCONFBILLCONFLIST finished with persistent failures: "
+            f"errors={len(failures)} sample={sample}"
+        )
+    return rows_by_bill
+
+
+def _fetch_vconfbill_rows_for_bills_with_failures(
+    bill_ids: list[str],
+    *,
+    worker_count: int,
+    retry_delays: tuple[float, ...] = DEFAULT_VCONFBILL_RETRY_DELAYS,
+) -> tuple[dict[str, list[dict[str, Any]]], tuple[VconfBillFailure, ...]]:
     rows_by_bill, errors = _fetch_vconfbill_rows_batch(
         bill_ids,
         worker_count=worker_count,
@@ -630,13 +740,11 @@ def _fetch_vconfbill_rows_for_bills(
         )
         rows_by_bill.update(retried_rows)
 
-    if errors:
-        sample = "; ".join(f"{bill_id}: {error}" for bill_id, error in list(errors.items())[:5])
-        raise RuntimeError(
-            "VCONFBILLCONFLIST finished with persistent failures: "
-            f"errors={len(errors)} sample={sample}"
-        )
-    return rows_by_bill
+    failures = tuple(
+        VconfBillFailure(bill_id=bill_id, error=error)
+        for bill_id, error in sorted(errors.items())
+    )
+    return rows_by_bill, failures
 
 
 def _fetch_vconfbill_rows_batch(
@@ -770,7 +878,6 @@ def _prune_stale_meetings(conn: Any, canonical_meeting_ids: set[int]) -> tuple[i
         stale_id_list = list(stale_ids)
         stale_item_keys = [str(mnts_id) for mnts_id in stale_ids]
         cur.execute("DELETE FROM utterances WHERE meeting_id = ANY(%s)", (stale_id_list,))
-        cur.execute("DELETE FROM session_groups WHERE meeting_id = ANY(%s)", (stale_id_list,))
         cur.execute("DELETE FROM meeting_bills WHERE meeting_id = ANY(%s)", (stale_id_list,))
         cur.execute(
             """

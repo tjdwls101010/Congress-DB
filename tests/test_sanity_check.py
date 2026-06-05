@@ -79,4 +79,4 @@ def test_s3_meeting_streams_query_preaggregates_relation_counts() -> None:
     assert "agenda_items" not in _S3_MEETING_STREAMS_SQL
     assert "bill_counts AS" in _S3_MEETING_STREAMS_SQL
     assert "utterance_counts AS" in _S3_MEETING_STREAMS_SQL
-    assert "group_counts AS" in _S3_MEETING_STREAMS_SQL
+    assert "group_counts AS" not in _S3_MEETING_STREAMS_SQL

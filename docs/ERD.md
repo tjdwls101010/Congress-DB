@@ -1,6 +1,6 @@
 # ERD — Congress-DB (Postgres 16)
 
-9개 핵심 테이블 + 카탈로그 1개 + 수집 운영 테이블 3개. core schema는 향후 검색 API/SDK에서 검색, 필터, 정렬, 조인, 결과 설명에 쓰이는 필드만 보존한다.
+8개 핵심 테이블 + 카탈로그 1개 + 수집 운영 테이블 3개. core schema는 향후 검색 API/SDK에서 검색, 필터, 정렬, 조인, 결과 설명에 쓰이는 필드만 보존한다.
 
 ## Mermaid 다이어그램
 
@@ -14,12 +14,9 @@ erDiagram
     members ||--o{ votes : "mona_cd"
     bills ||--o{ votes : "bill_id"
     meetings ||--o{ utterances : "meeting_id"
-    meetings ||--o{ session_groups : "meeting_id"
     meetings ||--o{ meeting_bills : "meeting_id"
     bills ||--o{ meeting_bills : "bill_id"
     members ||--o{ utterances : "speaker_mona_cd"
-    members ||--o{ session_groups : "questioner_mona_cd"
-    session_groups ||--o{ utterances : "session_group_id"
     ingest_runs ||--o{ dead_letters : "run_id"
     ingest_runs ||--o{ ingest_cursors : "updated_run_id"
 ```
@@ -121,7 +118,7 @@ HTML 회의록 목록의 한 회의. `total/22.do` 웹 목록이 canonical sourc
 |---|---|---|
 | `mnts_id` | INT | **PK**. HTML viewer URL의 `id` |
 | `title` | TEXT NOT NULL | 회의명/목록 표시명 |
-| `meeting_type` | TEXT NOT NULL CHECK (...) | 본회의/상임위/예산결산특별위/특별위/국정감사/국정조사/인사청문회/소위원회 |
+| `meeting_type` | TEXT NOT NULL CHECK (...) | 본회의/상임위/특별위/국정감사/국정조사/인사청문회/소위원회. 예산결산특별위원회·인사청문특별위원회 등은 `meeting_type='특별위'`이고 `comm_name`으로 구분(별도 type 아님) |
 | `conf_date` | DATE NOT NULL | 회의일 |
 | `comm_name` | TEXT | 위원회명. 본회의는 NULL 가능 |
 | `session_no` | INT | 회기 번호 |
@@ -157,23 +154,7 @@ HTML viewer DOM에서 파싱한 발언 stream.
 | `speaker_title` | TEXT NOT NULL | 화자 직함 |
 | `speaker_mona_cd` | TEXT REFERENCES members(mona_cd) | 의원 매핑 nullable |
 | `content` | TEXT NOT NULL | 발언 내용 |
-| `session_group_id` | BIGINT REFERENCES session_groups(id) | Q&A 그룹 nullable |
 | | | **UNIQUE(meeting_id, sequence)** |
-
-### 9. `session_groups` — Q&A 세션 그룹
-
-상임위/특별위/국정감사/국정조사/인사청문회 중 Q&A 구조가 뚜렷한 회의에서 생성하는 의미 단위.
-
-| 컬럼 | 타입 | 비고 |
-|---|---|---|
-| `id` | BIGSERIAL | **PK** |
-| `meeting_id` | INT REFERENCES meetings(mnts_id) NOT NULL | |
-| `questioner_mona_cd` | TEXT REFERENCES members(mona_cd) NOT NULL | |
-| `respondents` | JSONB | 답변자 목록 |
-| `seq_start` | INT NOT NULL | 시작 발언 순번 |
-| `seq_end` | INT NOT NULL | 끝 발언 순번 |
-| `utterance_count` | INT NOT NULL | 포함 발언 수 |
-| `total_chars` | INT NOT NULL | 총 글자 수 |
 
 ## Operational Tables
 
@@ -210,13 +191,9 @@ CREATE INDEX idx_meetings_type_date ON meetings(meeting_type, conf_date DESC);
 CREATE INDEX idx_mb_bill ON meeting_bills(bill_id);
 CREATE INDEX idx_utterances_meeting ON utterances(meeting_id);
 CREATE INDEX idx_utterances_speaker ON utterances(speaker_mona_cd) WHERE speaker_mona_cd IS NOT NULL;
-CREATE INDEX idx_utterances_session_group ON utterances(session_group_id) WHERE session_group_id IS NOT NULL;
-CREATE INDEX idx_sg_meeting ON session_groups(meeting_id);
-CREATE INDEX idx_sg_questioner ON session_groups(questioner_mona_cd);
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE INDEX idx_bills_bill_name_trgm ON bills USING gin (bill_name gin_trgm_ops);
 CREATE INDEX idx_bills_summary_trgm ON bills USING gin (summary gin_trgm_ops) WHERE summary IS NOT NULL;
 CREATE INDEX idx_utterances_content_trgm ON utterances USING gin (content gin_trgm_ops);
-CREATE INDEX idx_sg_respondents_gin ON session_groups USING gin (respondents jsonb_path_ops);
 ```

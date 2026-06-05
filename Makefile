@@ -1,8 +1,7 @@
 .PHONY: db-up db-down db-migrate db-shell db-reset test ingest \
         seed-catalog verify-catalog render-catalog ingest-members ingest-bills \
         ingest-votes ingest-meetings validate-minutes-dom ingest-utterances \
-        ingest-session-groups ingest-backfill validate-session-groups evaluate-session-groups \
-        sanity-check data-completeness migration-readiness
+        ingest-backfill sanity-check data-completeness migration-readiness
 
 # .env가 있으면 변수 자동 로드 (없어도 통과)
 -include .env
@@ -92,21 +91,9 @@ ingest-utterances:
 validate-minutes-dom:
 	uv run python -m scripts.validate_minutes_dom
 
-# 진단용: session_groups 적재 (기본 캘리브레이션 500건)
-ingest-session-groups:
-	uv run python -m scripts.ingest_session_groups
-
 # 진단용: 로컬 100% 백필 실행 (hosted Postgres migration 전 PM gate의 입력)
 ingest-backfill:
 	uv run python -m scripts.ingest_backfill
-
-# session_groups 생성률/정합성 검증
-validate-session-groups:
-	uv run python -m scripts.validate_session_groups
-
-# session_groups 정확도 검증 라벨/리포트 생성
-evaluate-session-groups:
-	uv run python -m scripts.evaluate_session_groups
 
 # 현재 로컬 적재 결과 통합 sanity check + FTS 결정 리포트 생성
 sanity-check:

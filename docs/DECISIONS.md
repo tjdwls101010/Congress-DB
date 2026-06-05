@@ -3,20 +3,42 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
-## 2026-06-04 — Codex-reviewed session-group labels close the semantic gate
+## 2026-06-04 — Incremental meeting_bills skips linked bills and preserves existing links
 
-The PM delegated the remaining `session_group` semantic label verification to Codex
-instead of a PM manual pass. Codex-reviewed labels are accepted for the pre-Neon
-semantic accuracy gate, while standalone API/SDK use requires per-type precision
->= 90.0% and recall >= 70.0%; below-threshold types must keep the `utterances`
-sequence-window fallback.
+After #46, incremental meetings cost was dominated by re-querying `VCONFBILLCONFLIST`
+for already-linked bills. Incremental mode now fetches meeting-bill rows only for
+missing/unlinked bills and bills on touched or forced meetings; it upserts new pairs
+without deleting existing `meeting_bills`, leaving stale-link deletion to full
+reconciliation/backfill. This trades rare stale-link cleanup latency for avoiding
+false deletion when a skipped bill still owns an existing link.
 
-## 2026-06-04 — Session-group semantic gate reports missing sample types instead of fabricating labels
+## 2026-06-04 — Remove session_groups; minutes retrieval = utterance keyword + neighbor-reading
 
-The current local DB has no `인사청문회` meetings even though the session-group accuracy
-gate expects five applicable meeting types. The evaluation now samples the available
-types, reports missing sample types explicitly, and keeps precision/recall pending until
-real labels are reviewed rather than inventing semantic accuracy numbers.
+Following the agentic + ranked-keyword search decision, the Q&A semantic unit
+(`session_groups`, 30,755 rows) is removed, not merely demoted. Rationale:
+`utterances.speaker_mona_cd` already answers "who said what"; session_groups uniquely
+added only questioner↔respondent pairing + Q&A block boundaries, both re-derivable on the
+fly by an agentic harness; its accuracy was never measured (#50), coverage is uneven
+(본회의·소위 none; 상임위 69%, 국정조사 65%, only 국정감사 99%); and it carried a
+detection/eval subsystem plus an incremental regroup stage. Minutes content is untouched —
+all 1.38M utterances remain; only the derived segmentation layer drops, and the detection
+code stays in git if ever needed. Removal slice: #54; #50 closed as obsolete.
+
+## 2026-06-04 — Search strategy: agentic + ranked keyword, defer vector embeddings
+
+The search layer (roadmap steps 2-4) will use agentic keyword search — Claude issues
+multiple domain-informed query variants, follows structural JOINs
+(bill→votes→meetings→utterances), and iterates — over a keyword layer upgraded from
+substring-only to relevance-ranked + snippets (Postgres-native `similarity()`/snippet, no
+new infra). Vector/embedding semantic search is deferred, not adopted: this terminological,
+citation-critical, low-QPS legislative domain lets Claude's own vocabulary + agentic
+iteration recover most semantic recall, while embeddings carry ongoing maintenance (Korean
+model hosting, weekly re-embedding of new utterances, model-version re-embeds, pgvector
+storage/cost). Deferring is low-risk because pgvector is additive later (Neon supports it;
+source text already stored) — no DB rebuild; revisit only if a measured recall failure
+proves agentic+ranked-keyword insufficient. The `legislative-copilot` prototype already
+validated keyword+agentic without vectors. DB implication: add relevance-ranking support
+when the SDK slice begins.
 
 ## 2026-06-04 — Four-project roadmap: this repo is the 국회 DB only
 

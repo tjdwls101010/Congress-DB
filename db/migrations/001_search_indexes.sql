@@ -13,6 +13,3 @@ CREATE INDEX IF NOT EXISTS idx_bills_summary_trgm
 
 CREATE INDEX IF NOT EXISTS idx_utterances_content_trgm
     ON utterances USING gin (content gin_trgm_ops);
-
-CREATE INDEX IF NOT EXISTS idx_sg_respondents_gin
-    ON session_groups USING gin (respondents jsonb_path_ops);

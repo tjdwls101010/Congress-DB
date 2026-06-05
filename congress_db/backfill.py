@@ -24,8 +24,6 @@ from .ingest_utterances import KNOWN_HTML_UNAVAILABLE_MNTS_IDS, ingest_utterance
 from .ingest_votes import ingest_votes
 from .progress import safe_print
 from .sanity_check import run_sanity_check
-from .session_groups import ingest_session_groups
-from .validate_session_groups import validate_session_groups
 
 OFFICIAL_API_BENCHMARK_SAMPLE_SIZE = 1000
 OFFICIAL_SCRAPE_BENCHMARK_SAMPLE_SIZE = 300
@@ -151,16 +149,12 @@ def build_default_backfill_stages(
     ingest_votes_fn: Callable[..., object] = ingest_votes,
     ingest_meetings_fn: Callable[..., object] = ingest_meetings,
     ingest_utterances_fn: Callable[..., object] = ingest_utterances,
-    ingest_session_groups_fn: Callable[..., object] = ingest_session_groups,
-    validate_session_groups_fn: Callable[..., object] = validate_session_groups,
     run_sanity_check_fn: Callable[..., object] = run_sanity_check,
     generate_data_completeness_report_fn: Callable[..., object] = generate_data_completeness_report,
     load_meeting_ids_fn: Callable[[], Sequence[int]] | None = None,
 ) -> tuple[BackfillStage, ...]:
     """기존 ingest Module을 full-load 파라미터로 묶은 기본 stage 목록."""
-    load_ids = load_meeting_ids_fn or load_all_meeting_ids
     load_utterance_ids = load_meeting_ids_fn or load_utterance_target_meeting_ids
-    session_group_target_ids: tuple[int, ...] = ()
 
     def run_members() -> StageResult:
         return _stage_from_result(ingest_members_fn())
@@ -211,10 +205,8 @@ def build_default_backfill_stages(
         )
 
     def run_utterances() -> StageResult:
-        nonlocal session_group_target_ids
         meeting_ids = tuple(load_utterance_ids())
         if not meeting_ids:
-            session_group_target_ids = tuple(load_ids())
             return StageResult(
                 summary={
                     "meeting_count": 0,
@@ -236,9 +228,6 @@ def build_default_backfill_stages(
             benchmark_sample_size=OFFICIAL_SCRAPE_BENCHMARK_SAMPLE_SIZE,
             allow_partial=True,
         )
-        session_group_target_ids = tuple(
-            getattr(result, "scraped_meeting_ids", meeting_ids),
-        )
         failures = getattr(result, "scrape_failures", ())
         dead_letters = tuple(
             DeadLetterDraft(
@@ -251,24 +240,6 @@ def build_default_backfill_stages(
             for failure in failures
         )
         return _stage_from_result(result, exclude=("scrape_failures",), dead_letters=dead_letters)
-
-    def run_session_groups() -> StageResult:
-        target_ids = tuple(load_ids()) if load_meeting_ids_fn else session_group_target_ids
-        if not target_ids:
-            return StageResult(
-                summary={
-                    "meeting_count": 0,
-                    "skipped_meeting_count": 0,
-                    "group_count": 0,
-                    "utterance_link_count": 0,
-                    "skipped_reason": "no utterance changes to regroup",
-                }
-            )
-        return _stage_from_result(ingest_session_groups_fn(meeting_ids=target_ids))
-
-    def run_validation() -> StageResult:
-        result = validate_session_groups_fn()
-        return _stage_from_result(result)
 
     def run_sanity() -> StageResult:
         result = run_sanity_check_fn()
@@ -284,8 +255,6 @@ def build_default_backfill_stages(
         BackfillStage("votes", run_votes),
         BackfillStage("meetings", run_meetings),
         BackfillStage("utterances", run_utterances),
-        BackfillStage("session_groups", run_session_groups),
-        BackfillStage("validate_session_groups", run_validation),
         BackfillStage("sanity_check", run_sanity),
         BackfillStage("data_completeness", run_data_completeness),
     )

@@ -32,7 +32,7 @@ def test_decide_ingest_mode_uses_backfill_until_successful_baseline_and_cursors(
     )
 
 
-def test_incremental_stages_scope_utterances_and_session_groups_to_touched_meetings(
+def test_incremental_stages_scope_utterances_to_touched_meetings(
     monkeypatch,
 ) -> None:
     calls: dict[str, object] = {}
@@ -59,6 +59,7 @@ def test_incremental_stages_scope_utterances_and_session_groups_to_touched_meeti
                 new_meeting_ids=(920101,),
                 changed_meeting_ids=(920102,),
                 stale_meeting_ids=(),
+                vconfbill_failures=(),
             )
         ),
     )
@@ -83,13 +84,7 @@ def test_incremental_stages_scope_utterances_and_session_groups_to_touched_meeti
             scrape_failures=(),
         )
 
-    def fake_session_groups(**kwargs):
-        calls["session_group_meeting_ids"] = kwargs["meeting_ids"]
-        return {"meeting_count": len(kwargs["meeting_ids"])}
-
     monkeypatch.setattr(ingest_command, "ingest_utterances", fake_utterances)
-    monkeypatch.setattr(ingest_command, "ingest_session_groups", fake_session_groups)
-    monkeypatch.setattr(ingest_command, "validate_session_groups", lambda: {"stage": "validate"})
     monkeypatch.setattr(ingest_command, "run_sanity_check", lambda: {"stage": "sanity"})
     monkeypatch.setattr(
         ingest_command,
@@ -106,12 +101,14 @@ def test_incremental_stages_scope_utterances_and_session_groups_to_touched_meeti
         stage.run()
 
     assert calls["utterance_meeting_ids"] == (920101, 920102, 920103, 920104)
-    assert calls["session_group_meeting_ids"] == (920101, 920102, 920103, 920104)
     assert calls["bills_kwargs"]["summary_fetch_mode"] == "missing"
     assert calls["bills_kwargs"]["summary_worker_count"] > 0
     assert calls["votes_kwargs"]["vote_row_fetch_mode"] == "missing"
     assert calls["votes_kwargs"]["vote_row_worker_count"] > 0
     assert calls["meetings_kwargs"]["vconfbill_worker_count"] > 0
+    assert calls["meetings_kwargs"]["vconfbill_fetch_mode"] == "missing"
+    assert calls["meetings_kwargs"]["vconfbill_force_meeting_ids"] == (920104,)
+    assert calls["meetings_kwargs"]["allow_partial_vconfbill"] is True
     assert calls["utterances_kwargs"]["scrape_worker_count"] > 0
 
 

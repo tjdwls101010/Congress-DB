@@ -31,8 +31,6 @@ from .ingest_votes import ingest_votes
 from .migration_readiness import generate_migration_readiness_report
 from .progress import safe_print
 from .sanity_check import run_sanity_check
-from .session_groups import ingest_session_groups
-from .validate_session_groups import validate_session_groups
 
 ModeRequest = Literal["auto", "backfill", "incremental"]
 RunMode = Literal["backfill", "incremental"]
@@ -43,7 +41,6 @@ REQUIRED_CURSOR_SPECS: tuple[tuple[str, str, int], ...] = (
     ("votes", "last_success_at", 0),
     ("meetings", "last_success_at", 0),
     ("utterances", "last_success_at", 0),
-    ("session_groups", "last_success_at", 0),
 )
 RESUMABLE_BACKFILL_STAGE_NAMES = frozenset({"members", "bills", "votes", "meetings"})
 INCREMENTAL_BILL_SUMMARY_WORKERS = 100
@@ -319,7 +316,6 @@ def build_incremental_stages(
     """공식 증분 stage 묶음."""
     forced_ids = tuple(sorted(set(force_meeting_ids)))
     touched_meeting_ids: tuple[int, ...] = ()
-    regroup_meeting_ids: tuple[int, ...] = ()
 
     def run_members() -> StageResult:
         return _stage_from_result(ingest_members())
@@ -347,18 +343,29 @@ def build_incremental_stages(
         result = ingest_meetings(
             calibration_limit=None,
             vconfbill_worker_count=INCREMENTAL_MEETING_BILL_WORKERS,
+            vconfbill_fetch_mode="missing",
+            vconfbill_force_meeting_ids=forced_ids,
+            allow_partial_vconfbill=True,
         )
         touched_meeting_ids = tuple(
             sorted(set(result.new_meeting_ids) | set(result.changed_meeting_ids) | set(forced_ids))
         )
-        return _stage_from_result(result)
+        failures = tuple(
+            DeadLetterDraft(
+                source="meeting_bills.vconfbill",
+                stage="fetch",
+                item_key=failure.bill_id,
+                payload={"bill_id": failure.bill_id},
+                error=failure.error,
+            )
+            for failure in result.vconfbill_failures
+        )
+        return _stage_from_result(result, exclude=("vconfbill_failures",), dead_letters=failures)
 
     def run_utterances() -> StageResult:
-        nonlocal regroup_meeting_ids
         missing_ids = set(load_utterance_target_meeting_ids())
         target_ids = tuple(sorted(set(touched_meeting_ids) | missing_ids | set(forced_ids)))
         if not target_ids:
-            regroup_meeting_ids = ()
             return StageResult(
                 summary={
                     "meeting_count": 0,
@@ -380,7 +387,6 @@ def build_incremental_stages(
             allow_partial=True,
             scrape_worker_count=INCREMENTAL_SCRAPE_WORKERS,
         )
-        regroup_meeting_ids = tuple(result.scraped_meeting_ids)
         failures = tuple(
             DeadLetterDraft(
                 source="minutes.html",
@@ -393,19 +399,6 @@ def build_incremental_stages(
         )
         return _stage_from_result(result, exclude=("scrape_failures",), dead_letters=failures)
 
-    def run_session_groups() -> StageResult:
-        if not regroup_meeting_ids:
-            return StageResult(
-                summary={
-                    "meeting_count": 0,
-                    "skipped_meeting_count": 0,
-                    "group_count": 0,
-                    "utterance_link_count": 0,
-                    "skipped_reason": "no utterance changes to regroup",
-                }
-            )
-        return _stage_from_result(ingest_session_groups(meeting_ids=regroup_meeting_ids))
-
     return (
         BackfillStage("retry_dead_letters", _run_dead_letter_retry),
         BackfillStage("members", run_members),
@@ -413,8 +406,6 @@ def build_incremental_stages(
         BackfillStage("votes", run_votes),
         BackfillStage("meetings", run_meetings),
         BackfillStage("utterances", run_utterances),
-        BackfillStage("session_groups", run_session_groups),
-        BackfillStage("validate_session_groups", lambda: _stage_from_result(validate_session_groups())),
         BackfillStage("sanity_check", lambda: _stage_from_result(run_sanity_check())),
         BackfillStage(
             "data_completeness",

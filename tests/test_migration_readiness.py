@@ -30,8 +30,6 @@ def _delete_rows() -> None:
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM dead_letters WHERE source LIKE 'test.readiness.%'")
         cur.execute("DELETE FROM ingest_runs WHERE summary->>'test' = 'migration_readiness'")
-        cur.execute("UPDATE utterances SET session_group_id = NULL WHERE meeting_id = %s", (TEST_MEETING,))
-        cur.execute("DELETE FROM session_groups WHERE meeting_id = %s", (TEST_MEETING,))
         cur.execute("DELETE FROM utterances WHERE meeting_id = %s", (TEST_MEETING,))
         cur.execute("DELETE FROM meetings WHERE mnts_id = %s", (TEST_MEETING,))
         cur.execute("DELETE FROM members WHERE mona_cd = %s", (TEST_MEMBER,))
@@ -159,53 +157,6 @@ def test_readiness_report_blocks_on_unresolved_dead_letters(tmp_path: Path) -> N
     assert report.recommendation == "not_ready_for_human_review"
     assert any("unresolved dead letters" in blocker for blocker in report.blockers)
     assert report.dead_letter_counts[0]["count"] == 1
-
-
-def test_readiness_report_blocks_on_session_group_integrity_errors(tmp_path: Path) -> None:
-    _create_backfill_run()
-    with get_conn() as conn, conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO members (mona_cd, hg_nm) VALUES (%s, '테스트')",
-            (TEST_MEMBER,),
-        )
-        cur.execute(
-            """
-            INSERT INTO meetings (mnts_id, title, meeting_type, conf_date)
-            VALUES (%s, '테스트 위원회', '상임위', '2026-05-20')
-            """,
-            (TEST_MEETING,),
-        )
-        cur.execute(
-            """
-            INSERT INTO utterances
-                (meeting_id, sequence, speaker_name, speaker_title, speaker_mona_cd, content)
-            VALUES (%s, 1, '테스트', '위원', %s, '발언')
-            """,
-            (TEST_MEETING, TEST_MEMBER),
-        )
-        cur.execute(
-            """
-            INSERT INTO session_groups (
-                meeting_id, questioner_mona_cd, respondents,
-                seq_start, seq_end, utterance_count, total_chars
-            )
-            VALUES (%s, %s, '[{"name":"답변자","title":"장관"}]', 1, 1, 99, 99)
-            RETURNING id
-            """,
-            (TEST_MEETING, TEST_MEMBER),
-        )
-        session_group_id = cur.fetchone()[0]
-        cur.execute(
-            "UPDATE utterances SET session_group_id = %s WHERE meeting_id = %s",
-            (session_group_id, TEST_MEETING),
-        )
-        conn.commit()
-
-    report = generate_migration_readiness_report(output_path=tmp_path / "integrity.md")
-
-    assert report.recommendation == "not_ready_for_human_review"
-    assert report.session_group_integrity_error_count > 0
-    assert any("session group integrity" in blocker for blocker in report.blockers)
 
 
 def test_readiness_report_blocks_when_required_stage_signals_are_unavailable(tmp_path: Path) -> None:

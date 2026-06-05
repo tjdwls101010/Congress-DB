@@ -46,7 +46,6 @@ def _pk_columns(table: str) -> list[str]:
         ("votes",            ["id"]),
         ("meeting_bills",    ["meeting_id", "bill_id"]),
         ("utterances",       ["id"]),
-        ("session_groups",   ["id"]),
         ("api_catalog",      ["inf_id"]),
         ("ingest_runs",      ["id"]),
         ("ingest_cursors",   ["source"]),

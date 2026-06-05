@@ -30,24 +30,9 @@ connection string.
 - Latest verified incremental baseline: `ingest_runs.id = 190`.
 - Unresolved dead letters: `0`.
 - Local readiness blockers: `0`.
-- Local readiness warnings after the pre-Neon quality-gate pass:
-  - `session_group` semantic accuracy is Codex-reviewed and complete for the
-    pre-Neon gate: `620` correct, `164` incorrect, `3` missing, precision
-    `79.1%`, recall `99.5%`.
-  - All sampled meeting types are below the standalone-use precision threshold
-    (`90.0%`), so downstream API/SDK paths must keep the `utterances`
-    sequence-window fallback instead of relying on `session_groups` alone.
-  - The current local DB has no sampled `인사청문회` meetings, so that meeting type
-    is reported as missing from the semantic accuracy sample instead of being
-    silently treated as passed.
-  - These warnings do not change the restore mechanics, but they define how
-    downstream API/SDK search must treat `session_groups`.
-- 발언↔의원 mapping quality is now measured in `docs/DATA-COMPLETENESS.md`:
-  `847,480` member-titled utterances, `9` unmapped, actionable mapping rate
-  `100.0%`.
 - Local preflight on 2026-06-04:
   - `uv run python -m compileall congress_db scripts tests -q`: pass.
-  - `uv run pytest -q`: `136 passed`.
+  - `uv run pytest -q`: `134 passed`.
   - `make migration-readiness`: `ready_for_human_review`, blockers `0`.
 - Current local dump artifact:
   `tmp/hosted-postgres-migration/congress-20260604-run190.dump` (`144M`).
@@ -55,9 +40,11 @@ connection string.
 - The official local command is `uv run python -m scripts.ingest --mode backfill`
   or `make ingest-backfill`.
 - The accepted backfill run proves the local 100% gate. The latest incremental
-  run proves the current dump baseline after the #47 immutable-detail skip fix.
-  A strict empty-DB one-shot replay remains an optional final rehearsal before
-  executing the remote restore.
+  run proves the current dump baseline. A strict empty-DB one-shot replay
+  remains an optional final rehearsal before executing the remote restore.
+- Any dump created before #54 is obsolete because it still contains the removed
+  `session_groups` table. Recreate the dump after local schema migration,
+  sanity check, and migration readiness pass.
 
 ## Human Decisions Before Execution
 
@@ -92,9 +79,6 @@ Expected readiness:
 - `dead_letters = 0`
 - S1-S7 sanity signal available
 - data completeness signal available
-- 발언↔의원 mapping-rate signal visible
-- session-group semantic accuracy signal visible as either complete metrics or
-  explicit pending/missing-type/fallback warnings
 
 ## Dump
 
@@ -164,16 +148,9 @@ for:
   - `bill_coproposers`: 206,138
   - `votes`: 473,594
   - `meetings`: 2,105
-  - `meeting_bills`: 40,355
+  - `meeting_bills`: 40,356
   - `utterances`: 1,378,071
-  - `session_groups`: 30,755
 - Unresolved dead letters: `0`.
-- Session group integrity metrics: all `0`.
-- Session group semantic accuracy signal is present separately from integrity:
-  current local state has Codex-reviewed labels (`620` correct, `164`
-  incorrect, `3` missing; precision `79.1%`, recall `99.5%`), marks all sampled
-  types below the standalone-use threshold, and has no sampled `인사청문회`
-  meetings.
 - S1-S7 query outputs or checksums.
 - Accepted data quality gaps from `docs/DATA-COMPLETENESS.md` remain visible and
   unchanged unless a new source endpoint is intentionally added.
@@ -201,14 +178,9 @@ Acceptance:
 
 ## Follow-up Before Production Operation
 
-- Current utterance/session-group repair is verified by the 2026-05-31 recovery
-  drill.
-- Do not expose `session_groups` as the sole high-confidence public API/SDK
-  meaning unit for below-threshold meeting types. Keep the SDK/API search path
-  paired with `utterances` sequence-window fallback until a later search-quality
-  slice raises or explicitly waives the standalone-use threshold.
-- Bills/votes still need either one full hosted incremental rehearsal or narrower
-  windowed repair controls before calling the hosted DB production-ready.
+- Current utterance repair is verified by the 2026-05-31 recovery drill.
+- Bills/votes/meeting-bill links still need one full hosted incremental rehearsal
+  before calling the hosted DB production-ready.
 - App/serverless runtimes should use the Neon pooled connection string. Native
   migration/backup/restore tools should use the direct non-pooled connection.
 
