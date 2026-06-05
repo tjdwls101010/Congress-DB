@@ -20,7 +20,6 @@ ROW_COUNT_TABLES = (
     "meetings",
     "meeting_bills",
     "utterances",
-    "session_groups",
 )
 
 _S3_MEETING_STREAMS_SQL = """
@@ -32,10 +31,6 @@ _S3_MEETING_STREAMS_SQL = """
         SELECT meeting_id, COUNT(*) AS utterance_count
         FROM utterances
         GROUP BY meeting_id
-    ), group_counts AS (
-        SELECT meeting_id, COUNT(*) AS group_count
-        FROM session_groups
-        GROUP BY meeting_id
     )
     SELECT
         m.mnts_id AS "회의ID",
@@ -44,13 +39,11 @@ _S3_MEETING_STREAMS_SQL = """
         left(m.title, 90) AS "회의명",
         COALESCE(bc.bill_count, 0) AS "연결법안",
         COALESCE(uc.utterance_count, 0) AS "발언",
-        COALESCE(gc.group_count, 0) AS "Q&A그룹",
         first_u.speaker_name AS "첫발언자",
         left(first_u.content, 120) AS "첫발언"
     FROM meetings m
     LEFT JOIN bill_counts bc ON bc.meeting_id = m.mnts_id
     LEFT JOIN utterance_counts uc ON uc.meeting_id = m.mnts_id
-    LEFT JOIN group_counts gc ON gc.meeting_id = m.mnts_id
     LEFT JOIN LATERAL (
         SELECT speaker_name, content
         FROM utterances u
@@ -185,10 +178,6 @@ def _load_s1_member_cards(cur: object, sample_size: int) -> SanitySection:
             FROM utterances
             WHERE speaker_mona_cd IS NOT NULL
             GROUP BY speaker_mona_cd
-        ), group_counts AS (
-            SELECT questioner_mona_cd AS mona_cd, COUNT(*) AS cnt
-            FROM session_groups
-            GROUP BY questioner_mona_cd
         )
         SELECT
             m.hg_nm AS "의원",
@@ -197,14 +186,12 @@ def _load_s1_member_cards(cur: object, sample_size: int) -> SanitySection:
             COALESCE(l.cnt, 0) AS "대표발의",
             COALESCE(c.cnt, 0) AS "공동발의",
             COALESCE(v.cnt, 0) AS "표결",
-            COALESCE(u.cnt, 0) AS "발언",
-            COALESCE(g.cnt, 0) AS "Q&A그룹"
+            COALESCE(u.cnt, 0) AS "발언"
         FROM members m
         LEFT JOIN lead_counts l ON l.mona_cd = m.mona_cd
         LEFT JOIN co_counts c ON c.mona_cd = m.mona_cd
         LEFT JOIN vote_counts v ON v.mona_cd = m.mona_cd
         LEFT JOIN utterance_counts u ON u.mona_cd = m.mona_cd
-        LEFT JOIN group_counts g ON g.mona_cd = m.mona_cd
         ORDER BY COALESCE(u.cnt, 0) DESC, COALESCE(l.cnt, 0) DESC, m.hg_nm
         LIMIT %s
         """,
@@ -213,7 +200,7 @@ def _load_s1_member_cards(cur: object, sample_size: int) -> SanitySection:
     return SanitySection(
         key="S1",
         title="의원 통합 조회",
-        query_goal="발언 수가 많은 임의 의원 5명의 발의/표결/발언/Q&A 그룹 연결 상태",
+        query_goal="발언 수가 많은 임의 의원 5명의 발의/표결/발언 연결 상태",
         rows=_fetch_dicts(cur),
     )
 
@@ -271,7 +258,7 @@ def _load_s3_meeting_streams(cur: object, sample_size: int) -> SanitySection:
     return SanitySection(
         key="S3",
         title="회의 본문 + 법안 + 발언 stream",
-        query_goal="최근 회의 5개의 연결법안/발언/Q&A 그룹 연결 상태",
+        query_goal="최근 회의 5개의 연결법안/발언 stream 연결 상태",
         rows=_fetch_dicts(cur),
     )
 
@@ -314,9 +301,6 @@ def _load_s4_utterance_keyword(cur: object, sample_size: int, keyword: str) -> S
             u.sequence AS "순번",
             u.speaker_name AS "화자",
             u.speaker_title AS "직함",
-            CASE WHEN u.session_group_id IS NULL THEN 'ungrouped'
-                 ELSE u.session_group_id::text
-            END AS "Q&A그룹",
             left(regexp_replace(u.content, E'[\\n\\r\\t]+', ' ', 'g'), 180) AS "발췌"
         FROM utterances u
         JOIN meetings m ON m.mnts_id = u.meeting_id
@@ -331,7 +315,7 @@ def _load_s4_utterance_keyword(cur: object, sample_size: int, keyword: str) -> S
         title="발언 키워드 검색",
         query_goal=f"`{keyword}`가 발언 본문에 포함된 utterance와 회의 문맥",
         rows=_fetch_dicts(cur),
-        note="`session_group_id`가 없는 hit는 API/SDK에서 같은 회의의 sequence window로 보완한다.",
+        note="API/SDK는 hit의 같은 회의 앞뒤 sequence window를 함께 읽어 지역 문맥을 복원한다.",
     )
 
 
@@ -400,40 +384,40 @@ def _load_s6_respondent_search(
 ) -> SanitySection:
     cur.execute(
         """
-        WITH target_title AS (
-            SELECT item->>'title' AS title, COUNT(*) AS cnt
-            FROM session_groups sg,
-                 jsonb_array_elements(sg.respondents) AS item
-            WHERE item->>'title' ILIKE %s
-            GROUP BY item->>'title'
-            ORDER BY COUNT(*) DESC, item->>'title'
-            LIMIT 1
-        )
         SELECT
-            t.title AS "답변자직함",
             m.conf_date AS "일자",
+            m.meeting_type AS "회의유형",
             left(m.title, 90) AS "회의명",
-            mem.hg_nm AS "질의자",
-            sg.utterance_count AS "발언수",
-            sg.seq_start AS "시작",
-            sg.seq_end AS "끝",
-            sg.respondents::text AS "답변자JSON"
-        FROM target_title t
-        JOIN session_groups sg
-          ON sg.respondents @> jsonb_build_array(jsonb_build_object('title', t.title))
-        JOIN meetings m ON m.mnts_id = sg.meeting_id
-        JOIN members mem ON mem.mona_cd = sg.questioner_mona_cd
-        ORDER BY m.conf_date DESC, sg.id DESC
+            prev_u.sequence AS "직전의원순번",
+            prev_u.speaker_name AS "직전의원",
+            left(regexp_replace(prev_u.content, E'[\\n\\r\\t]+', ' ', 'g'), 140) AS "직전발언",
+            u.sequence AS "답변순번",
+            u.speaker_name AS "답변자",
+            u.speaker_title AS "답변자직함",
+            left(regexp_replace(u.content, E'[\\n\\r\\t]+', ' ', 'g'), 180) AS "답변발췌"
+        FROM utterances u
+        JOIN meetings m ON m.mnts_id = u.meeting_id
+        LEFT JOIN LATERAL (
+            SELECT sequence, speaker_name, content
+            FROM utterances p
+            WHERE p.meeting_id = u.meeting_id
+              AND p.sequence < u.sequence
+              AND p.speaker_mona_cd IS NOT NULL
+            ORDER BY p.sequence DESC
+            LIMIT 1
+        ) prev_u ON true
+        WHERE u.speaker_title ILIKE %s
+        ORDER BY m.conf_date DESC, u.meeting_id, u.sequence
         LIMIT %s
         """,
         (respondent_title_pattern, sample_size),
     )
     return SanitySection(
         key="S6",
-        title="Q&A 단위 검색",
-        query_goal=f"`{respondent_title_pattern}`에 맞는 정부 부처 답변자의 JSONB containment 검색",
+        title="답변자 직함 검색 + 주변 읽기",
+        query_goal=f"`{respondent_title_pattern}`에 맞는 답변자 발언과 직전 의원 발언 후보",
         rows=_fetch_dicts(cur),
-        note="응답자 title은 실제 데이터에서 가장 많이 등장한 정확한 title을 고른 뒤 JSONB @>로 조회한다.",
+        note="Q&A 블록은 저장하지 않는다. 에이전트/API가 답변자 hit 주변 sequence window를 읽어 질의 맥락을 재구성한다.",
     )
 
 

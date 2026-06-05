@@ -18,15 +18,6 @@ Recommendation: `ready_for_human_review`
 
 - None
 
-## Session Group Integrity
-
-| Metric | Count |
-|---|---:|
-| `utterance_count_mismatch` | 0 |
-| `total_chars_mismatch` | 0 |
-| `respondents_format_invalid` | 0 |
-| `respondent_empty_groups` | 0 |
-
 ## Sanity And Completeness
 
 - sanity_check: `{'available': True, 'section_keys': ('S1', 'S2', 'S3', 'S4a', 'S4b', 'S5', 'S6', 'S7'), 'missing_keys': ()}`
@@ -42,6 +33,5 @@ Recommendation: `ready_for_human_review`
 | `bill_coproposers` | 206138 |
 | `votes` | 473594 |
 | `meetings` | 2105 |
-| `meeting_bills` | 40355 |
+| `meeting_bills` | 40356 |
 | `utterances` | 1378071 |
-| `session_groups` | 30755 |

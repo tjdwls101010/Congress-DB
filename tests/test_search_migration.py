@@ -14,7 +14,6 @@ def test_search_indexes_exist() -> None:
         "idx_bills_bill_name_trgm",
         "idx_bills_summary_trgm",
         "idx_utterances_content_trgm",
-        "idx_sg_respondents_gin",
     }
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(

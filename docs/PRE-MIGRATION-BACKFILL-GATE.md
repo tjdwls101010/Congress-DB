@@ -36,7 +36,6 @@ data-quality gaps are understood and either fixed or explicitly accepted.
 - `docs/MINUTES-WEB-COVERAGE.md` coverage gap.
 - `docs/SANITY-CHECK.md` S1-S7 query outputs.
 - `docs/DATA-COMPLETENESS.md` unresolved or accepted gaps.
-- `docs/SESSION-GROUPS-CALIBRATION.md` integrity section.
 - `docs/MIGRATION-READINESS.md` blocker list.
 
 ## Failure Handling
@@ -57,11 +56,10 @@ data-quality gaps are understood and either fixed or explicitly accepted.
 - Clean local DB can be populated by the official full backfill path.
 - Final accepted run has no unresolved dead letters.
 - Web minutes coverage has no unexplained gap.
-- Session group integrity errors are 0.
 - S1-S7 sanity scenarios are generated and reviewable.
 - Data-completeness gaps are fixed, expected, or accepted with evidence.
 - Idempotency rerun does not duplicate members, bills, votes, meetings,
-  meeting-bill links, utterances, or session groups.
+  meeting-bill links, or utterances.
 - Final artifacts are refreshed from the accepted run.
 
 ## Accepted Local Run
@@ -73,26 +71,21 @@ data-quality gaps are understood and either fixed or explicitly accepted.
 - Migration readiness: `ready_for_human_review`
 - Core row counts:
   - `members`: 306
-  - `bills`: 18,333
-  - `bill_lead_proposers`: 17,531
-  - `bill_coproposers`: 206,014
+  - `bills`: 18,345
+  - `bill_lead_proposers`: 17,543
+  - `bill_coproposers`: 206,138
   - `votes`: 473,594
-  - `meetings`: 2,103
-  - `meeting_bills`: 40,353
-  - `utterances`: 1,373,867
-  - `session_groups`: 30,663
-- Session group relink summary: 2,101 target meetings, 739 skipped meetings,
-  30,663 groups, 916,823 linked utterances.
+  - `meetings`: 2,105
+  - `meeting_bills`: 40,356
+  - `utterances`: 1,378,071
 
 ## Confidence And Remaining Risk
 
 - High confidence: the current local database contains the target backfill data,
-  has no unresolved dead letters, passes session-group integrity checks, and
-  generates all S1-S7 review paths.
+  has no unresolved dead letters and generates all S1-S7 review paths.
 - High confidence: the known operational failures from the monitored runs were
   addressed in code: OpenAPI retry storms, retry-aware worker selection, failed
-  vote row retry, stdout/stderr breakage, late-stage rerun reuse, and
-  session-group relink write cost.
+  vote row retry, stdout/stderr breakage, and late-stage rerun reuse.
 - Accepted source gaps remain visible rather than hidden: 20 referenced member
   stubs have no profile party, 1,028 vote-created bill rows lack source proposal
   date and summary, 40 non-vote bill rows lack source summary, and 9
@@ -111,25 +104,22 @@ data-quality gaps are understood and either fixed or explicitly accepted.
 
 - Date: `2026-05-31`
 - Method: created a throwaway Postgres database from the accepted local DB,
-  deleted recent utterance/session-group data only inside that clone, then reran
+  deleted recent utterance data only inside that clone, then reran
   the relevant ingest modules against the same meeting ids twice.
 - Target meetings: `56738`, `56737`, `56731` (latest dated meetings with
   utterances).
 - Deleted and restored:
   - `utterances`: 16 + 109 + 439 = 564 rows
-  - `session_groups`: 26 rows
 - Result after first repair run:
   - scraped meetings: 3
   - scrape errors: 0
   - restored utterance counts matched the pre-delete counts for all 3 meetings
-  - restored session-group count matched the pre-delete count
   - duplicate `(meeting_id, sequence)` rows: 0
 - Result after second same-target rerun:
   - utterance count remained 564
-  - session-group count remained 26
   - duplicate `(meeting_id, sequence)` rows remained 0
 - Scope boundary: this verified the recent meeting minutes, utterance, and
-  session-group repair path without touching the accepted local DB. It did not
+  repair path without touching the accepted local DB. It did not
   run the full official `incremental` command because current bills/votes
   incremental stages still perform broad source scans; testing those through the
   official Interface should be done as a separate hosted-DB migration rehearsal
@@ -150,10 +140,6 @@ data-quality gaps are understood and either fixed or explicitly accepted.
   `meetings` stage summaries from previous failed backfill runs.
 - Terminal output is telemetry, not data integrity. Broken stdout/stderr no
   longer fails a run by itself.
-- `session_groups` bulk relink is the largest local write. The relink now avoids
-  rewriting already-null `utterances.session_group_id` values and temporarily
-  drops/recreates the partial `session_group_id` index for large full-backfill
-  relinks.
 - Migration readiness must be generated after the backfill run is marked
   complete. Generating it as an in-run stage observes the current run as
   `running` and produces a false blocker.
@@ -164,6 +150,5 @@ data-quality gaps are understood and either fixed or explicitly accepted.
 - `docs/SANITY-CHECK.md`
 - `docs/DATA-COMPLETENESS.md`
 - `docs/MINUTES-WEB-COVERAGE.md`
-- `docs/SESSION-GROUPS-CALIBRATION.md`
 - Relevant benchmark docs when worker selection or performance changes.
 - Issue #45 comments or PR body entries summarizing each abnormal finding and fix.

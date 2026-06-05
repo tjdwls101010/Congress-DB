@@ -29,6 +29,9 @@ first hosted environment are human-owned decisions.
 - The accepted run proves the current local data state and resumed official
   path. A strict empty-DB one-shot replay remains an optional final rehearsal
   before executing the remote restore.
+- Any dump created before #54 is obsolete because it still contains the removed
+  `session_groups` table. Recreate the dump after local schema migration,
+  sanity check, and migration readiness pass.
 
 ## Human Decisions Before Execution
 
@@ -118,16 +121,14 @@ for:
 
 - Core table row counts:
   - `members`: 306
-  - `bills`: 18,333
-  - `bill_lead_proposers`: 17,531
-  - `bill_coproposers`: 206,014
+  - `bills`: 18,345
+  - `bill_lead_proposers`: 17,543
+  - `bill_coproposers`: 206,138
   - `votes`: 473,594
-  - `meetings`: 2,103
-  - `meeting_bills`: 40,353
-  - `utterances`: 1,373,867
-  - `session_groups`: 30,663
+  - `meetings`: 2,105
+  - `meeting_bills`: 40,356
+  - `utterances`: 1,378,071
 - Unresolved dead letters: `0`.
-- Session group integrity metrics: all `0`.
 - S1-S7 query outputs or checksums.
 - Accepted data quality gaps from `docs/DATA-COMPLETENESS.md` remain visible and
   unchanged unless a new source endpoint is intentionally added.
@@ -155,10 +156,9 @@ Acceptance:
 
 ## Follow-up Before Production Operation
 
-- Current utterance/session-group repair is verified by the 2026-05-31 recovery
-  drill.
-- Bills/votes still need either one full hosted incremental rehearsal or narrower
-  windowed repair controls before calling the hosted DB production-ready.
+- Current utterance repair is verified by the 2026-05-31 recovery drill.
+- Bills/votes/meeting-bill links still need one full hosted incremental rehearsal
+  before calling the hosted DB production-ready.
 - App/serverless runtimes should use the Neon pooled connection string. Native
   migration/backup/restore tools should use the direct non-pooled connection.
 

@@ -21,7 +21,6 @@ CORE_TABLES = (
     "meetings",
     "meeting_bills",
     "utterances",
-    "session_groups",
 )
 
 
@@ -33,8 +32,6 @@ class MigrationReadinessReport:
     blockers: tuple[str, ...]
     latest_backfill_run: Mapping[str, Any] | None
     dead_letter_counts: tuple[Mapping[str, Any], ...]
-    session_group_integrity: Mapping[str, int]
-    session_group_integrity_error_count: int
     sanity_signal: Mapping[str, Any]
     data_completeness_signal: Mapping[str, Any]
     row_counts: Mapping[str, int]
@@ -54,26 +51,21 @@ def load_migration_readiness() -> MigrationReadinessReport:
     with get_conn() as conn, conn.cursor() as cur:
         latest_backfill = _load_latest_backfill(cur)
         dead_letters = _load_unresolved_dead_letters(cur)
-        integrity = _load_session_group_integrity(cur)
         row_counts = _load_row_counts(cur)
 
     sanity_signal = _extract_sanity_signal(latest_backfill)
     data_completeness_signal = _extract_data_completeness_signal(latest_backfill)
-    integrity_errors = sum(integrity.values())
     blockers = _blockers(
         latest_backfill=latest_backfill,
         dead_letters=dead_letters,
-        integrity_errors=integrity_errors,
         sanity_signal=sanity_signal,
         data_completeness_signal=data_completeness_signal,
     )
     return MigrationReadinessReport(
         recommendation=NOT_READY if blockers else READY,
         blockers=tuple(blockers),
-        latest_backfill_run=latest_backfill,
+        latest_backfill_run=_compact_latest_backfill(latest_backfill),
         dead_letter_counts=tuple(dead_letters),
-        session_group_integrity=integrity,
-        session_group_integrity_error_count=integrity_errors,
         sanity_signal=sanity_signal,
         data_completeness_signal=data_completeness_signal,
         row_counts=row_counts,
@@ -112,6 +104,18 @@ def _load_latest_backfill(cur: object) -> dict[str, Any] | None:
     }
 
 
+def _compact_latest_backfill(row: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "id": row.get("id"),
+        "status": row.get("status"),
+        "started_at": row.get("started_at"),
+        "finished_at": row.get("finished_at"),
+        "error": row.get("error"),
+    }
+
+
 def _load_unresolved_dead_letters(cur: object) -> list[dict[str, Any]]:
     cur.execute(
         """
@@ -126,48 +130,6 @@ def _load_unresolved_dead_letters(cur: object) -> list[dict[str, Any]]:
         {"source": row[0], "stage": row[1], "status": row[2], "count": row[3]}
         for row in cur.fetchall()
     ]
-
-
-def _load_session_group_integrity(cur: object) -> dict[str, int]:
-    queries = {
-        "utterance_count_mismatch": """
-            SELECT COUNT(*)
-            FROM session_groups sg
-            LEFT JOIN (
-                SELECT session_group_id, COUNT(*) AS cnt
-                FROM utterances
-                WHERE session_group_id IS NOT NULL
-                GROUP BY session_group_id
-            ) u ON u.session_group_id = sg.id
-            WHERE COALESCE(u.cnt, 0) <> sg.utterance_count
-        """,
-        "total_chars_mismatch": """
-            SELECT COUNT(*)
-            FROM session_groups sg
-            LEFT JOIN (
-                SELECT session_group_id, SUM(char_length(content)) AS chars
-                FROM utterances
-                WHERE session_group_id IS NOT NULL
-                GROUP BY session_group_id
-            ) u ON u.session_group_id = sg.id
-            WHERE COALESCE(u.chars, 0) <> sg.total_chars
-        """,
-        "respondents_format_invalid": """
-            SELECT COUNT(*)
-            FROM session_groups
-            WHERE respondents IS NULL OR jsonb_typeof(respondents) <> 'array'
-        """,
-        "respondent_empty_groups": """
-            SELECT COUNT(*)
-            FROM session_groups
-            WHERE respondents IS NULL OR jsonb_array_length(respondents) = 0
-        """,
-    }
-    result: dict[str, int] = {}
-    for key, sql in queries.items():
-        cur.execute(sql)
-        result[key] = cur.fetchone()[0]
-    return result
 
 
 def _load_row_counts(cur: object) -> dict[str, int]:
@@ -221,7 +183,6 @@ def _blockers(
     *,
     latest_backfill: Mapping[str, Any] | None,
     dead_letters: Sequence[Mapping[str, Any]],
-    integrity_errors: int,
     sanity_signal: Mapping[str, Any],
     data_completeness_signal: Mapping[str, Any],
 ) -> list[str]:
@@ -234,8 +195,6 @@ def _blockers(
     unresolved_count = sum(int(row["count"]) for row in dead_letters)
     if unresolved_count:
         blockers.append(f"unresolved dead letters remain: {unresolved_count}")
-    if integrity_errors:
-        blockers.append(f"session group integrity errors remain: {integrity_errors}")
     if not sanity_signal.get("available") or sanity_signal.get("missing_keys"):
         blockers.append("sanity_check signal unavailable")
     if not data_completeness_signal.get("available"):
@@ -281,11 +240,6 @@ def _render_markdown(report: MigrationReadinessReport) -> str:
             )
     else:
         lines.append("- None")
-
-    lines.extend(["", "## Session Group Integrity", ""])
-    lines.extend(["| Metric | Count |", "|---|---:|"])
-    for key, value in report.session_group_integrity.items():
-        lines.append(f"| `{key}` | {value} |")
 
     lines.extend(["", "## Sanity And Completeness", ""])
     lines.append(f"- sanity_check: `{report.sanity_signal}`")

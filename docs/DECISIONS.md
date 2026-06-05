@@ -3,6 +3,27 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-06-04 — Incremental meeting_bills skips linked bills and preserves existing links
+
+After #46, incremental meetings cost was dominated by re-querying `VCONFBILLCONFLIST`
+for already-linked bills. Incremental mode now fetches meeting-bill rows only for
+missing/unlinked bills and bills on touched or forced meetings; it upserts new pairs
+without deleting existing `meeting_bills`, leaving stale-link deletion to full
+reconciliation/backfill. This trades rare stale-link cleanup latency for avoiding
+false deletion when a skipped bill still owns an existing link.
+
+## 2026-06-04 — Remove session_groups; minutes retrieval = utterance keyword + neighbor-reading
+
+Following the agentic + ranked-keyword search decision, the Q&A semantic unit
+(`session_groups`, 30,755 rows) is removed, not merely demoted. Rationale:
+`utterances.speaker_mona_cd` already answers "who said what"; session_groups uniquely
+added only questioner↔respondent pairing + Q&A block boundaries, both re-derivable on the
+fly by an agentic harness; its accuracy was never measured (#50), coverage is uneven
+(본회의·소위 none; 상임위 69%, 국정조사 65%, only 국정감사 99%); and it carried a
+detection/eval subsystem plus an incremental regroup stage. Minutes content is untouched —
+all 1.38M utterances remain; only the derived segmentation layer drops, and the detection
+code stays in git if ever needed. Removal slice: #54; #50 closed as obsolete.
+
 ## 2026-06-04 — Search strategy: agentic + ranked keyword, defer vector embeddings
 
 The search layer (roadmap steps 2-4) will use agentic keyword search — Claude issues

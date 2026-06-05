@@ -1,6 +1,6 @@
 -- Congress-DB initial schema (Postgres 16)
 -- Source: docs/ERD.md
--- 9 core tables + 1 catalog table + 3 ingest operational tables = 13 tables.
+-- 8 core tables + 1 catalog table + 3 ingest operational tables = 12 tables.
 -- 자연키 우선, FK는 ON DELETE RESTRICT (참조 무결성 우선).
 -- CREATE TABLE IF NOT EXISTS로 idempotent 적용 (변경은 db-reset 또는 향후 migrations/).
 -- 적용은 psql -1 (single-transaction)으로 wrap — 이 파일에는 BEGIN/COMMIT 없음.
@@ -150,24 +150,7 @@ CREATE INDEX IF NOT EXISTS idx_votes_bill ON votes (bill_id);
 CREATE INDEX IF NOT EXISTS idx_votes_date ON votes (vote_date DESC);
 
 -- =========================================================================
--- 8. session_groups — Q&A 그룹 (FK → meetings, members)
--- =========================================================================
-CREATE TABLE IF NOT EXISTS session_groups (
-    id                    BIGSERIAL PRIMARY KEY,
-    meeting_id            INT  NOT NULL REFERENCES meetings (mnts_id) ON DELETE RESTRICT,
-    questioner_mona_cd    TEXT NOT NULL REFERENCES members  (mona_cd) ON DELETE RESTRICT,
-    respondents           JSONB,
-    seq_start             INT NOT NULL,
-    seq_end               INT NOT NULL,
-    utterance_count       INT NOT NULL,
-    total_chars           INT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_sg_meeting    ON session_groups (meeting_id);
-CREATE INDEX IF NOT EXISTS idx_sg_questioner ON session_groups (questioner_mona_cd);
-
--- =========================================================================
--- 9. utterances — 발언 (FK → meetings, members, session_groups)
+-- 8. utterances — 발언 (FK → meetings, members)
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS utterances (
     id                  BIGSERIAL PRIMARY KEY,
@@ -177,16 +160,14 @@ CREATE TABLE IF NOT EXISTS utterances (
     speaker_title       TEXT NOT NULL,
     speaker_mona_cd     TEXT REFERENCES members        (mona_cd) ON DELETE RESTRICT,
     content             TEXT NOT NULL,
-    session_group_id    BIGINT REFERENCES session_groups (id)    ON DELETE RESTRICT,
     UNIQUE (meeting_id, sequence)
 );
 
 CREATE INDEX IF NOT EXISTS idx_utterances_meeting       ON utterances (meeting_id);
 CREATE INDEX IF NOT EXISTS idx_utterances_speaker       ON utterances (speaker_mona_cd) WHERE speaker_mona_cd IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_utterances_session_group ON utterances (session_group_id) WHERE session_group_id IS NOT NULL;
 
 -- =========================================================================
--- 10. meeting_bills — 회의↔법안 N:M junction
+-- 9. meeting_bills — 회의↔법안 N:M junction
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS meeting_bills (
     meeting_id  INT  NOT NULL REFERENCES meetings (mnts_id) ON DELETE RESTRICT,
@@ -198,7 +179,7 @@ CREATE TABLE IF NOT EXISTS meeting_bills (
 CREATE INDEX IF NOT EXISTS idx_mb_bill ON meeting_bills (bill_id);
 
 -- =========================================================================
--- 11. ingest_runs — 수집 실행 기록
+-- 10. ingest_runs — 수집 실행 기록
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS ingest_runs (
     id              BIGSERIAL PRIMARY KEY,
@@ -226,7 +207,7 @@ CREATE INDEX IF NOT EXISTS idx_ingest_runs_status_started
     ON ingest_runs (status, started_at DESC);
 
 -- =========================================================================
--- 12. ingest_cursors — source별 증분 기준점
+-- 11. ingest_cursors — source별 증분 기준점
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS ingest_cursors (
     source          TEXT PRIMARY KEY,
@@ -241,7 +222,7 @@ CREATE INDEX IF NOT EXISTS idx_ingest_cursors_updated_run
     ON ingest_cursors (updated_run_id);
 
 -- =========================================================================
--- 13. dead_letters — 실패 item 보존
+-- 12. dead_letters — 실패 item 보존
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS dead_letters (
     id               BIGSERIAL PRIMARY KEY,

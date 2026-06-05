@@ -11,7 +11,9 @@ import pytest
 from congress_db.db import get_conn
 from congress_db.ingest_meetings import (
     _fetch_vconfbill_rows_for_bills,
+    _fetch_vconfbill_rows_for_bills_with_failures,
     _prune_stale_meetings,
+    _select_vconfbill_bill_ids,
     ingest_meetings,
 )
 from congress_db.minutes_web_list import MinutesWebListCrawlResult, MinutesWebListMeeting
@@ -44,7 +46,6 @@ def _delete_meeting_rows() -> None:
             """
         )
         cur.execute("DELETE FROM utterances WHERE meeting_id = ANY(%s)", (list(TEST_MEETINGS),))
-        cur.execute("DELETE FROM session_groups WHERE meeting_id = ANY(%s)", (list(TEST_MEETINGS),))
         cur.execute("DELETE FROM meeting_bills WHERE meeting_id = ANY(%s)", (list(TEST_MEETINGS),))
         cur.execute("DELETE FROM meetings WHERE mnts_id = ANY(%s)", (list(TEST_MEETINGS),))
         cur.execute("DELETE FROM bills WHERE bill_id = ANY(%s)", (list(TEST_BILLS),))
@@ -256,6 +257,7 @@ def test_ingest_meetings_normalizes_sources_and_bills_idempotently(
         worker_levels=(1,),
         benchmark_output_path=tmp_path / "MEETINGS-PARALLEL-BENCHMARK.md",
     )
+    vconf_calls_after_first = sum(1 for endpoint, _ in calls if endpoint == "VCONFBILLCONFLIST")
     second = ingest_meetings(
         calibration_limit=10,
         page_size=10,
@@ -263,7 +265,9 @@ def test_ingest_meetings_normalizes_sources_and_bills_idempotently(
         benchmark_sample_size=1,
         worker_levels=(1,),
         benchmark_output_path=tmp_path / "MEETINGS-PARALLEL-BENCHMARK.md",
+        vconfbill_fetch_mode="missing",
     )
+    vconf_calls_after_second = sum(1 for endpoint, _ in calls if endpoint == "VCONFBILLCONFLIST")
 
     assert first.meeting_count == 5
     assert first.total_count == 5
@@ -282,6 +286,9 @@ def test_ingest_meetings_normalizes_sources_and_bills_idempotently(
     assert second.new_meeting_ids == ()
     assert second.changed_meeting_ids == ()
     assert second.stale_meeting_ids == ()
+    assert second.vconfbill_target_bill_count == 0
+    assert second.vconfbill_skipped_bill_count == 2
+    assert vconf_calls_after_second == vconf_calls_after_first
     assert (tmp_path / "MEETINGS-PARALLEL-BENCHMARK.md").exists()
 
     with get_conn() as conn, conn.cursor() as cur:
@@ -358,6 +365,32 @@ def test_prune_stale_meetings_removes_non_web_meeting_state() -> None:
         assert cur.fetchone()[0] == 0
 
 
+def test_select_vconfbill_bill_ids_keeps_missing_and_touched_bills() -> None:
+    _insert_existing_web_only_meeting_bill()
+    agenda_rows = [
+        {"meeting_id": 910001, "bill_id": "TEST_MEETING_BILL_1"},
+        {"meeting_id": TEST_WEB_ONLY_MEETING, "bill_id": "TEST_MEETING_BILL_2"},
+    ]
+
+    target, skipped = _select_vconfbill_bill_ids(
+        agenda_rows,
+        fetch_mode="missing",
+        touched_meeting_ids=set(),
+    )
+
+    assert target == ["TEST_MEETING_BILL_1"]
+    assert skipped == ("TEST_MEETING_BILL_2",)
+
+    target, skipped = _select_vconfbill_bill_ids(
+        agenda_rows,
+        fetch_mode="missing",
+        touched_meeting_ids={TEST_WEB_ONLY_MEETING},
+    )
+
+    assert target == ["TEST_MEETING_BILL_1", "TEST_MEETING_BILL_2"]
+    assert skipped == ()
+
+
 def test_fetch_vconfbill_rows_for_bills_retries_transient_failures(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -401,6 +434,28 @@ def test_fetch_vconfbill_rows_for_bills_raises_after_final_retry(
             worker_count=2,
             retry_delays=(),
         )
+
+
+def test_fetch_vconfbill_rows_for_bills_with_failures_returns_partial_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_fetch(bill_id: str) -> list[dict[str, Any]]:
+        if bill_id == "TEST_MEETING_BILL_1":
+            raise RuntimeError("persistent DNS failure")
+        return [{"BILL_ID": bill_id}]
+
+    monkeypatch.setattr("congress_db.ingest_meetings._fetch_vconfbill_rows", fake_fetch)
+
+    rows, failures = _fetch_vconfbill_rows_for_bills_with_failures(
+        ["TEST_MEETING_BILL_1", "TEST_MEETING_BILL_2"],
+        worker_count=2,
+        retry_delays=(),
+    )
+
+    assert rows == {"TEST_MEETING_BILL_2": [{"BILL_ID": "TEST_MEETING_BILL_2"}]}
+    assert [(failure.bill_id, failure.error) for failure in failures] == [
+        ("TEST_MEETING_BILL_1", "after 1 attempts: persistent DNS failure")
+    ]
 
 
 def _web_meeting(
