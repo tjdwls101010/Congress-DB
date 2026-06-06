@@ -32,6 +32,17 @@ def render_pipeline_catalog_md(rows: list[dict[str, Any]], *, now: datetime | No
         "|---|---|---|---|---|---|",
     ]
 
+    if not rows:
+        lines.extend(
+            [
+                "",
+                "## Status",
+                "",
+                "api_catalog 비어 있음 — 재시드 필요. `make seed-catalog` 후 다시 렌더링해야 한다.",
+            ]
+        )
+        return "\n".join(lines) + "\n"
+
     for r in rows:
         endpoint = r.get("endpoint") or ""
         name = r.get("name") or ""

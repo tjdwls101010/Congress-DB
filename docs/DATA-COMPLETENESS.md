@@ -12,11 +12,14 @@ It separates source metadata gaps, safe fixes, and unsafe automatic mapping.
 | `bill_metadata_gaps` | 1068 | Bills missing proposed date or summary. |
 | `vote_created_bill_metadata_gaps` | 1028 | Metadata gaps attached to bills already touched by votes ingest. |
 | `bills_missing_summary` | 1068 | Bills whose summary cannot yet participate in keyword search. |
-| `member_titled_utterances_total` | 847480 | Utterances whose speaker_title is one of the 10 member-like titles used by ingest mapping. |
-| `unmapped_member_titled_utterances` | 9 | Member-titled utterances with no member FK across the full ingest title set. |
-| `member_titled_utterance_mapping_rate_pct` | 100.0 | Raw mapping rate across member-titled utterances. |
+| `overall_utterances_total` | 1378071 | All utterances in the corpus, including ministers, witnesses, staff, and other non-member speakers. |
+| `overall_mapped_utterances` | 847471 | All utterances with `speaker_mona_cd`; this is the whole-corpus member FK count. |
+| `overall_utterance_mapping_rate_pct` | 61.5 | All utterances mapping rate; this is not expected to be 100% because non-member speakers intentionally have no member FK. |
+| `member_titled_utterances_total` | 847480 | Member-titled only: utterances whose speaker_title is one of the 10 member-like titles used by ingest mapping. |
+| `unmapped_member_titled_utterances` | 9 | Member-titled only: utterances with no member FK across the full ingest title set. |
+| `member_titled_utterance_mapping_rate_pct` | 100.0 | Member-titled only: raw mapping rate across the titles that should normally map to legislators. |
 | `ambiguous_name_unmapped_utterances` | 0 | Unmapped rows intentionally left without FK because the normalized member name is ambiguous. |
-| `member_titled_utterance_actionable_mapping_rate_pct` | 100.0 | Mapping rate excluding intentionally ambiguous member-name collisions from the denominator. |
+| `member_titled_utterance_actionable_mapping_rate_pct` | 100.0 | Member-titled only: mapping rate excluding intentionally ambiguous member-name collisions from the denominator. |
 | `safe_utterance_mapping_candidates` | 0 | Rows that can be auto-mapped by unique normalized member name. Current sample should stay zero. |
 
 ## Conclusions

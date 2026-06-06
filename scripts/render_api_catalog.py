@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from congress_db.api_catalog import fetch_pipeline_catalog_rows
+from congress_db.api_catalog import fetch_pipeline_catalog_rows, seed_pipeline_endpoints
 from congress_db.api_catalog_render import render_pipeline_catalog_md
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +20,7 @@ OUTPUT = REPO_ROOT / "docs" / "API-CATALOG.md"
 
 
 def main() -> None:
+    seed_pipeline_endpoints()
     rows = fetch_pipeline_catalog_rows()
     md = render_pipeline_catalog_md(rows)
     OUTPUT.write_text(md, encoding="utf-8")
