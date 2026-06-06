@@ -6,7 +6,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-from .scrape_minutes import normalize_speaker_name
+from ..ingest.scrape_minutes import normalize_speaker_name
 
 MEMBER_SPEAKER_TITLE_ORDER = (
     "의원",

@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Callable, Sequence, TypeVar
 
-from .progress import ProgressReporter
+from ..core.progress import ProgressReporter
 
 T = TypeVar("T")
 R = TypeVar("R")

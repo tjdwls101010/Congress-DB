@@ -1,6 +1,6 @@
 """Search index migration contract."""
 
-from congress_db.db import get_conn
+from congress_db.core.db import get_conn
 
 
 def test_pg_trgm_extension_is_enabled() -> None:

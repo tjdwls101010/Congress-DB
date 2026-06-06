@@ -9,7 +9,7 @@ from __future__ import annotations
 import psycopg
 import pytest
 
-from congress_db.db import get_conn
+from congress_db.core.db import get_conn
 
 
 # -------------------------------------------------------------------------

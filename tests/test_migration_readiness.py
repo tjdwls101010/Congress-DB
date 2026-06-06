@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from congress_db.db import get_conn
-from congress_db.ingest_state import finish_run, record_dead_letter, start_run
-from congress_db.migration_readiness import (
+from congress_db.core.db import get_conn
+from congress_db.ingest.ingest_state import finish_run, record_dead_letter, start_run
+from congress_db.ops.migration_readiness import (
     generate_migration_readiness_report,
 )
 

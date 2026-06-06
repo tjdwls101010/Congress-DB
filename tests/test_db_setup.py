@@ -4,7 +4,7 @@
 `make db-up`으로 컨테이너를 먼저 기동할 것.
 """
 
-from congress_db.db import get_conn
+from congress_db.core.db import get_conn
 
 
 def test_get_conn_can_execute_select_one() -> None:

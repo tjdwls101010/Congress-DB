@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 
-from congress_db.ingest_bills import ingest_bills
+from congress_db.ingest.ingest_bills import ingest_bills
 
 
 def main() -> None:

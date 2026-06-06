@@ -1,6 +1,6 @@
 """Slice 10 sanity check report behavior."""
 
-from congress_db.sanity_check import (
+from congress_db.ops.sanity_check import (
     FtsDecision,
     SanityCheckResult,
     SanitySection,

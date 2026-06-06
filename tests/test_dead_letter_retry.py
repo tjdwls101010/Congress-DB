@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from congress_db.db import get_conn
-from congress_db.dead_letter_retry import DeadLetter, retry_dead_letters
-from congress_db.ingest_state import record_dead_letter, start_run
+from congress_db.core.db import get_conn
+from congress_db.ingest.dead_letter_retry import DeadLetter, retry_dead_letters
+from congress_db.ingest.ingest_state import record_dead_letter, start_run
 
 
 TEST_SOURCE = "test.retry.minutes"

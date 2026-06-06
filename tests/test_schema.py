@@ -4,7 +4,7 @@
 존재하는지 확인한다. 컬럼/제약 검증은 RGR 3에서 별도 테스트.
 """
 
-from congress_db.db import get_conn
+from congress_db.core.db import get_conn
 
 # ERD.md에 정의된 8개 핵심 + 1개 카탈로그 + 3개 수집 운영 테이블.
 EXPECTED_TABLES = frozenset(

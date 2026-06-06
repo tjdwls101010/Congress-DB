@@ -2,7 +2,7 @@
 
 import pytest
 
-from congress_db.meeting_id import extract_mnts_id
+from congress_db.core.meeting_id import extract_mnts_id
 
 
 def test_extract_mnts_id_from_viewer_url_id_param() -> None:

@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from congress_db.db import get_conn
-from congress_db.ingest_votes import _validate_vote_distribution, ingest_votes
+from congress_db.core.db import get_conn
+from congress_db.ingest.ingest_votes import _validate_vote_distribution, ingest_votes
 
 TEST_BILLS = (
     "TEST_VOTE_BILL_1",
@@ -128,7 +128,7 @@ def test_ingest_votes_upserts_vote_rows_idempotently(
             raise AssertionError(endpoint)
         return response
 
-    monkeypatch.setattr("congress_db.api_client.requests.get", fake_get)
+    monkeypatch.setattr("congress_db.core.api_client.requests.get", fake_get)
 
     first = ingest_votes(
         limit_pct=1.0,
@@ -214,7 +214,7 @@ def test_ingest_votes_retries_transient_vote_row_failures(
             raise AssertionError(endpoint)
         return response
 
-    monkeypatch.setattr("congress_db.api_client.requests.get", fake_get)
+    monkeypatch.setattr("congress_db.core.api_client.requests.get", fake_get)
 
     result = ingest_votes(
         limit_pct=1.0,
@@ -251,7 +251,7 @@ def test_ingest_votes_returns_structured_failures_when_partial_allowed(
             raise AssertionError(endpoint)
         return response
 
-    monkeypatch.setattr("congress_db.api_client.requests.get", fake_get)
+    monkeypatch.setattr("congress_db.core.api_client.requests.get", fake_get)
 
     result = ingest_votes(
         limit_pct=1.0,
@@ -369,7 +369,7 @@ def test_ingest_votes_uses_existing_bill_when_vote_api_reuses_bill_no(
             raise AssertionError(endpoint)
         return response
 
-    monkeypatch.setattr("congress_db.api_client.requests.get", fake_get)
+    monkeypatch.setattr("congress_db.core.api_client.requests.get", fake_get)
 
     result = ingest_votes(
         limit_pct=1.0,
@@ -474,7 +474,7 @@ def test_ingest_votes_incremental_fetches_only_missing_vote_rows(
             raise AssertionError(endpoint)
         return response
 
-    monkeypatch.setattr("congress_db.api_client.requests.get", fake_get)
+    monkeypatch.setattr("congress_db.core.api_client.requests.get", fake_get)
 
     result = ingest_votes(
         limit_pct=1.0,

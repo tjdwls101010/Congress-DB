@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from urllib.parse import parse_qs, urlparse
 
-from congress_db.minutes_web_list import collect_minutes_web_list, crawl_minutes_web_list, web_meeting_to_row
+from congress_db.ingest.minutes_web_list import collect_minutes_web_list, crawl_minutes_web_list, web_meeting_to_row
 
 
 class _Response:

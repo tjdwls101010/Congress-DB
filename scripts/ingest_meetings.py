@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 
-from congress_db.ingest_meetings import ingest_meetings
+from congress_db.ingest.ingest_meetings import ingest_meetings
 
 
 def main() -> None:

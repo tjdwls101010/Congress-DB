@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from congress_db.benchmark import (
+from congress_db.ops.benchmark import (
     WorkerRun,
     _select_worker,
     measure_workers,

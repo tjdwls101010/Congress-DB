@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from congress_db.api_catalog import fetch_pipeline_catalog_rows, seed_pipeline_endpoints
-from congress_db.api_catalog_render import render_pipeline_catalog_md
+from congress_db.ops.api_catalog import fetch_pipeline_catalog_rows, seed_pipeline_endpoints
+from congress_db.ops.api_catalog_render import render_pipeline_catalog_md
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = REPO_ROOT / "docs" / "ops" / "API-CATALOG.md"

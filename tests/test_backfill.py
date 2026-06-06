@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from congress_db.backfill import (
+from congress_db.ingest.backfill import (
     BackfillStage,
     DeadLetterDraft,
     StageResult,
@@ -14,8 +14,8 @@ from congress_db.backfill import (
     load_utterance_target_meeting_ids,
     run_backfill,
 )
-import congress_db.backfill as backfill_module
-from congress_db.db import get_conn
+import congress_db.ingest.backfill as backfill_module
+from congress_db.core.db import get_conn
 
 
 @pytest.fixture(autouse=True)

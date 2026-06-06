@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .db import get_conn
+from ..core.db import get_conn
 from .utterance_mapping_quality import (
     MemberUtteranceMappingQuality,
     load_member_utterance_mapping_quality,

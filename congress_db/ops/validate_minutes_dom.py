@@ -7,9 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
-from .db import get_conn
-from .progress import ProgressReporter
-from .scrape_minutes import MinutesDomProfile, fetch_minutes, inspect_minutes_dom
+from ..core.db import get_conn
+from ..core.progress import ProgressReporter
+from ..ingest.scrape_minutes import MinutesDomProfile, fetch_minutes, inspect_minutes_dom
 
 DEFAULT_DOM_VALIDATION_OUTPUT = Path("docs/ops/MINUTES-DOM-VALIDATION.md")
 DEFAULT_VALIDATION_RETRY_DELAYS = (1.0, 4.0, 16.0)

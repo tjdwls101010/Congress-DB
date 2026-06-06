@@ -1,7 +1,7 @@
 """회의록 DOM 검증 리포트 검증."""
 
-from congress_db.scrape_minutes import MinutesDomProfile
-from congress_db.validate_minutes_dom import (
+from congress_db.ingest.scrape_minutes import MinutesDomProfile
+from congress_db.ops.validate_minutes_dom import (
     DomValidationResult,
     DomValidationRow,
     MeetingSample,

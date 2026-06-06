@@ -17,9 +17,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from congress_db.api_catalog import update_verification_result
-from congress_db.api_client import fetch_with_age_attempts
-from congress_db.endpoints import PIPELINE_ENDPOINTS, EndpointSpec
+from congress_db.ops.api_catalog import update_verification_result
+from congress_db.core.api_client import fetch_with_age_attempts
+from congress_db.core.endpoints import PIPELINE_ENDPOINTS, EndpointSpec
 
 # 검증 시 박는 sample 파라미터는 각 EndpointSpec.verify_sample에 정의돼 있다 —
 # single source of truth. 이 스크립트는 호출만 한다.

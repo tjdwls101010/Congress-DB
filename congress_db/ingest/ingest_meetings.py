@@ -12,17 +12,17 @@ from typing import Any, Literal, Sequence
 from zoneinfo import ZoneInfo
 
 from .agenda_parser import parse_agenda_item
-from .api_client import ApiResponse, fetch_endpoint_with_retry, fetch_with_age_attempts
-from .benchmark import (
+from ..core.api_client import ApiResponse, fetch_endpoint_with_retry, fetch_with_age_attempts
+from ..core.db import execute_many, get_conn
+from ..core.meeting_id import extract_mnts_id
+from ..core.progress import ProgressReporter, safe_print
+from ..ops.benchmark import (
     DEFAULT_WORKER_LEVELS,
     measure_workers,
     representative_sample,
     render_parallel_benchmark,
 )
-from .db import execute_many, get_conn
-from .meeting_id import extract_mnts_id
 from .minutes_web_list import collect_minutes_web_list, web_meeting_to_row
-from .progress import ProgressReporter, safe_print
 
 PLENARY_ENDPOINT = "nzbyfwhwaoanttzje"
 COMMITTEE_ENDPOINT = "ncwgseseafwbuheph"

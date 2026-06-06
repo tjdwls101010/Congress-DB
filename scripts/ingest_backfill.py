@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-from congress_db.ingest_command import run_ingest
-from congress_db.progress import safe_print
+from congress_db.ingest.ingest_command import run_ingest
+from congress_db.core.progress import safe_print
 
 
 def main() -> None:

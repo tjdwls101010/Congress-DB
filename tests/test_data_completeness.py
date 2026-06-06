@@ -1,13 +1,13 @@
 """10% data completeness report behavior."""
 
-from congress_db.data_completeness import (
+from congress_db.ops.data_completeness import (
     CompletenessReport,
     Metric,
     SampleTable,
     generate_data_completeness_report,
     render_data_completeness_report,
 )
-from congress_db.utterance_mapping_quality import MemberUtteranceMappingQuality
+from congress_db.ops.utterance_mapping_quality import MemberUtteranceMappingQuality
 
 
 class _Description:
@@ -154,9 +154,9 @@ def test_generate_data_completeness_report_separates_member_titled_and_overall_m
             unmapped_speakers=(),
         )
 
-    monkeypatch.setattr("congress_db.data_completeness.get_conn", fake_get_conn)
+    monkeypatch.setattr("congress_db.ops.data_completeness.get_conn", fake_get_conn)
     monkeypatch.setattr(
-        "congress_db.data_completeness.load_member_utterance_mapping_quality",
+        "congress_db.ops.data_completeness.load_member_utterance_mapping_quality",
         fake_member_mapping,
     )
 

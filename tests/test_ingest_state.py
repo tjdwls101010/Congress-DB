@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 import psycopg
 import pytest
 
-from congress_db.db import get_conn
-from congress_db.ingest_state import (
+from congress_db.core.db import get_conn
+from congress_db.ingest.ingest_state import (
     finish_run,
     record_dead_letter,
     resolve_dead_letter,

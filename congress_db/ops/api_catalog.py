@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .db import get_conn
-from .endpoints import PIPELINE_ENDPOINTS
+from ..core.db import get_conn
+from ..core.endpoints import PIPELINE_ENDPOINTS
 
 
 _SEED_SQL = """

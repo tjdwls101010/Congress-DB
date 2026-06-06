@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from congress_db.migration_readiness import generate_migration_readiness_report
+from congress_db.ops.migration_readiness import generate_migration_readiness_report
 
 
 def main() -> None:

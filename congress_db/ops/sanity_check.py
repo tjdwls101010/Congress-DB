@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
 
-from .db import get_conn
+from ..core.db import get_conn
 
 DEFAULT_SANITY_REPORT = Path("docs/ops/SANITY-CHECK.md")
 DEFAULT_KEYWORD = "전세사기"

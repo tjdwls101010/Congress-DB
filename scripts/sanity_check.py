@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from congress_db.sanity_check import run_sanity_check
+from congress_db.ops.sanity_check import run_sanity_check
 
 
 def main() -> None:
