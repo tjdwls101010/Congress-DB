@@ -79,6 +79,18 @@ data-quality gaps are understood and either fixed or explicitly accepted.
   - `meeting_bills`: 40,356
   - `utterances`: 1,378,071
 
+## Current Post-gate Additions
+
+The accepted full-load gate remains run `103`. Later targeted backfills updated
+the current local DB before hosted migration:
+
+- `ingest_runs.id = 614` filled 816 missing bill summaries and left 252
+  source `no_data` residuals.
+- `ingest_runs.id = 646` populated `bill_relations` with 3,715 authoritative
+  likms `selRefBillId` relations and 0 failures.
+- `make migration-readiness` on 2026-06-06 reports `ready_for_human_review`
+  with 0 blockers and includes `bill_relations` in row counts.
+
 ## Confidence And Remaining Risk
 
 - High confidence: the current local database contains the target backfill data,
@@ -88,7 +100,8 @@ data-quality gaps are understood and either fixed or explicitly accepted.
   vote row retry, stdout/stderr breakage, and late-stage rerun reuse.
 - Accepted source gaps remain visible rather than hidden: 20 referenced member
   stubs have no profile party, 1,028 vote-created bill rows lack source proposal
-  date and summary, 40 non-vote bill rows lack source summary, and 9
+  date, 252 bills still lack source summary after `BPMBILLSUMMARY` returned
+  `no_data`, and 9
   member-titled utterances have no safe member FK. These affect profile
   completeness or search recall, not relational integrity.
 - Remaining uncertainty: run `103` reused healthy completed expensive stages

@@ -20,6 +20,7 @@ SANITY_KEYS = frozenset({"S1", "S2", "S3", "S4a", "S4b", "S5", "S6", "S7"})
 CORE_TABLES = (
     "members",
     "bills",
+    "bill_relations",
     "bill_lead_proposers",
     "bill_coproposers",
     "votes",
@@ -101,6 +102,14 @@ def _load_latest_backfill(cur: object) -> dict[str, Any] | None:
         SELECT id, status, started_at, finished_at, summary, error
         FROM ingest_runs
         WHERE mode = 'backfill'
+          AND (
+              summary->>'entrypoint' = 'ingest'
+              OR (
+                  summary #> '{stages,sanity_check}' IS NOT NULL
+                  AND summary #> '{stages,data_completeness}' IS NOT NULL
+              )
+              OR summary->>'test' = 'migration_readiness'
+          )
         ORDER BY started_at DESC, id DESC
         LIMIT 1
         """
@@ -173,6 +182,14 @@ def _load_previous_mapping_rate(
         WHERE mode = 'backfill'
           AND status = 'success'
           AND id <> %s
+          AND (
+              summary->>'entrypoint' = 'ingest'
+              OR (
+                  summary #> '{stages,sanity_check}' IS NOT NULL
+                  AND summary #> '{stages,data_completeness}' IS NOT NULL
+              )
+              OR summary->>'test' = 'migration_readiness'
+          )
         ORDER BY started_at DESC, id DESC
         LIMIT 1
         """,
