@@ -195,3 +195,15 @@ CREATE INDEX idx_bills_bill_name_trgm ON bills USING gin (bill_name gin_trgm_ops
 CREATE INDEX idx_bills_summary_trgm ON bills USING gin (summary gin_trgm_ops) WHERE summary IS NOT NULL;
 CREATE INDEX idx_utterances_content_trgm ON utterances USING gin (content gin_trgm_ops);
 ```
+
+## 검색 지원 함수
+
+```sql
+search_snippet(source_text TEXT, query_text TEXT, radius INT DEFAULT 80) RETURNS TEXT;
+search_bills(query_text TEXT, result_limit INT DEFAULT 50)
+  RETURNS TABLE (bill_id, bill_no, bill_name, propose_dt, snippet, similarity_score);
+search_utterances(query_text TEXT, result_limit INT DEFAULT 50)
+  RETURNS TABLE (utterance_id, meeting_id, sequence, speaker_name, speaker_title, snippet, similarity_score);
+```
+
+첫 검색 랭킹은 Postgres `pg_trgm`의 `similarity()` 내림차순이다. 검색 API/SDK는 이 DB 함수 위에서 얇게 시작하고, 벡터/PGroonga는 측정된 recall 실패가 생길 때만 추가한다.
