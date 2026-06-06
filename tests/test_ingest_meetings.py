@@ -304,7 +304,7 @@ def test_ingest_meetings_normalizes_sources_and_bills_idempotently(
         meetings = cur.fetchall()
         cur.execute(
             """
-            SELECT meeting_id, bill_id, source
+            SELECT meeting_id, bill_id
             FROM meeting_bills
             WHERE meeting_id = ANY(%s)
             ORDER BY meeting_id, bill_id
@@ -321,9 +321,9 @@ def test_ingest_meetings_normalizes_sources_and_bills_idempotently(
         (910005, "상임위", False, False),
     ]
     assert meeting_bills == [
-        (910001, "TEST_MEETING_BILL_1", "both"),
-        (910002, "TEST_MEETING_BILL_2", "both"),
-        (910005, "TEST_MEETING_BILL_2", "existing"),
+        (910001, "TEST_MEETING_BILL_1"),
+        (910002, "TEST_MEETING_BILL_2"),
+        (910005, "TEST_MEETING_BILL_2"),
     ]
     assert {endpoint for endpoint, _ in calls} >= {
         "nzbyfwhwaoanttzje",
@@ -499,8 +499,8 @@ def _insert_existing_web_only_meeting_bill() -> None:
         )
         cur.execute(
             """
-            INSERT INTO meeting_bills (meeting_id, bill_id, source)
-            VALUES (%s, 'TEST_MEETING_BILL_2', 'existing')
+            INSERT INTO meeting_bills (meeting_id, bill_id)
+            VALUES (%s, 'TEST_MEETING_BILL_2')
             """,
             (TEST_WEB_ONLY_MEETING,),
         )
@@ -518,8 +518,8 @@ def _insert_stale_meeting_state() -> None:
         )
         cur.execute(
             """
-            INSERT INTO meeting_bills (meeting_id, bill_id, source)
-            VALUES (%s, 'TEST_MEETING_BILL_1', 'existing')
+            INSERT INTO meeting_bills (meeting_id, bill_id)
+            VALUES (%s, 'TEST_MEETING_BILL_1')
             """,
             (TEST_STALE_MEETING,),
         )

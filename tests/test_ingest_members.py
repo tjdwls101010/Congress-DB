@@ -14,7 +14,12 @@ import pytest
 from congress_db.core.db import get_conn
 from congress_db.ingest.ingest_members import ingest_members
 
-TEST_MEMBER_CODES = ("TEST_MEMBER_1", "TEST_MEMBER_2")
+TEST_MEMBER_CODES = (
+    "TEST_MEMBER_1",
+    "TEST_MEMBER_2",
+    "TEST_MEMBER_DEPARTED",
+    "TEST_MEMBER_STUB",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -150,3 +155,53 @@ def test_ingest_members_updates_existing_member_and_fetched_at(
         saved = cur.fetchone()
 
     assert saved == ("새이름", "新", "새정당", True)
+
+
+def test_ingest_members_marks_only_latest_roster_as_incumbent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO members (mona_cd, hg_nm, is_incumbent)
+            VALUES
+                ('TEST_MEMBER_1', '직전현직', TRUE),
+                ('TEST_MEMBER_DEPARTED', '명부이탈', TRUE),
+                ('TEST_MEMBER_STUB', '표결전용stub', FALSE)
+            """
+        )
+        conn.commit()
+
+    rows = [
+        _member_row("TEST_MEMBER_1", "계속현직", "現"),
+        _member_row("TEST_MEMBER_2", "신규현직", "新"),
+    ]
+
+    def fake_get(*args: Any, **kwargs: Any) -> MagicMock:
+        response = MagicMock()
+        response.json.return_value = _members_payload(rows)
+        response.raise_for_status = MagicMock()
+        return response
+
+    monkeypatch.setattr("congress_db.core.api_client.requests.get", fake_get)
+
+    ingest_members()
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT mona_cd, hg_nm, is_incumbent
+            FROM members
+            WHERE mona_cd = ANY(%s)
+            ORDER BY mona_cd
+            """,
+            (list(TEST_MEMBER_CODES),),
+        )
+        saved = cur.fetchall()
+
+    assert saved == [
+        ("TEST_MEMBER_1", "계속현직", True),
+        ("TEST_MEMBER_2", "신규현직", True),
+        ("TEST_MEMBER_DEPARTED", "명부이탈", False),
+        ("TEST_MEMBER_STUB", "표결전용stub", False),
+    ]

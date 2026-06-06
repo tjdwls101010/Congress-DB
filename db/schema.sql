@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS members (
     homepage        TEXT,
     mem_title       TEXT,
     assem_addr      TEXT,
+    is_incumbent    BOOLEAN NOT NULL DEFAULT FALSE,
     fetched_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -97,8 +98,6 @@ CREATE TABLE IF NOT EXISTS bills (
     cmt_proc_dt          DATE,
     cmt_proc_result_cd   TEXT,
     summary              TEXT,
-    detail_link          TEXT,
-    age                  SMALLINT NOT NULL DEFAULT 22,
     fetched_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -172,7 +171,6 @@ CREATE INDEX IF NOT EXISTS idx_utterances_speaker       ON utterances (speaker_m
 CREATE TABLE IF NOT EXISTS meeting_bills (
     meeting_id  INT  NOT NULL REFERENCES meetings (mnts_id) ON DELETE RESTRICT,
     bill_id     TEXT NOT NULL REFERENCES bills    (bill_id) ON DELETE RESTRICT,
-    source      TEXT,
     PRIMARY KEY (meeting_id, bill_id)
 );
 

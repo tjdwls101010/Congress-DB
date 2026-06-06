@@ -46,6 +46,7 @@ erDiagram
 | `homepage` | TEXT | 홈페이지 |
 | `mem_title` | TEXT | 약력 |
 | `assem_addr` | TEXT | 의원회관 호실 |
+| `is_incumbent` | BOOLEAN NOT NULL DEFAULT FALSE | 최신 의원 인적사항 명부 등장 여부에서 파생한 현직 여부 |
 | `fetched_at` | TIMESTAMPTZ | 마지막 수집 시각 |
 
 ### 2. `bills` — 법안
@@ -72,8 +73,6 @@ erDiagram
 | `cmt_proc_dt` | DATE | 위원회 처리일자 |
 | `cmt_proc_result_cd` | TEXT | 위원회 처리결과 코드 |
 | `summary` | TEXT | 주요내용 |
-| `detail_link` | TEXT | 의안 상세 링크. 검색 core 우선순위 낮음. **현재 살아 있음** — ADR-0008의 제거는 M1 스키마 정비 슬라이스에서 실행 예정 |
-| `age` | SMALLINT | 대수. 22대만 유지. **현재 살아 있음** — M1 스키마 정비에서 제거 재검토 |
 | `fetched_at` | TIMESTAMPTZ | 마지막 수집 시각 |
 
 ### 3. `bill_lead_proposers` — 대표발의 N:M
@@ -137,7 +136,6 @@ HTML 회의록 목록의 한 회의. `total/22.do` 웹 목록이 canonical sourc
 |---|---|---|
 | `meeting_id` | INT REFERENCES meetings(mnts_id) | **PK 일부** |
 | `bill_id` | TEXT REFERENCES bills(bill_id) | **PK 일부** |
-| `source` | TEXT | `vconfbill` / `agenda` / `both` |
 
 공식 회의 안건 원문은 별도 core 테이블로 보존하지 않는다. 법안이 아닌 안건은 정책 의제 검색과 직접 대응하지 않고, 필요한 경우 향후 의미 레이어에서 evidence 기반으로 모델링한다.
 
@@ -197,3 +195,15 @@ CREATE INDEX idx_bills_bill_name_trgm ON bills USING gin (bill_name gin_trgm_ops
 CREATE INDEX idx_bills_summary_trgm ON bills USING gin (summary gin_trgm_ops) WHERE summary IS NOT NULL;
 CREATE INDEX idx_utterances_content_trgm ON utterances USING gin (content gin_trgm_ops);
 ```
+
+## 검색 지원 함수
+
+```sql
+search_snippet(source_text TEXT, query_text TEXT, radius INT DEFAULT 80) RETURNS TEXT;
+search_bills(query_text TEXT, result_limit INT DEFAULT 50)
+  RETURNS TABLE (bill_id, bill_no, bill_name, propose_dt, snippet, similarity_score);
+search_utterances(query_text TEXT, result_limit INT DEFAULT 50)
+  RETURNS TABLE (utterance_id, meeting_id, sequence, speaker_name, speaker_title, snippet, similarity_score);
+```
+
+첫 검색 랭킹은 Postgres `pg_trgm`의 `similarity()` 내림차순이다. 검색 API/SDK는 이 DB 함수 위에서 얇게 시작하고, 벡터/PGroonga는 측정된 recall 실패가 생길 때만 추가한다.

@@ -77,11 +77,11 @@ class _VoteRowsFetchResult:
 _UPSERT_BILL_REFS_SQL = """
     INSERT INTO bills (
         bill_id, bill_no, bill_name, committee, committee_id,
-        proc_result, proc_dt, detail_link, age
+        proc_result, proc_dt
     )
     VALUES (
         %(bill_id)s, %(bill_no)s, %(bill_name)s, %(committee)s, %(committee_id)s,
-        %(proc_result)s, %(proc_dt)s, %(detail_link)s, %(age)s
+        %(proc_result)s, %(proc_dt)s
     )
     ON CONFLICT (bill_id) DO UPDATE SET
         bill_no      = EXCLUDED.bill_no,
@@ -90,8 +90,6 @@ _UPSERT_BILL_REFS_SQL = """
         committee_id = COALESCE(EXCLUDED.committee_id, bills.committee_id),
         proc_result  = COALESCE(EXCLUDED.proc_result, bills.proc_result),
         proc_dt      = COALESCE(EXCLUDED.proc_dt, bills.proc_dt),
-        detail_link  = COALESCE(EXCLUDED.detail_link, bills.detail_link),
-        age          = EXCLUDED.age,
         fetched_at   = now()
 """
 
@@ -442,8 +440,6 @@ def _normalize_bill_ref(row: dict[str, Any], *, bill_id: str | None = None) -> d
         "committee_id": _blank_to_none(row.get("CURR_COMMITTEE_ID")),
         "proc_result": _blank_to_none(row.get("PROC_RESULT_CD")),
         "proc_dt": _blank_to_none(row.get("PROC_DT")),
-        "detail_link": _blank_to_none(row.get("LINK_URL")),
-        "age": int(row.get("AGE") or 22),
     }
 
 

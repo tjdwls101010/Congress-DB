@@ -72,12 +72,12 @@ _UPSERT_MEMBERS_SQL = """
     INSERT INTO members (
         mona_cd, hg_nm, hj_nm, eng_nm, bth_date, sex_gbn_nm,
         poly_nm, orig_nm, elect_gbn_nm, cmits, reele_gbn_nm, units,
-        tel_no, e_mail, homepage, mem_title, assem_addr
+        tel_no, e_mail, homepage, mem_title, assem_addr, is_incumbent
     )
     VALUES (
         %(mona_cd)s, %(hg_nm)s, %(hj_nm)s, %(eng_nm)s, %(bth_date)s, %(sex_gbn_nm)s,
         %(poly_nm)s, %(orig_nm)s, %(elect_gbn_nm)s, %(cmits)s, %(reele_gbn_nm)s, %(units)s,
-        %(tel_no)s, %(e_mail)s, %(homepage)s, %(mem_title)s, %(assem_addr)s
+        %(tel_no)s, %(e_mail)s, %(homepage)s, %(mem_title)s, %(assem_addr)s, TRUE
     )
     ON CONFLICT (mona_cd) DO UPDATE SET
         hg_nm        = EXCLUDED.hg_nm,
@@ -96,6 +96,7 @@ _UPSERT_MEMBERS_SQL = """
         homepage     = EXCLUDED.homepage,
         mem_title    = EXCLUDED.mem_title,
         assem_addr   = EXCLUDED.assem_addr,
+        is_incumbent = TRUE,
         fetched_at   = now()
 """
 
@@ -106,6 +107,7 @@ def ingest_members() -> IngestMembersResult:
     rows = [_normalize_member_row(row) for row in response.rows]
 
     with get_conn() as conn:
+        _mark_all_members_non_incumbent(conn)
         upserted = _upsert_members(conn, rows)
         conn.commit()
 
@@ -154,3 +156,8 @@ def _blank_to_none(value: Any) -> Any:
 
 def _upsert_members(conn: Any, rows: list[dict[str, Any]]) -> int:
     return execute_many(conn, _UPSERT_MEMBERS_SQL, rows)
+
+
+def _mark_all_members_non_incumbent(conn: Any) -> None:
+    with conn.cursor() as cur:
+        cur.execute("UPDATE members SET is_incumbent = FALSE WHERE is_incumbent")
