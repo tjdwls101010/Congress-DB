@@ -12,11 +12,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from congress_db.core.db import get_conn
-from congress_db.ingest.ingest_bills import ingest_bills
+from congress_db.ingest.ingest_bills import backfill_missing_bill_summaries, ingest_bills
 
 TEST_MEMBERS = ("TEST_BILL_MEMBER_1", "TEST_BILL_MEMBER_2", "TEST_BILL_MEMBER_3")
 TEST_MEMBER_STUBS = ("TEST_BILL_MEMBER_4",)
-TEST_BILLS = ("TEST_BILL_1", "TEST_BILL_2")
+TEST_BILLS = ("TEST_BILL_1", "TEST_BILL_2", "TEST_BILL_3")
 
 
 @pytest.fixture(autouse=True)
@@ -403,3 +403,110 @@ def test_ingest_bills_incremental_fetches_only_missing_summaries(
         ("TEST_BILL_1", "기존 요약", "가결"),
         ("TEST_BILL_2", "새 요약", None),
     ]
+
+
+def test_backfill_missing_bill_summaries_updates_only_missing_summaries(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    summary_calls: list[str] = []
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO bills (bill_id, bill_no, bill_name, propose_dt, summary)
+            VALUES
+                ('TEST_BILL_1', '9000001', '결측 법안', '2999-01-01', NULL),
+                ('TEST_BILL_2', '9000002', '진짜 요약 없음', '2999-01-01', ''),
+                ('TEST_BILL_3', '9000003', '기존 요약 법안', '2999-01-01', '기존 요약')
+            """
+        )
+        conn.commit()
+
+    def fake_get(url: str, **kwargs: Any) -> MagicMock:
+        endpoint = url.rsplit("/", 1)[-1]
+        params = kwargs["params"]
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        assert endpoint == "BPMBILLSUMMARY"
+        summary_calls.append(params["BILL_NO"])
+        if params["BILL_NO"] == "9000001":
+            response.json.return_value = _envelope(
+                endpoint,
+                total=1,
+                rows=[{"BILL_NO": params["BILL_NO"], "SUMMARY": "새 요약"}],
+            )
+        elif params["BILL_NO"] == "9000002":
+            response.json.return_value = _no_data()
+        else:
+            raise AssertionError("existing summary should not be refetched")
+        return response
+
+    monkeypatch.setattr("congress_db.core.api_client.requests.get", fake_get)
+
+    result = backfill_missing_bill_summaries(
+        limit=2,
+        summary_worker_count=1,
+        benchmark_sample_size=1,
+        benchmark_output_path=tmp_path / "PARALLEL-BENCHMARK.md",
+    )
+
+    assert "9000001" in summary_calls
+    assert "9000002" in summary_calls
+    assert "9000003" not in summary_calls
+    assert result.target_count == 2
+    assert result.updated_count == 1
+    assert result.no_data_count == 1
+    assert result.error_count == 0
+    assert result.remaining_missing_count >= 1
+    assert result.summary_failures == ()
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT bill_no, summary
+            FROM bills
+            WHERE bill_id = ANY(%s)
+            ORDER BY bill_id
+            """,
+            (list(TEST_BILLS),),
+        )
+        rows = cur.fetchall()
+
+    assert rows == [
+        ("9000001", "새 요약"),
+        ("9000002", ""),
+        ("9000003", "기존 요약"),
+    ]
+
+
+def test_backfill_missing_bill_summaries_returns_structured_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO bills (bill_id, bill_no, bill_name, propose_dt, summary)
+            VALUES ('TEST_BILL_1', '9000001', '실패 법안', '2999-01-01', NULL)
+            """
+        )
+        conn.commit()
+
+    def fake_get(url: str, **kwargs: Any) -> MagicMock:
+        raise RuntimeError("summary source overloaded")
+
+    monkeypatch.setattr("congress_db.core.api_client.requests.get", fake_get)
+
+    result = backfill_missing_bill_summaries(
+        limit=1,
+        summary_worker_count=1,
+        benchmark_sample_size=1,
+        benchmark_output_path=tmp_path / "PARALLEL-BENCHMARK.md",
+    )
+
+    assert result.target_count == 1
+    assert result.updated_count == 0
+    assert result.error_count == 1
+    assert result.remaining_missing_count >= 1
+    assert result.summary_failures[0].bill_no == "9000001"
+    assert "summary source overloaded" in result.summary_failures[0].error
