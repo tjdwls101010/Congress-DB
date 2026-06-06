@@ -106,8 +106,6 @@ _BILL_FIELDS: tuple[str, ...] = (
     "cmt_proc_dt",
     "cmt_proc_result_cd",
     "summary",
-    "detail_link",
-    "age",
 )
 
 _API_TO_DB: dict[str, str] = {
@@ -128,8 +126,6 @@ _API_TO_DB: dict[str, str] = {
     "COMMITTEE_DT": "committee_dt",
     "CMT_PROC_DT": "cmt_proc_dt",
     "CMT_PROC_RESULT_CD": "cmt_proc_result_cd",
-    "DETAIL_LINK": "detail_link",
-    "AGE": "age",
 }
 
 _UPSERT_BILLS_SQL = """
@@ -137,15 +133,14 @@ _UPSERT_BILLS_SQL = """
         bill_id, bill_no, bill_name, propose_dt, rst_mona_cd, rst_proposer,
         publ_proposer, proposer, committee, committee_id, proc_result, proc_dt,
         law_proc_dt, law_proc_result_cd, committee_dt, cmt_proc_dt,
-        cmt_proc_result_cd, summary, detail_link, age
+        cmt_proc_result_cd, summary
     )
     VALUES (
         %(bill_id)s, %(bill_no)s, %(bill_name)s, %(propose_dt)s,
         %(rst_mona_cd)s, %(rst_proposer)s, %(publ_proposer)s, %(proposer)s,
         %(committee)s, %(committee_id)s, %(proc_result)s, %(proc_dt)s,
         %(law_proc_dt)s, %(law_proc_result_cd)s, %(committee_dt)s,
-        %(cmt_proc_dt)s, %(cmt_proc_result_cd)s, %(summary)s,
-        %(detail_link)s, %(age)s
+        %(cmt_proc_dt)s, %(cmt_proc_result_cd)s, %(summary)s
     )
     ON CONFLICT (bill_id) DO UPDATE SET
         bill_no            = EXCLUDED.bill_no,
@@ -165,8 +160,6 @@ _UPSERT_BILLS_SQL = """
         cmt_proc_dt        = EXCLUDED.cmt_proc_dt,
         cmt_proc_result_cd = EXCLUDED.cmt_proc_result_cd,
         summary            = COALESCE(EXCLUDED.summary, bills.summary),
-        detail_link        = EXCLUDED.detail_link,
-        age                = EXCLUDED.age,
         fetched_at         = now()
 """
 
@@ -444,7 +437,6 @@ def _normalize_bill_row(row: dict[str, Any], summary: str | None) -> dict[str, A
     for api_field, db_field in _API_TO_DB.items():
         normalized[db_field] = _blank_to_none(row.get(api_field))
     normalized["summary"] = summary
-    normalized["age"] = int(normalized["age"] or 22)
     lead_codes = _split_mona_codes(row.get("RST_MONA_CD"))
     normalized["rst_mona_cd"] = lead_codes[0] if len(lead_codes) == 1 else None
 

@@ -111,14 +111,9 @@ _UPSERT_MEETINGS_SQL = """
 """
 
 _INSERT_MEETING_BILLS_SQL = """
-    INSERT INTO meeting_bills (meeting_id, bill_id, source)
-    VALUES (%(meeting_id)s, %(bill_id)s, %(source)s)
-    ON CONFLICT (meeting_id, bill_id) DO UPDATE SET
-        source = CASE
-            WHEN meeting_bills.source = EXCLUDED.source THEN EXCLUDED.source
-            WHEN meeting_bills.source = 'both' OR EXCLUDED.source = 'both' THEN 'both'
-            ELSE 'both'
-        END
+    INSERT INTO meeting_bills (meeting_id, bill_id)
+    VALUES (%(meeting_id)s, %(bill_id)s)
+    ON CONFLICT (meeting_id, bill_id) DO NOTHING
 """
 
 
@@ -831,13 +826,7 @@ def _merge_meeting_bill_pairs(
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for meeting_id, bill_id in sorted(agenda_pairs | vconf_pairs):
-        if (meeting_id, bill_id) in agenda_pairs and (meeting_id, bill_id) in vconf_pairs:
-            source = "both"
-        elif (meeting_id, bill_id) in vconf_pairs:
-            source = "vconfbill"
-        else:
-            source = "agenda"
-        rows.append({"meeting_id": meeting_id, "bill_id": bill_id, "source": source})
+        rows.append({"meeting_id": meeting_id, "bill_id": bill_id})
     return rows
 
 

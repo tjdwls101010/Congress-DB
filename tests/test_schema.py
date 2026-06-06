@@ -37,6 +37,19 @@ RETIRED_MEETING_COLUMNS = frozenset(
     }
 )
 
+RETIRED_BILL_COLUMNS = frozenset(
+    {
+        "detail_link",
+        "age",
+    }
+)
+
+RETIRED_MEETING_BILL_COLUMNS = frozenset(
+    {
+        "source",
+    }
+)
+
 
 def _public_tables() -> set[str]:
     with get_conn() as conn:
@@ -84,3 +97,15 @@ def test_meetings_has_only_search_oriented_core_columns() -> None:
     columns = _public_columns("meetings")
     assert not (columns & RETIRED_MEETING_COLUMNS)
     assert {"is_temporary", "is_appendix"} <= columns
+
+
+def test_bills_has_only_search_oriented_core_columns() -> None:
+    """법안 상세 링크와 22대 고정 대수 컬럼은 core 스키마에 남기지 않는다."""
+    columns = _public_columns("bills")
+    assert not (columns & RETIRED_BILL_COLUMNS)
+
+
+def test_meeting_bills_has_only_junction_columns() -> None:
+    """회의-법안 junction은 관계 자체만 보존한다."""
+    columns = _public_columns("meeting_bills")
+    assert columns == {"meeting_id", "bill_id"}
