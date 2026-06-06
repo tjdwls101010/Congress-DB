@@ -3,6 +3,20 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-06-06 — bill_relations source: scrape likms `selRefBillId`, not the OpenAPI
+
+The 국회 OpenAPI exposes no 원안↔대안 relationship field — checked 발의법률안 (24 fields), ALLBILL
+(full processing timeline soup-to-nuts, but no link), the dedicated 위원회안·대안 API
+(`nxtkyptyaolzcbfwl`), and BPMBILLSUMMARY (returns policy text, not the absorbed-bill list). The
+authoritative link lives only in 의안정보시스템 (likms) `billDetail.do` as a hidden
+`<input id="selRefBillId">` pointing 원안→흡수 대안, in static HTML (sample 10/10 exact). So
+`bill_relations` is populated by scraping selRefBillId (~100%, authoritative) rather than a
+name+shared-committee-meeting heuristic (~80%, inferred) — precision matters more than effort for a
+proposal-basis fact, and the scrape reuses the existing minutes-scraper pattern (no new
+dependency). Scope: 대안반영폐기 (3,676) + 수정안반영폐기 (39), distinguished by `relation_type`.
+Aside: ALLBILL carries 공포·본회의 dates absent from our `bills` table — future enrichment, out of
+scope for this slice.
+
 ## 2026-06-06 — Track incumbency via a roster-derived boolean; never delete departed members
 
 Departed legislators (사퇴/의원직 상실 등) are never removed — FK ON DELETE RESTRICT already
