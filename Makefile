@@ -1,6 +1,6 @@
 .PHONY: db-up db-down db-migrate db-shell db-reset test ingest \
         seed-catalog verify-catalog render-catalog ingest-members ingest-bills \
-        ingest-bill-summaries ingest-votes ingest-meetings validate-minutes-dom ingest-utterances \
+        ingest-bill-relations ingest-bill-summaries ingest-votes ingest-meetings validate-minutes-dom ingest-utterances \
         ingest-backfill sanity-check data-completeness migration-readiness
 
 # .env가 있으면 변수 자동 로드 (없어도 통과)
@@ -78,6 +78,10 @@ ingest-bills:
 # 진단용: 기존 bills 중 결측 summary만 백필
 ingest-bill-summaries:
 	uv run python -m scripts.ingest_bill_summaries
+
+# 진단용: bill_relations 대안 관계 백필
+ingest-bill-relations:
+	uv run python -m scripts.ingest_bill_relations
 
 # 진단용: votes 적재 (기본 10%)
 ingest-votes:

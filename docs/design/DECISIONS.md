@@ -3,6 +3,16 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-06-06 — bill_relations alternative id is a source key, not a required bills FK
+
+During the #72 backfill, `selRefBillId` resolved all 3,715 target original bills, but 169 pointed to
+ids not present in our `bills` table: 130 committee alternatives that likms detail pages expose but
+our bill-list ingest missed, plus all 39 수정안 ids whose bill detail pages do not exist. Creating
+synthetic `bills` rows would pollute the Bill entity, and enforcing an FK would discard authoritative
+relationship facts, so `bill_relations.absorbed_bill_id` remains an FK while `alternative_bill_id`
+is stored as the authoritative likms source key; it joins to `bills` when a row exists and can be
+enriched later.
+
 ## 2026-06-06 — bill_relations source: scrape likms `selRefBillId`, not the OpenAPI
 
 The 국회 OpenAPI exposes no 원안↔대안 relationship field — checked 발의법률안 (24 fields), ALLBILL

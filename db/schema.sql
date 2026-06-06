@@ -1,6 +1,6 @@
 -- Congress-DB initial schema (Postgres 16)
 -- Source: docs/design/ERD.md
--- 8 core tables + 1 catalog table + 3 ingest operational tables = 12 tables.
+-- 9 core tables + 1 catalog table + 3 ingest operational tables = 13 tables.
 -- 자연키 우선, FK는 ON DELETE RESTRICT (참조 무결성 우선).
 -- CREATE TABLE IF NOT EXISTS로 idempotent 적용 (변경은 db-reset 또는 향후 migrations/).
 -- 적용은 psql -1 (single-transaction)으로 wrap — 이 파일에는 BEGIN/COMMIT 없음.
@@ -106,7 +106,22 @@ CREATE INDEX IF NOT EXISTS idx_bills_propose_dt  ON bills (propose_dt DESC);
 CREATE INDEX IF NOT EXISTS idx_bills_proc_result ON bills (proc_result);
 
 -- =========================================================================
--- 5. bill_lead_proposers — 대표발의 N:M (PK: bill_id + mona_cd)
+-- 5. bill_relations — 원안→대안/수정안 흡수 관계
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS bill_relations (
+    absorbed_bill_id     TEXT PRIMARY KEY REFERENCES bills (bill_id) ON DELETE RESTRICT,
+    alternative_bill_id  TEXT NOT NULL,
+    relation_type        TEXT NOT NULL
+                         CHECK (relation_type IN ('대안반영', '수정안반영')),
+    source               TEXT NOT NULL DEFAULT 'likms_selrefbillid',
+    fetched_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_bill_relations_alternative
+    ON bill_relations (alternative_bill_id);
+
+-- =========================================================================
+-- 6. bill_lead_proposers — 대표발의 N:M (PK: bill_id + mona_cd)
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS bill_lead_proposers (
     bill_id   TEXT NOT NULL REFERENCES bills   (bill_id)   ON DELETE RESTRICT,
@@ -118,7 +133,7 @@ CREATE TABLE IF NOT EXISTS bill_lead_proposers (
 CREATE INDEX IF NOT EXISTS idx_lead_proposers_mona ON bill_lead_proposers (mona_cd);
 
 -- =========================================================================
--- 6. bill_coproposers — 공동발의 N:M (PK: bill_id + mona_cd)
+-- 7. bill_coproposers — 공동발의 N:M (PK: bill_id + mona_cd)
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS bill_coproposers (
     bill_id   TEXT NOT NULL REFERENCES bills (bill_id)   ON DELETE RESTRICT,
@@ -130,7 +145,7 @@ CREATE TABLE IF NOT EXISTS bill_coproposers (
 CREATE INDEX IF NOT EXISTS idx_coproposers_mona ON bill_coproposers (mona_cd);
 
 -- =========================================================================
--- 7. votes — 본회의 표결 (시점 정당 박힘, UNIQUE(bill_id, mona_cd))
+-- 8. votes — 본회의 표결 (시점 정당 박힘, UNIQUE(bill_id, mona_cd))
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS votes (
     id                BIGSERIAL PRIMARY KEY,
@@ -149,7 +164,7 @@ CREATE INDEX IF NOT EXISTS idx_votes_bill ON votes (bill_id);
 CREATE INDEX IF NOT EXISTS idx_votes_date ON votes (vote_date DESC);
 
 -- =========================================================================
--- 8. utterances — 발언 (FK → meetings, members)
+-- 9. utterances — 발언 (FK → meetings, members)
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS utterances (
     id                  BIGSERIAL PRIMARY KEY,
@@ -166,7 +181,7 @@ CREATE INDEX IF NOT EXISTS idx_utterances_meeting       ON utterances (meeting_i
 CREATE INDEX IF NOT EXISTS idx_utterances_speaker       ON utterances (speaker_mona_cd) WHERE speaker_mona_cd IS NOT NULL;
 
 -- =========================================================================
--- 9. meeting_bills — 회의↔법안 N:M junction
+-- 10. meeting_bills — 회의↔법안 N:M junction
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS meeting_bills (
     meeting_id  INT  NOT NULL REFERENCES meetings (mnts_id) ON DELETE RESTRICT,
@@ -177,7 +192,7 @@ CREATE TABLE IF NOT EXISTS meeting_bills (
 CREATE INDEX IF NOT EXISTS idx_mb_bill ON meeting_bills (bill_id);
 
 -- =========================================================================
--- 10. ingest_runs — 수집 실행 기록
+-- 11. ingest_runs — 수집 실행 기록
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS ingest_runs (
     id              BIGSERIAL PRIMARY KEY,
@@ -205,7 +220,7 @@ CREATE INDEX IF NOT EXISTS idx_ingest_runs_status_started
     ON ingest_runs (status, started_at DESC);
 
 -- =========================================================================
--- 11. ingest_cursors — source별 증분 기준점
+-- 12. ingest_cursors — source별 증분 기준점
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS ingest_cursors (
     source          TEXT PRIMARY KEY,
@@ -220,7 +235,7 @@ CREATE INDEX IF NOT EXISTS idx_ingest_cursors_updated_run
     ON ingest_cursors (updated_run_id);
 
 -- =========================================================================
--- 12. dead_letters — 실패 item 보존
+-- 13. dead_letters — 실패 item 보존
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS dead_letters (
     id               BIGSERIAL PRIMARY KEY,

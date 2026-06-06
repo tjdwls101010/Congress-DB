@@ -1,6 +1,6 @@
 # ERD — Congress-DB (Postgres 16)
 
-8개 핵심 테이블 + 카탈로그 1개 + 수집 운영 테이블 3개. core schema는 향후 검색 API/SDK에서 검색, 필터, 정렬, 조인, 결과 설명에 쓰이는 필드만 보존한다.
+9개 핵심 테이블 + 카탈로그 1개 + 수집 운영 테이블 3개. core schema는 향후 검색 API/SDK에서 검색, 필터, 정렬, 조인, 결과 설명에 쓰이는 필드만 보존한다.
 
 ## Mermaid 다이어그램
 
@@ -13,6 +13,8 @@ erDiagram
     bills ||--o{ bill_coproposers : "bill_id"
     members ||--o{ votes : "mona_cd"
     bills ||--o{ votes : "bill_id"
+    bills ||--o{ bill_relations : "absorbed_bill_id"
+    bills ||--o{ bill_relations : "alternative_bill_id"
     meetings ||--o{ utterances : "meeting_id"
     meetings ||--o{ meeting_bills : "meeting_id"
     bills ||--o{ meeting_bills : "bill_id"
@@ -75,7 +77,19 @@ erDiagram
 | `summary` | TEXT | 주요내용 |
 | `fetched_at` | TIMESTAMPTZ | 마지막 수집 시각 |
 
-### 3. `bill_lead_proposers` — 대표발의 N:M
+### 3. `bill_relations` — 대안 관계
+
+대안반영폐기·수정안반영폐기된 원안과 그 내용을 흡수한 대안/수정안 법안을 연결한다. 출처는 의안정보시스템(likms) `billDetail.do`의 hidden `selRefBillId`.
+
+| 컬럼 | 타입 | 비고 |
+|---|---|---|
+| `absorbed_bill_id` | TEXT REFERENCES bills(bill_id) | **PK**. 폐기된 원안 |
+| `alternative_bill_id` | TEXT NOT NULL | likms `selRefBillId`. 내용을 흡수한 대안/수정안 source key. 현재 `bills`에 row가 있으면 join 가능하나 FK로 강제하지 않는다(DECISIONS 2026-06-06) |
+| `relation_type` | TEXT NOT NULL CHECK (...) | `대안반영` / `수정안반영` |
+| `source` | TEXT NOT NULL DEFAULT 'likms_selrefbillid' | 관계 출처 |
+| `fetched_at` | TIMESTAMPTZ | 마지막 수집 시각 |
+
+### 4. `bill_lead_proposers` — 대표발의 N:M
 
 OpenAPI가 복수 대표발의자를 줄 수 있어 정규화한다.
 
@@ -85,7 +99,7 @@ OpenAPI가 복수 대표발의자를 줄 수 있어 정규화한다.
 | `mona_cd` | TEXT REFERENCES members(mona_cd) | **PK 일부** |
 | `order_no` | SMALLINT | 원문 순서 |
 
-### 4. `bill_coproposers` — 공동발의 N:M
+### 5. `bill_coproposers` — 공동발의 N:M
 
 | 컬럼 | 타입 | 비고 |
 |---|---|---|
@@ -93,7 +107,7 @@ OpenAPI가 복수 대표발의자를 줄 수 있어 정규화한다.
 | `mona_cd` | TEXT REFERENCES members(mona_cd) | **PK 일부** |
 | `order_no` | SMALLINT | 원문 순서 |
 
-### 5. `votes` — 본회의 표결
+### 6. `votes` — 본회의 표결
 
 본회의 표결의 의원별 행. 의안 1건당 의원 수만큼 생성한다.
 
@@ -109,7 +123,7 @@ OpenAPI가 복수 대표발의자를 줄 수 있어 정규화한다.
 | `currents_cd` | INT | 원천 코드 |
 | | | **UNIQUE(bill_id, mona_cd)** |
 
-### 6. `meetings` — 회의
+### 7. `meetings` — 회의
 
 HTML 회의록 목록의 한 회의. `total/22.do` 웹 목록이 canonical source이고, OpenAPI는 같은 `mnts_id`가 있을 때 메타데이터 보강에만 사용한다.
 
@@ -128,7 +142,7 @@ HTML 회의록 목록의 한 회의. `total/22.do` 웹 목록이 canonical sourc
 
 제외 필드: PDF/HWP/VOD/요약 링크, `source_api`, `conf_id`, `class_name`, `comm_code`. 이 값들은 검색 API/SDK의 core query에 쓰이지 않으므로 coverage report, ingest summary, dead letter에서만 다룬다.
 
-### 7. `meeting_bills` — 회의↔법안 N:M
+### 8. `meeting_bills` — 회의↔법안 N:M
 
 법안이 어떤 회의에서 다뤄졌는지 찾기 위한 핵심 junction. `VCONFBILLCONFLIST`와 `SUB_NAME` 임시 파싱 결과를 합쳐 만든다.
 
@@ -139,7 +153,7 @@ HTML 회의록 목록의 한 회의. `total/22.do` 웹 목록이 canonical sourc
 
 공식 회의 안건 원문은 별도 core 테이블로 보존하지 않는다. 법안이 아닌 안건은 정책 의제 검색과 직접 대응하지 않고, 필요한 경우 향후 의미 레이어에서 evidence 기반으로 모델링한다.
 
-### 8. `utterances` — 발언
+### 9. `utterances` — 발언
 
 HTML viewer DOM에서 파싱한 발언 stream.
 
@@ -178,6 +192,7 @@ source별 증분 기준점. 회의록은 웹 목록 전체 재대조 후 새 `mn
 CREATE INDEX idx_members_hg_nm ON members(hg_nm);
 CREATE INDEX idx_bills_rst ON bills(rst_mona_cd);
 CREATE INDEX idx_bills_propose_dt ON bills(propose_dt DESC);
+CREATE INDEX idx_bill_relations_alternative ON bill_relations(alternative_bill_id);
 CREATE INDEX idx_coproposers_mona ON bill_coproposers(mona_cd);
 CREATE INDEX idx_votes_mona ON votes(mona_cd);
 CREATE INDEX idx_votes_bill ON votes(bill_id);
