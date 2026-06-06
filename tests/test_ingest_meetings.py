@@ -8,15 +8,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from congress_db.db import get_conn
-from congress_db.ingest_meetings import (
+from congress_db.core.db import get_conn
+from congress_db.ingest.ingest_meetings import (
     _fetch_vconfbill_rows_for_bills,
     _fetch_vconfbill_rows_for_bills_with_failures,
     _prune_stale_meetings,
     _select_vconfbill_bill_ids,
     ingest_meetings,
 )
-from congress_db.minutes_web_list import MinutesWebListCrawlResult, MinutesWebListMeeting
+from congress_db.ingest.minutes_web_list import MinutesWebListCrawlResult, MinutesWebListMeeting
 
 TEST_SOURCE_MEETINGS = (910001, 910002, 910003, 910004)
 TEST_WEB_ONLY_MEETING = 910005
@@ -209,9 +209,9 @@ def test_ingest_meetings_normalizes_sources_and_bills_idempotently(
             raise AssertionError(endpoint)
         return response
 
-    monkeypatch.setattr("congress_db.api_client.requests.get", fake_get)
+    monkeypatch.setattr("congress_db.core.api_client.requests.get", fake_get)
     monkeypatch.setattr(
-        "congress_db.ingest_meetings.collect_minutes_web_list",
+        "congress_db.ingest.ingest_meetings.collect_minutes_web_list",
         lambda: MinutesWebListCrawlResult(
             meetings=(
                 _web_meeting(910001, "제22대 제435회 제2차 국회본회의 (2026. 05. 08.)", "본회의", date(2026, 5, 8)),
@@ -402,7 +402,7 @@ def test_fetch_vconfbill_rows_for_bills_retries_transient_failures(
             raise RuntimeError("temporary DNS failure")
         return [{"BILL_ID": bill_id}]
 
-    monkeypatch.setattr("congress_db.ingest_meetings._fetch_vconfbill_rows", fake_fetch)
+    monkeypatch.setattr("congress_db.ingest.ingest_meetings._fetch_vconfbill_rows", fake_fetch)
 
     rows = _fetch_vconfbill_rows_for_bills(
         ["TEST_MEETING_BILL_1", "TEST_MEETING_BILL_2"],
@@ -426,7 +426,7 @@ def test_fetch_vconfbill_rows_for_bills_raises_after_final_retry(
             raise RuntimeError("persistent DNS failure")
         return [{"BILL_ID": bill_id}]
 
-    monkeypatch.setattr("congress_db.ingest_meetings._fetch_vconfbill_rows", fake_fetch)
+    monkeypatch.setattr("congress_db.ingest.ingest_meetings._fetch_vconfbill_rows", fake_fetch)
 
     with pytest.raises(RuntimeError, match="persistent failures"):
         _fetch_vconfbill_rows_for_bills(
@@ -444,7 +444,7 @@ def test_fetch_vconfbill_rows_for_bills_with_failures_returns_partial_success(
             raise RuntimeError("persistent DNS failure")
         return [{"BILL_ID": bill_id}]
 
-    monkeypatch.setattr("congress_db.ingest_meetings._fetch_vconfbill_rows", fake_fetch)
+    monkeypatch.setattr("congress_db.ingest.ingest_meetings._fetch_vconfbill_rows", fake_fetch)
 
     rows, failures = _fetch_vconfbill_rows_for_bills_with_failures(
         ["TEST_MEETING_BILL_1", "TEST_MEETING_BILL_2"],

@@ -9,13 +9,13 @@ from collections.abc import Iterator
 
 import pytest
 
-from congress_db.api_catalog import (
+from congress_db.ops.api_catalog import (
     fetch_pipeline_catalog_rows,
     seed_pipeline_endpoints,
     update_verification_result,
 )
-from congress_db.db import get_conn
-from congress_db.endpoints import PIPELINE_ENDPOINTS
+from congress_db.core.db import get_conn
+from congress_db.core.endpoints import PIPELINE_ENDPOINTS
 
 
 _API_CATALOG_COLUMNS = (

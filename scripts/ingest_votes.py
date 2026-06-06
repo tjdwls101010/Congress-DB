@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 
-from congress_db.ingest_votes import ingest_votes
+from congress_db.ingest.ingest_votes import ingest_votes
 
 
 def main() -> None:

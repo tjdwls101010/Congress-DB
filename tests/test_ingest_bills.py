@@ -11,8 +11,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from congress_db.db import get_conn
-from congress_db.ingest_bills import ingest_bills
+from congress_db.core.db import get_conn
+from congress_db.ingest.ingest_bills import ingest_bills
 
 TEST_MEMBERS = ("TEST_BILL_MEMBER_1", "TEST_BILL_MEMBER_2", "TEST_BILL_MEMBER_3")
 TEST_MEMBER_STUBS = ("TEST_BILL_MEMBER_4",)
@@ -151,7 +151,7 @@ def test_ingest_bills_upserts_bills_and_coproposers_idempotently(
             raise AssertionError(endpoint)
         return response
 
-    monkeypatch.setattr("congress_db.api_client.requests.get", fake_get)
+    monkeypatch.setattr("congress_db.core.api_client.requests.get", fake_get)
 
     first = ingest_bills(
         limit_pct=1.0,
@@ -296,7 +296,7 @@ def test_ingest_bills_returns_structured_summary_failures(
             raise AssertionError(endpoint)
         return response
 
-    monkeypatch.setattr("congress_db.api_client.requests.get", fake_get)
+    monkeypatch.setattr("congress_db.core.api_client.requests.get", fake_get)
 
     result = ingest_bills(
         limit_pct=1.0,
@@ -370,7 +370,7 @@ def test_ingest_bills_incremental_fetches_only_missing_summaries(
             raise AssertionError(endpoint)
         return response
 
-    monkeypatch.setattr("congress_db.api_client.requests.get", fake_get)
+    monkeypatch.setattr("congress_db.core.api_client.requests.get", fake_get)
 
     result = ingest_bills(
         limit_pct=1.0,

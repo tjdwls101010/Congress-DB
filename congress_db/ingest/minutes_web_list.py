@@ -16,7 +16,7 @@ from urllib.parse import urlencode, urljoin
 import requests
 from bs4 import BeautifulSoup
 
-from .meeting_id import extract_mnts_id
+from ..core.meeting_id import extract_mnts_id
 
 BASE_ORIGIN = "https://record.assembly.go.kr"
 LIST_PATH = "/assembly/mnts/total/22.do"

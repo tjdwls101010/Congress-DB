@@ -52,7 +52,10 @@ Hosted Postgres 이전에는 [docs/design/PRE-MIGRATION-BACKFILL-GATE.md](docs/d
 ## 구조
 
 ```
-congress_db/      # Python 패키지
+congress_db/
+  core/           # DB/API/progress 등 공유 인프라
+  ingest/         # 백필/증분/재시도와 source 적재
+  ops/            # 진단/리포트/benchmark
 db/
   migrations/     # schema.sql 이후 적용되는 변경 SQL
 tests/            # pytest 통합 테스트

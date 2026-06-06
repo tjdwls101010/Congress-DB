@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from congress_db.utterance_mapping_quality import load_member_utterance_mapping_quality
+from congress_db.ops.utterance_mapping_quality import load_member_utterance_mapping_quality
 
 
 class FakeCursor:

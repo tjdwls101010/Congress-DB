@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import congress_db.ingest_command as ingest_command
-from congress_db.ingest_command import (
+import congress_db.ingest.ingest_command as ingest_command
+from congress_db.ingest.ingest_command import (
     _compact_resumed_stage_summary,
     _is_resumable_stage_summary_healthy,
     build_incremental_stages,

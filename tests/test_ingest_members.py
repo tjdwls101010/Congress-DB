@@ -11,8 +11,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from congress_db.db import get_conn
-from congress_db.ingest_members import ingest_members
+from congress_db.core.db import get_conn
+from congress_db.ingest.ingest_members import ingest_members
 
 TEST_MEMBER_CODES = ("TEST_MEMBER_1", "TEST_MEMBER_2")
 
@@ -87,7 +87,7 @@ def test_ingest_members_fetches_once_and_upserts_idempotently(
         response.raise_for_status = MagicMock()
         return response
 
-    monkeypatch.setattr("congress_db.api_client.requests.get", fake_get)
+    monkeypatch.setattr("congress_db.core.api_client.requests.get", fake_get)
 
     first = ingest_members()
     second = ingest_members()
@@ -135,7 +135,7 @@ def test_ingest_members_updates_existing_member_and_fetched_at(
         response.raise_for_status = MagicMock()
         return response
 
-    monkeypatch.setattr("congress_db.api_client.requests.get", fake_get)
+    monkeypatch.setattr("congress_db.core.api_client.requests.get", fake_get)
 
     ingest_members()
 

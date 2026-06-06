@@ -7,9 +7,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from congress_db.benchmark import WorkerRun
-from congress_db.db import get_conn
-from congress_db.ingest_utterances import (
+from congress_db.ops.benchmark import WorkerRun
+from congress_db.core.db import get_conn
+from congress_db.ingest.ingest_utterances import (
     _benchmark_scrape_workers,
     _select_scrape_worker,
     ingest_utterances,
@@ -95,7 +95,7 @@ def test_ingest_utterances_scrapes_and_upserts_idempotently(
         response.text = _html(mnts_id)
         return response
 
-    monkeypatch.setattr("congress_db.scrape_minutes.requests.get", fake_get)
+    monkeypatch.setattr("congress_db.ingest.scrape_minutes.requests.get", fake_get)
 
     first = ingest_utterances(
         calibration_limit=2,
@@ -158,7 +158,7 @@ def test_ingest_utterances_retries_failed_meetings_in_final_pass(
         response.text = _html(mnts_id)
         return response
 
-    monkeypatch.setattr("congress_db.scrape_minutes.requests.get", fake_get)
+    monkeypatch.setattr("congress_db.ingest.scrape_minutes.requests.get", fake_get)
 
     result = ingest_utterances(
         calibration_limit=2,
@@ -196,7 +196,7 @@ def test_ingest_utterances_retries_metadata_mismatches(
             response.text = _html(mnts_id)
         return response
 
-    monkeypatch.setattr("congress_db.scrape_minutes.requests.get", fake_get)
+    monkeypatch.setattr("congress_db.ingest.scrape_minutes.requests.get", fake_get)
 
     result = ingest_utterances(
         calibration_limit=2,
@@ -239,7 +239,7 @@ def test_ingest_utterances_aborts_when_no_worker_meets_error_threshold(
         response.text = "<html><body><h2>빈 회의록</h2></body></html>"
         return response
 
-    monkeypatch.setattr("congress_db.scrape_minutes.requests.get", fake_get)
+    monkeypatch.setattr("congress_db.ingest.scrape_minutes.requests.get", fake_get)
 
     with pytest.raises(RuntimeError, match="did not find an acceptable worker count"):
         ingest_utterances(
@@ -270,7 +270,7 @@ def test_ingest_utterances_returns_structured_failures_when_partial_allowed(
         response.text = _html(mnts_id)
         return response
 
-    monkeypatch.setattr("congress_db.scrape_minutes.requests.get", fake_get)
+    monkeypatch.setattr("congress_db.ingest.scrape_minutes.requests.get", fake_get)
 
     result = ingest_utterances(
         calibration_limit=2,
@@ -344,7 +344,7 @@ def test_scrape_benchmark_stops_after_higher_worker_retry_storm(
             retry_item_count=30,
         )
 
-    monkeypatch.setattr("congress_db.ingest_utterances._measure_scrape_worker", fake_measure)
+    monkeypatch.setattr("congress_db.ingest.ingest_utterances._measure_scrape_worker", fake_measure)
 
     result = _benchmark_scrape_workers(
         [object()],  # type: ignore[list-item]

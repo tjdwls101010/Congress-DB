@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 
-from congress_db.validate_minutes_dom import validate_minutes_dom
+from congress_db.ops.validate_minutes_dom import validate_minutes_dom
 
 
 def main() -> None:

@@ -1,6 +1,6 @@
 """회의록 HTML 파싱 검증."""
 
-from congress_db.scrape_minutes import inspect_minutes_dom, match_member, parse_minutes
+from congress_db.ingest.scrape_minutes import inspect_minutes_dom, match_member, parse_minutes
 
 
 def test_parse_minutes_extracts_utterances_and_translates_hanja() -> None:

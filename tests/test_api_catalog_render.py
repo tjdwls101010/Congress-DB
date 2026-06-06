@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import scripts.render_api_catalog as render_api_catalog_script
-from congress_db.api_catalog_render import render_pipeline_catalog_md
+from congress_db.ops.api_catalog_render import render_pipeline_catalog_md
 
 
 FIXED_NOW = datetime(2026, 5, 26, 12, 0, 0, tzinfo=timezone.utc)

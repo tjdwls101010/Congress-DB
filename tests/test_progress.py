@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import errno
 
-from congress_db.progress import ProgressReporter, safe_print
+from congress_db.core.progress import ProgressReporter, safe_print
 
 
 class BrokenStream:

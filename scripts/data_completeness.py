@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from congress_db.data_completeness import generate_data_completeness_report
+from congress_db.ops.data_completeness import generate_data_completeness_report
 
 
 def main() -> None:

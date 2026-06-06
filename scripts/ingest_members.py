@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from congress_db.ingest_members import ingest_members
+from congress_db.ingest.ingest_members import ingest_members
 
 
 def main() -> None:

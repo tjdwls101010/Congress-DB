@@ -10,9 +10,10 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Sequence
 
-from .benchmark import BenchmarkResult, WorkerRun, representative_sample
-from .db import execute_many, get_conn
-from .progress import ProgressReporter, safe_print
+from ..core.db import execute_many, get_conn
+from ..core.progress import ProgressReporter, safe_print
+from ..ops.benchmark import BenchmarkResult, WorkerRun, representative_sample
+from ..ops.utterance_mapping_quality import MEMBER_SPEAKER_TITLES
 from .scrape_minutes import (
     MinutesInfo,
     UtteranceDraft,
@@ -21,7 +22,6 @@ from .scrape_minutes import (
     normalize_speaker_name,
     parse_minutes,
 )
-from .utterance_mapping_quality import MEMBER_SPEAKER_TITLES
 
 DEFAULT_SCRAPE_BENCHMARK_OUTPUT = Path("docs/ops/PARALLEL-BENCHMARK.md")
 DEFAULT_RETRY_DELAYS = (1.0, 4.0, 16.0)

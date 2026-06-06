@@ -1,4 +1,4 @@
-"""Slice 2 RGR 1 — congress_db.api_client wrapper 단위 테스트.
+"""Slice 2 RGR 1 — congress_db.core.api_client wrapper 단위 테스트.
 
 requests.get은 monkeypatch로 모킹. 실제 277개 API 호출은 별도 manual 스크립트.
 
@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from congress_db.api_client import (
+from congress_db.core.api_client import (
     AGE_PARAM_ATTEMPTS,
     ApiResponse,
     fetch_endpoint,
@@ -80,7 +80,7 @@ def _sequence_get_factory(payloads: Iterable[Any]):
 
 def test_fetch_endpoint_parses_ok_response(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = _ok_envelope("foo", total=3, rows=[{"a": 1}, {"a": 2}, {"a": 3}])
-    monkeypatch.setattr("congress_db.api_client.requests.get", _mock_get_factory(payload))
+    monkeypatch.setattr("congress_db.core.api_client.requests.get", _mock_get_factory(payload))
 
     resp = fetch_endpoint("foo", {"AGE": "22"}, api_key="testkey")
 
@@ -92,7 +92,7 @@ def test_fetch_endpoint_parses_ok_response(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_fetch_endpoint_returns_no_data_when_total_count_zero(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = _ok_envelope("foo", total=0, rows=[])
-    monkeypatch.setattr("congress_db.api_client.requests.get", _mock_get_factory(payload))
+    monkeypatch.setattr("congress_db.core.api_client.requests.get", _mock_get_factory(payload))
 
     resp = fetch_endpoint("foo", api_key="testkey")
 
@@ -103,7 +103,7 @@ def test_fetch_endpoint_returns_no_data_when_total_count_zero(monkeypatch: pytes
 def test_fetch_endpoint_returns_no_data_on_result_info_200(monkeypatch: pytest.MonkeyPatch) -> None:
     """RESULT-only 응답(INFO-200)도 no_data로 처리."""
     monkeypatch.setattr(
-        "congress_db.api_client.requests.get", _mock_get_factory(_no_data_response())
+        "congress_db.core.api_client.requests.get", _mock_get_factory(_no_data_response())
     )
 
     resp = fetch_endpoint("foo", api_key="testkey")
@@ -114,7 +114,7 @@ def test_fetch_endpoint_returns_no_data_on_result_info_200(monkeypatch: pytest.M
 def test_fetch_endpoint_returns_error_on_http_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     import requests
     monkeypatch.setattr(
-        "congress_db.api_client.requests.get",
+        "congress_db.core.api_client.requests.get",
         _mock_get_factory(None, raise_exc=requests.ConnectionError("boom")),
     )
 
@@ -142,8 +142,8 @@ def test_fetch_endpoint_with_retry_recovers_transient_timeout(
         response.raise_for_status = MagicMock()
         return response
 
-    monkeypatch.setattr("congress_db.api_client.requests.get", fake_get)
-    monkeypatch.setattr("congress_db.api_client.time.sleep", lambda delay: None)
+    monkeypatch.setattr("congress_db.core.api_client.requests.get", fake_get)
+    monkeypatch.setattr("congress_db.core.api_client.time.sleep", lambda delay: None)
 
     resp = fetch_endpoint_with_retry("foo", api_key="testkey", retry_delays=(0,))
 
@@ -165,7 +165,7 @@ def test_age_attempts_picks_first_ok(monkeypatch: pytest.MonkeyPatch) -> None:
         # 이후 시도는 호출되지 않아야 함
     ]
     monkeypatch.setattr(
-        "congress_db.api_client.requests.get", _sequence_get_factory(payloads)
+        "congress_db.core.api_client.requests.get", _sequence_get_factory(payloads)
     )
 
     resp = fetch_with_age_attempts("foo", {}, api_key="testkey", sleep_between=0)
@@ -179,7 +179,7 @@ def test_age_attempts_returns_last_when_all_fail(monkeypatch: pytest.MonkeyPatch
     """4가지 시도 모두 no_data면 마지막 응답을 반환."""
     payloads = [_ok_envelope("foo", total=0, rows=[]) for _ in AGE_PARAM_ATTEMPTS]
     monkeypatch.setattr(
-        "congress_db.api_client.requests.get", _sequence_get_factory(payloads)
+        "congress_db.core.api_client.requests.get", _sequence_get_factory(payloads)
     )
 
     resp = fetch_with_age_attempts("foo", {}, api_key="testkey", sleep_between=0)

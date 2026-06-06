@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from .db import get_conn
+from ..core.db import get_conn
 from .ingest_state import resolve_dead_letter
 from .ingest_utterances import ingest_utterances
 

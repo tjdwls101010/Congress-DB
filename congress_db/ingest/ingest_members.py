@@ -9,9 +9,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .api_client import ApiResponse, fetch_with_age_attempts
-from .db import execute_many, get_conn
-from .endpoints import ENDPOINTS_BY_SLUG
+from ..core.api_client import ApiResponse, fetch_with_age_attempts
+from ..core.db import execute_many, get_conn
+from ..core.endpoints import ENDPOINTS_BY_SLUG
 
 MEMBERS_ENDPOINT = "nwvrqwxyaytdsfvhu"
 MEMBERS_PAGE_SIZE = 300

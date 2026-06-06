@@ -1,6 +1,6 @@
 """회의 안건 텍스트 파싱 검증."""
 
-from congress_db.agenda_parser import parse_agenda_item
+from congress_db.ingest.agenda_parser import parse_agenda_item
 
 
 def test_parse_agenda_item_extracts_order_and_bill_no() -> None:

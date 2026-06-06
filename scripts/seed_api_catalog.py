@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from congress_db.api_catalog import seed_pipeline_endpoints
+from congress_db.ops.api_catalog import seed_pipeline_endpoints
 
 
 def main() -> None:
