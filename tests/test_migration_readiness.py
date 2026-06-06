@@ -29,7 +29,12 @@ def clean_readiness_rows() -> None:
 def _delete_rows() -> None:
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM dead_letters WHERE source LIKE 'test.readiness.%'")
-        cur.execute("DELETE FROM ingest_runs WHERE summary->>'test' = 'migration_readiness'")
+        cur.execute(
+            """
+            DELETE FROM ingest_runs
+            WHERE summary->>'test' LIKE 'migration_readiness%'
+            """
+        )
         cur.execute("DELETE FROM utterances WHERE meeting_id = %s", (TEST_MEETING,))
         cur.execute("DELETE FROM meetings WHERE mnts_id = %s", (TEST_MEETING,))
         cur.execute("DELETE FROM members WHERE mona_cd = %s", (TEST_MEMBER,))
@@ -128,6 +133,35 @@ def _create_backfill_run(*, status: str = "success", summary: dict[str, object] 
     return run_id
 
 
+def _create_auxiliary_backfill_run() -> int:
+    with get_conn() as conn:
+        run_id = start_run(
+            conn,
+            mode="backfill",
+            summary={
+                "test": "migration_readiness_auxiliary",
+                "entrypoint": "ingest_bill_relations",
+            },
+        )
+        finish_run(
+            conn,
+            run_id,
+            status="success",
+            summary={
+                "test": "migration_readiness_auxiliary",
+                "entrypoint": "ingest_bill_relations",
+                "stages": {
+                    "bill_relations": {
+                        "target_count": 3715,
+                        "relation_count": 3715,
+                    }
+                },
+            },
+        )
+        conn.commit()
+    return run_id
+
+
 def test_readiness_report_returns_ready_when_required_signals_are_clear(tmp_path: Path) -> None:
     _create_backfill_run()
 
@@ -136,6 +170,19 @@ def test_readiness_report_returns_ready_when_required_signals_are_clear(tmp_path
     assert report.recommendation == "ready_for_human_review"
     assert report.blockers == ()
     assert "ready_for_human_review" in (tmp_path / "ready.md").read_text()
+
+
+def test_readiness_report_ignores_newer_auxiliary_backfill_runs(tmp_path: Path) -> None:
+    review_run_id = _create_backfill_run()
+    auxiliary_run_id = _create_auxiliary_backfill_run()
+
+    report = generate_migration_readiness_report(output_path=tmp_path / "ready.md")
+
+    assert auxiliary_run_id > review_run_id
+    assert report.latest_backfill_run is not None
+    assert report.latest_backfill_run["id"] == review_run_id
+    assert report.recommendation == "ready_for_human_review"
+    assert report.blockers == ()
 
 
 def test_readiness_report_blocks_on_unresolved_dead_letters(tmp_path: Path) -> None:

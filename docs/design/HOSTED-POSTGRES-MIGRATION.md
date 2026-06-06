@@ -4,7 +4,7 @@ This document starts issue #12. It deliberately stops before executing the
 remote migration because project creation, billing, region, credentials, and the
 first hosted environment are human-owned decisions.
 
-As of 2026-06-04, the project is intentionally paused at the pre-restore
+As of 2026-06-06, the project is intentionally paused at the pre-restore
 boundary. The local database has been verified and dumped; the Neon restore and
 hosted smoke test wait for PM authorization and a direct, non-pooled hosted
 connection string.
@@ -27,15 +27,18 @@ connection string.
 
 - Local pre-migration gate: `ready_for_human_review`.
 - Accepted local backfill gate: `ingest_runs.id = 103`.
-- Latest verified incremental baseline: `ingest_runs.id = 190`.
+- Latest verified incremental baseline before the current dump: `ingest_runs.id = 371`.
+- Latest auxiliary data backfills included in the current local DB:
+  - `ingest_runs.id = 614` — missing bill summary backfill (#73).
+  - `ingest_runs.id = 646` — bill_relations backfill (#72).
 - Unresolved dead letters: `0`.
 - Local readiness blockers: `0`.
-- Local preflight on 2026-06-04:
+- Local preflight on 2026-06-06:
   - `uv run python -m compileall congress_db scripts tests -q`: pass.
-  - `uv run pytest -q`: `134 passed`.
+  - `uv run pytest -q`: `153 passed`.
   - `make migration-readiness`: `ready_for_human_review`, blockers `0`.
 - Current local dump artifact:
-  `tmp/hosted-postgres-migration/congress-20260604-run190.dump` (`144M`).
+  `tmp/hosted-postgres-migration/congress-20260606-current-run646.dump` (`143M`).
   This file is not committed.
 - The official local command is `uv run python -m scripts.ingest --mode backfill`
   or `make ingest-backfill`.
@@ -43,8 +46,9 @@ connection string.
   run proves the current dump baseline. A strict empty-DB one-shot replay
   remains an optional final rehearsal before executing the remote restore.
 - Any dump created before #54 is obsolete because it still contains the removed
-  `session_groups` table. Recreate the dump after local schema migration,
-  sanity check, and migration readiness pass.
+  `session_groups` table.
+- Any dump created before #72/#73 is stale for current SDK-facing data because
+  it lacks `bill_relations` and the missing-summary backfill.
 
 ## Human Decisions Before Execution
 
@@ -86,8 +90,8 @@ Create a portable dump without local ownership or privilege metadata:
 
 ```sh
 mkdir -p tmp/hosted-postgres-migration
-baseline_run_id="190"
-dump_path="tmp/hosted-postgres-migration/congress-$(date +%Y%m%d)-run${baseline_run_id}.dump"
+current_run_id="646"
+dump_path="tmp/hosted-postgres-migration/congress-$(date +%Y%m%d)-current-run${current_run_id}.dump"
 docker compose exec -T db pg_dump \
   -U "${POSTGRES_USER:-congress}" \
   -d "${POSTGRES_DB:-congress}" \
@@ -111,7 +115,7 @@ connection strings use PgBouncer transaction pooling; they are for application
 traffic, not schema/data restore tools.
 
 ```sh
-dump_path="tmp/hosted-postgres-migration/congress-20260604-run190.dump"
+dump_path="tmp/hosted-postgres-migration/congress-20260606-current-run646.dump"
 export HOSTED_DATABASE_URL="$NEON_DATABASE_URL_UNPOOLED"
 
 pg_restore \
@@ -144,6 +148,7 @@ for:
 - Core table row counts:
   - `members`: 306
   - `bills`: 18,345
+  - `bill_relations`: 3,715
   - `bill_lead_proposers`: 17,543
   - `bill_coproposers`: 206,138
   - `votes`: 473,594
