@@ -12,6 +12,7 @@ from typing import Any, Sequence
 
 from ..core.db import execute_many, get_conn
 from ..core.progress import ProgressReporter, safe_print
+from ..core.throttle import cap_worker_count, cap_worker_levels
 from ..ops.benchmark import BenchmarkResult, WorkerRun, representative_sample
 from ..ops.utterance_mapping_quality import MEMBER_SPEAKER_TITLES
 from .scrape_minutes import (
@@ -128,14 +129,14 @@ def ingest_utterances(
     if scrape_worker_count is None:
         benchmark = _benchmark_scrape_workers(
             representative_sample(target_meetings, benchmark_sample_size),
-            levels=worker_levels,
+            levels=cap_worker_levels(worker_levels),
             retry_delays=retry_delays,
         )
         _write_scrape_benchmark(benchmark, benchmark_output_path)
         _ensure_benchmark_acceptable(benchmark)
-        selected_worker_count = benchmark.selected_worker_count
+        selected_worker_count = cap_worker_count(benchmark.selected_worker_count)
     else:
-        selected_worker_count = scrape_worker_count
+        selected_worker_count = cap_worker_count(scrape_worker_count)
 
     scraped, errors, scrape_telemetry = _scrape_meetings(
         target_meetings,

@@ -17,6 +17,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from ..core.meeting_id import extract_mnts_id
+from ..core.throttle import external_http_slot
 
 BASE_ORIGIN = "https://record.assembly.go.kr"
 LIST_PATH = "/assembly/mnts/total/22.do"
@@ -227,7 +228,8 @@ def _entry_url(class_id: int) -> str:
 
 
 def _get(client: requests.Session, url: str, *, timeout: int) -> str:
-    response = client.get(url, timeout=timeout)
+    with external_http_slot():
+        response = client.get(url, timeout=timeout)
     response.raise_for_status()
     return response.text
 
@@ -240,12 +242,13 @@ def _post(
     *,
     timeout: int,
 ) -> str:
-    response = client.post(
-        f"{ASYNC_BASE}/{endpoint}",
-        data=payload,
-        headers={"X-Requested-With": "XMLHttpRequest", "Referer": referer},
-        timeout=timeout,
-    )
+    with external_http_slot():
+        response = client.post(
+            f"{ASYNC_BASE}/{endpoint}",
+            data=payload,
+            headers={"X-Requested-With": "XMLHttpRequest", "Referer": referer},
+            timeout=timeout,
+        )
     response.raise_for_status()
     return response.text
 

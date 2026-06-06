@@ -16,6 +16,7 @@ from ..core.api_client import ApiResponse, fetch_endpoint_with_retry, fetch_with
 from ..core.db import execute_many, get_conn
 from ..core.endpoints import ENDPOINTS_BY_SLUG
 from ..core.progress import ProgressReporter, safe_print
+from ..core.throttle import cap_worker_count, cap_worker_levels
 from ..ops.benchmark import (
     DEFAULT_WORKER_LEVELS,
     measure_workers,
@@ -273,12 +274,12 @@ def _fetch_target_vote_rows(
                 retry_delays=retry_delays,
             ),
             items=representative_sample(bill_ids, benchmark_sample_size),
-            levels=worker_levels,
+            levels=cap_worker_levels(worker_levels),
         )
         render_parallel_benchmark(benchmark, benchmark_output_path)
-        worker_count = benchmark.selected_worker_count
+        worker_count = cap_worker_count(benchmark.selected_worker_count)
     else:
-        worker_count = vote_row_worker_count
+        worker_count = cap_worker_count(vote_row_worker_count)
     return worker_count, _fetch_vote_rows_for_bills(
         bill_ids,
         worker_count=worker_count,

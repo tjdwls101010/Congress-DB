@@ -16,6 +16,7 @@ from ..core.api_client import ApiResponse, fetch_endpoint_with_retry, fetch_with
 from ..core.db import execute_many, get_conn
 from ..core.meeting_id import extract_mnts_id
 from ..core.progress import ProgressReporter, safe_print
+from ..core.throttle import cap_worker_count, cap_worker_levels
 from ..ops.benchmark import (
     DEFAULT_WORKER_LEVELS,
     measure_workers,
@@ -663,12 +664,12 @@ def _fetch_vconfbill_pairs(
         benchmark = measure_workers(
             lambda bill_id, measured_worker_count: _fetch_vconfbill_rows(str(bill_id)),
             items=representative_sample(bill_ids, sample_size),
-            levels=worker_levels,
+            levels=cap_worker_levels(worker_levels),
         )
         render_parallel_benchmark(benchmark, output_path)
-        selected_worker_count = benchmark.selected_worker_count
+        selected_worker_count = cap_worker_count(benchmark.selected_worker_count)
     else:
-        selected_worker_count = worker_count
+        selected_worker_count = cap_worker_count(worker_count)
     rows_by_bill, failures = _fetch_vconfbill_rows_for_bills_with_failures(
         bill_ids,
         worker_count=selected_worker_count,
