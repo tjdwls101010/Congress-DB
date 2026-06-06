@@ -1,13 +1,9 @@
 # Hosted Postgres Migration Runbook
 
-This document starts issue #12. It deliberately stops before executing the
-remote migration because project creation, billing, region, credentials, and the
-first hosted environment are human-owned decisions.
+This document records issue #63, the first Neon hosted Postgres migration.
 
-As of 2026-06-06, the project is intentionally paused at the pre-restore
-boundary. The local database has been verified and dumped; the Neon restore and
-hosted smoke test wait for PM authorization and a direct, non-pooled hosted
-connection string.
+As of 2026-06-06, the Neon restore and hosted smoke test are complete. The
+hosted database is ready for the separate SDK repository to use.
 
 ## Provider Decision
 
@@ -25,6 +21,12 @@ connection string.
 
 ## Current Status
 
+- Hosted migration: complete.
+- Neon organization: `Seongjin` (`org-rapid-heart-55745998`), plan `launch`.
+- Neon project: `congress-db-staging` (`wispy-night-08362506`).
+- Neon region: `aws-ap-southeast-1`.
+- Hosted database: `congress`, role `congress_owner`, Postgres `17.10`.
+- Hosted DB size after restore + smoke: `1224 MB`.
 - Local pre-migration gate: `ready_for_human_review`.
 - Accepted local backfill gate: `ingest_runs.id = 103`.
 - Latest verified incremental baseline before the current dump: `ingest_runs.id = 371`.
@@ -35,7 +37,7 @@ connection string.
 - Local readiness blockers: `0`.
 - Local preflight on 2026-06-06:
   - `uv run python -m compileall congress_db scripts tests -q`: pass.
-  - `uv run pytest -q`: `153 passed`.
+  - `uv run pytest -q`: `154 passed` after the CLI smoke fix (#80).
   - `make migration-readiness`: `ready_for_human_review`, blockers `0`.
 - Current local dump artifact:
   `tmp/hosted-postgres-migration/congress-20260606-current-run646.dump` (`143M`).
@@ -50,20 +52,54 @@ connection string.
 - Any dump created before #72/#73 is stale for current SDK-facing data because
   it lacks `bill_relations` and the missing-summary backfill.
 
-## Human Decisions Before Execution
+## Execution Result
 
-- Neon organization/project ownership and billing.
-- Neon region and plan. Recommended: Launch in `aws-ap-southeast-1`.
-- Direct, non-pooled Neon connection string for restore, exposed locally as
-  `NEON_DATABASE_URL_UNPOOLED` or `HOSTED_DATABASE_URL`.
-- Whether the first hosted DB is named `congress_staging`, `congress`, or another
-  environment-specific name.
-- Whether the staging compute may scale to zero. Recommended: yes for staging.
-- Whether incremental sync runs from a local/CI worker first. Recommended: yes;
-  do not add hosted cron/worker infrastructure until the first remote restore
-  and smoke test pass.
-- Whether to run the optional destructive clean-DB rehearsal before remote
-  migration execution.
+- Restore source: `tmp/hosted-postgres-migration/congress-20260606-current-run646.dump`.
+- Restore method: direct non-pooled Neon connection with `pg_restore --clean
+  --if-exists --single-transaction --no-owner --no-privileges`.
+- Restore result: success.
+- `CREATE EXTENSION IF NOT EXISTS pg_trgm`: success (`pg_trgm` already existed after restore).
+- `ANALYZE`: success for user tables. Neon-managed system catalog warnings are expected.
+- Hosted S1-S7 sanity check: success.
+- Hosted migration readiness: `ready_for_human_review`, blockers `0`.
+- Hosted search smoke:
+  - `search_bills('전세사기', 5)`: returned ranked bill rows.
+  - `search_utterances('전세사기', 3)`: returned ranked utterance rows.
+- Hosted incremental smoke:
+  - Command: `uv run python -m scripts.ingest --mode incremental --force-meeting-id 56738`.
+  - Result: `ingest_runs.id = 753`, mode `incremental`, status `success`, dead letters `0`.
+  - Scope observed: members/bills/votes/meetings, full meeting_bills reconciliation, 8 touched utterance meetings, sanity, data completeness, migration readiness.
+
+Hosted row counts after incremental smoke:
+
+| Table | Rows |
+|---|---:|
+| `members` | 320 |
+| `bills` | 18,361 |
+| `bill_relations` | 3,715 |
+| `bill_lead_proposers` | 17,559 |
+| `bill_coproposers` | 206,299 |
+| `votes` | 473,594 |
+| `meetings` | 2,105 |
+| `meeting_bills` | 40,345 |
+| `utterances` | 1,378,280 |
+
+The row counts differ from the dump baseline where the incremental smoke pulled
+new source data and reconciled stale meeting-bill links. The hosted DB is the
+current operational baseline after run `753`.
+
+## Human Decisions Used For Execution
+
+- Neon organization/project ownership and billing: PM upgraded the org to Launch.
+- Neon region and plan: Launch in `aws-ap-southeast-1`.
+- Direct, non-pooled Neon connection string was used for restore and hosted ingest.
+- Pooled Neon connection string was retrieved for future SDK/app read traffic.
+- First hosted DB name: `congress` in project `congress-db-staging`.
+- Incremental sync initially runs from the local runner; no hosted cron/worker
+  infrastructure was added in this slice.
+- Optional destructive clean-DB rehearsal was skipped; the accepted local gate,
+  restore verification, hosted sanity, and hosted incremental smoke were used as
+  the acceptance chain.
 
 ## Local Preflight
 
@@ -107,8 +143,8 @@ Do not commit the dump. It is an operational artifact.
 
 ## Restore
 
-Do not run this section until the PM authorizes the hosted migration execution
-and provides the direct, non-pooled Neon connection string.
+This section is retained as the replay recipe. The initial hosted restore has
+already been executed.
 
 Use the Neon direct, non-pooled connection string for `pg_restore`. Neon pooled
 connection strings use PgBouncer transaction pooling; they are for application
@@ -142,8 +178,8 @@ failure mode obvious if extension permissions differ.
 
 ## Verification
 
-The migration is not accepted until local and hosted Postgres produce matching results
-for:
+The restore is not accepted until local and hosted Postgres produce matching
+results for the dump baseline:
 
 - Core table row counts:
   - `members`: 306
@@ -157,11 +193,12 @@ for:
   - `utterances`: 1,378,071
 - Unresolved dead letters: `0`.
 - S1-S7 query outputs or checksums.
-- Accepted data quality gaps from `docs/ops/DATA-COMPLETENESS.md` remain visible and
-  unchanged unless a new source endpoint is intentionally added.
+- Accepted data quality gaps from `docs/ops/DATA-COMPLETENESS.md` remain visible
+  and unchanged unless a new source endpoint is intentionally added.
 
-Issue #12 should add or reuse an agent-runnable compare script so the local and
-remote checks are not manual copy/paste.
+After the hosted incremental smoke, hosted row counts may legitimately move
+ahead of the dump baseline because the source has newer data. See Execution
+Result for the current hosted baseline.
 
 ## Incremental Sync Smoke Test
 
@@ -184,8 +221,7 @@ Acceptance:
 ## Follow-up Before Production Operation
 
 - Current utterance repair is verified by the 2026-05-31 recovery drill.
-- Bills/votes/meeting-bill links still need one full hosted incremental rehearsal
-  before calling the hosted DB production-ready.
+- A full hosted incremental rehearsal completed successfully as run `753`.
 - App/serverless runtimes should use the Neon pooled connection string. Native
   migration/backup/restore tools should use the direct non-pooled connection.
 

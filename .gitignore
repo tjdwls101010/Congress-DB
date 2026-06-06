@@ -9,6 +9,7 @@ __pycache__/
 # Env
 .env
 .env.local
+.neon
 
 # Test caches
 .pytest_cache/
