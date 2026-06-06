@@ -26,7 +26,7 @@ from .progress import ProgressReporter, safe_print
 VOTE_BILL_ENDPOINT = "ncocpgfiaoituanbr"
 VOTE_ROWS_ENDPOINT = "nojepdqqaweusdfbi"
 SEOUL = ZoneInfo("Asia/Seoul")
-DEFAULT_VOTE_BENCHMARK_OUTPUT = Path("docs/VOTES-PARALLEL-BENCHMARK.md")
+DEFAULT_VOTE_BENCHMARK_OUTPUT = Path("docs/ops/VOTES-PARALLEL-BENCHMARK.md")
 DEFAULT_VOTE_ROW_RETRY_DELAYS = (1.0, 4.0, 16.0)
 VoteRowFetchMode = Literal["all", "missing"]
 

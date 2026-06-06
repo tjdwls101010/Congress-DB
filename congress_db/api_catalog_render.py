@@ -24,7 +24,7 @@ def render_pipeline_catalog_md(rows: list[dict[str, Any]], *, now: datetime | No
         "# API Catalog",
         "",
         "PRD 확정 OpenAPI의 작동 검증 결과. 1회성 — 자동 재검증 없음.",
-        "범위 결정 배경은 [ADR 0001](adr/0001-api-catalog-scope.md) 참고.",
+        "범위 결정 배경은 [DECISIONS](../design/DECISIONS.md) 참고.",
         "",
         f"_Generated: {when}_",
         "",

@@ -51,7 +51,7 @@ class EndpointSpec:
     verify_sample: dict[str, str] | None = None
 
 
-# PRD docs/PRD.md의 "외부 API 사용 목록 (확정)" 표 그대로.
+# PRD docs/design/PRD.md의 "외부 API 사용 목록 (확정)" 표 그대로.
 # inf_id는 `.Seongjin/legacy_congress/국회 api.db`(SQLite)에서 확인.
 PIPELINE_ENDPOINTS: tuple[EndpointSpec, ...] = (
     EndpointSpec(

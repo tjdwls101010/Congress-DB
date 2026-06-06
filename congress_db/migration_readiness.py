@@ -12,7 +12,7 @@ from .utterance_mapping_quality import (
     load_member_utterance_mapping_quality,
 )
 
-DEFAULT_MIGRATION_READINESS_REPORT = Path("docs/MIGRATION-READINESS.md")
+DEFAULT_MIGRATION_READINESS_REPORT = Path("docs/ops/MIGRATION-READINESS.md")
 READY = "ready_for_human_review"
 NOT_READY = "not_ready_for_human_review"
 MAPPING_RATE_REGRESSION_WARNING_PCT = 1.0

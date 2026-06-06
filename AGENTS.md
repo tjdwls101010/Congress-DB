@@ -10,9 +10,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Triage labels:** `bug`, `enhancement`, `needs-triage`, `ready-for-agent`, `ready-for-human`.
 - **Docs layout:**
   - `@CONTEXT.md` at repo root.
-  - `@docs/PRD.md` (or `docs/prd/<feature>.md` for independent features)
-  - `@docs/IA.md`
-  - `@docs/DECISIONS.md` (decision log, newest first)
+  - `@docs/design/PRD.md` (or `docs/design/prd/<feature>.md` for independent features)
+  - `@docs/design/IA.md`
+  - `@docs/design/DECISIONS.md` (decision log, newest first)
 
 To reuse this `CLAUDE.md` in a different project, edit only this section.
 
@@ -133,9 +133,9 @@ Interview the user until every branch of the decision tree is resolved. Walk dow
 Produce the artifacts the system needs. Independent documents, not sections of one big file.
 
 - **`CONTEXT.md`** — domain glossary at repo root.
-- **`docs/PRD.md`** — user-perspective problem and solution, a LONG numbered list of user stories, implementation decisions (modules, interfaces, schemas, API contracts), testing decisions, what's out of scope. A living local document (use `docs/prd/<feature>.md` if features are independent); slices reference it by user-story number.
-- **`docs/IA.md`** — page tree + per-screen information hierarchy + user paths. PRD answers WHY/WHAT; IA answers *"how does the user experience this."* UX-side, not implementation-side.
-- **Decision log** — append to `docs/DECISIONS.md`, 1–3 sentences each, at the moment of the decision (newest first). Industry term: ADR.
+- **`docs/design/PRD.md`** — user-perspective problem and solution, a LONG numbered list of user stories, implementation decisions (modules, interfaces, schemas, API contracts), testing decisions, what's out of scope. A living local document (use `docs/design/prd/<feature>.md` if features are independent); slices reference it by user-story number.
+- **`docs/design/IA.md`** — page tree + per-screen information hierarchy + user paths. PRD answers WHY/WHAT; IA answers *"how does the user experience this."* UX-side, not implementation-side.
+- **Decision log** — append to `docs/design/DECISIONS.md`, 1–3 sentences each, at the moment of the decision (newest first). Industry term: ADR.
 - **Slices (issues)** — written last, once PRD/IA are stable.
 
 Flow: `CONTEXT.md` starts when the first domain term resolves → PRD/IA develop in parallel → decision-log entries appear at decision points → Slices come last. `CONTEXT.md`, PRD, IA, and `DECISIONS.md` remain **living documents** through Phase 4 — when implementation surfaces a new term or decision, update them right there (see Grilling Returns).
@@ -272,7 +272,7 @@ Per-file ADRs add file-count overhead without payback at this project's scale, s
 
 The value is in recording *that* a decision was made and *why* — not in filling sections. **Add an entry only when all three hold**: hard to reverse, surprising without context, the result of a real trade-off. If easy to reverse, you'll just reverse it. If not surprising, nobody will wonder. If no real alternative, there's nothing to record.
 
-### `docs/PRD.md`
+### `docs/design/PRD.md`
 
 ```md
 ## Problem Statement

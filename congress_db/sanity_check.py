@@ -8,7 +8,7 @@ from typing import Mapping, Sequence
 
 from .db import get_conn
 
-DEFAULT_SANITY_REPORT = Path("docs/SANITY-CHECK.md")
+DEFAULT_SANITY_REPORT = Path("docs/ops/SANITY-CHECK.md")
 DEFAULT_KEYWORD = "전세사기"
 DEFAULT_RESPONDENT_TITLE_PATTERN = "%기획재정부장관%"
 ROW_COUNT_TABLES = (

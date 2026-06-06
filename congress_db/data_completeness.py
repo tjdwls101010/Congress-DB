@@ -12,7 +12,7 @@ from .utterance_mapping_quality import (
     load_member_utterance_mapping_quality,
 )
 
-DEFAULT_DATA_COMPLETENESS_REPORT = Path("docs/DATA-COMPLETENESS.md")
+DEFAULT_DATA_COMPLETENESS_REPORT = Path("docs/ops/DATA-COMPLETENESS.md")
 
 
 @dataclass(frozen=True)

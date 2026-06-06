@@ -33,10 +33,10 @@ data-quality gaps are understood and either fixed or explicitly accepted.
 - `ingest_runs.status`, `summary`, `error`, and per-stage summaries.
 - `dead_letters` grouped by source, stage, status, and item key.
 - Row counts for all core tables and junction tables.
-- `docs/MINUTES-WEB-COVERAGE.md` coverage gap.
-- `docs/SANITY-CHECK.md` S1-S7 query outputs.
-- `docs/DATA-COMPLETENESS.md` unresolved or accepted gaps.
-- `docs/MIGRATION-READINESS.md` blocker list.
+- `docs/ops/MINUTES-WEB-COVERAGE.md` coverage gap.
+- `docs/ops/SANITY-CHECK.md` S1-S7 query outputs.
+- `docs/ops/DATA-COMPLETENESS.md` unresolved or accepted gaps.
+- `docs/ops/MIGRATION-READINESS.md` blocker list.
 
 ## Failure Handling
 
@@ -146,9 +146,9 @@ data-quality gaps are understood and either fixed or explicitly accepted.
 
 ## Output Artifacts
 
-- `docs/MIGRATION-READINESS.md`
-- `docs/SANITY-CHECK.md`
-- `docs/DATA-COMPLETENESS.md`
-- `docs/MINUTES-WEB-COVERAGE.md`
+- `docs/ops/MIGRATION-READINESS.md`
+- `docs/ops/SANITY-CHECK.md`
+- `docs/ops/DATA-COMPLETENESS.md`
+- `docs/ops/MINUTES-WEB-COVERAGE.md`
 - Relevant benchmark docs when worker selection or performance changes.
 - Issue #45 comments or PR body entries summarizing each abnormal finding and fix.

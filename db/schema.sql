@@ -1,5 +1,5 @@
 -- Congress-DB initial schema (Postgres 16)
--- Source: docs/ERD.md
+-- Source: docs/design/ERD.md
 -- 8 core tables + 1 catalog table + 3 ingest operational tables = 12 tables.
 -- 자연키 우선, FK는 ON DELETE RESTRICT (참조 무결성 우선).
 -- CREATE TABLE IF NOT EXISTS로 idempotent 적용 (변경은 db-reset 또는 향후 migrations/).

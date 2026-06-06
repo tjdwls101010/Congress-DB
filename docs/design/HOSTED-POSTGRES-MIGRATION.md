@@ -152,7 +152,7 @@ for:
   - `utterances`: 1,378,071
 - Unresolved dead letters: `0`.
 - S1-S7 query outputs or checksums.
-- Accepted data quality gaps from `docs/DATA-COMPLETENESS.md` remain visible and
+- Accepted data quality gaps from `docs/ops/DATA-COMPLETENESS.md` remain visible and
   unchanged unless a new source endpoint is intentionally added.
 
 Issue #12 should add or reuse an agent-runnable compare script so the local and
