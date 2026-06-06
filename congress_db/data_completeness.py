@@ -41,6 +41,15 @@ class CompletenessReport:
     conclusions: Sequence[str]
 
 
+@dataclass(frozen=True)
+class OverallUtteranceMappingQuality:
+    """전체 발언 기준 의원 FK 매핑률."""
+
+    total_utterances: int
+    mapped_utterances: int
+    mapping_rate_pct: float | None
+
+
 def generate_data_completeness_report(
     output_path: Path = DEFAULT_DATA_COMPLETENESS_REPORT,
 ) -> CompletenessReport:
@@ -54,8 +63,14 @@ def generate_data_completeness_report(
         )
         mapping_by_title_rows = tuple(row.as_report_row() for row in member_mapping.by_title)
         gap_counts = _load_gap_counts(cur)
+        overall_mapping = _load_overall_utterance_mapping(cur)
         report = CompletenessReport(
-            metrics=_build_metrics(missing_party_rows, gap_counts, member_mapping),
+            metrics=_build_metrics(
+                missing_party_rows,
+                gap_counts,
+                member_mapping,
+                overall_mapping,
+            ),
             tables=(
                 SampleTable("Missing Party Member Stubs", missing_party_rows),
                 SampleTable("Bill Metadata Gaps", bill_gap_rows),
@@ -178,10 +193,36 @@ def _load_gap_counts(cur: object) -> dict[str, int]:
     return dict(zip(columns, row, strict=True))
 
 
+def _load_overall_utterance_mapping(cur: object) -> OverallUtteranceMappingQuality:
+    cur.execute(
+        """
+        SELECT
+            COUNT(*)::int AS total_utterances,
+            COUNT(*) FILTER (WHERE speaker_mona_cd IS NOT NULL)::int AS mapped_utterances
+        FROM utterances
+        """
+    )
+    row = cur.fetchone()
+    if not row:
+        return OverallUtteranceMappingQuality(
+            total_utterances=0,
+            mapped_utterances=0,
+            mapping_rate_pct=None,
+        )
+    total = int(row[0])
+    mapped = int(row[1])
+    return OverallUtteranceMappingQuality(
+        total_utterances=total,
+        mapped_utterances=mapped,
+        mapping_rate_pct=_rate_pct(mapped, total),
+    )
+
+
 def _build_metrics(
     missing_party_rows: Sequence[Mapping[str, object]],
     gap_counts: Mapping[str, int],
     member_mapping: MemberUtteranceMappingQuality,
+    overall_mapping: OverallUtteranceMappingQuality,
 ) -> tuple[Metric, ...]:
     missing_party_count = len(missing_party_rows)
     vote_party_available = sum(1 for row in missing_party_rows if row["latest_vote_party"])
@@ -212,19 +253,34 @@ def _build_metrics(
             "Bills whose summary cannot yet participate in keyword search.",
         ),
         Metric(
+            "overall_utterances_total",
+            overall_mapping.total_utterances,
+            "All utterances in the corpus, including ministers, witnesses, staff, and other non-member speakers.",
+        ),
+        Metric(
+            "overall_mapped_utterances",
+            overall_mapping.mapped_utterances,
+            "All utterances with `speaker_mona_cd`; this is the whole-corpus member FK count.",
+        ),
+        Metric(
+            "overall_utterance_mapping_rate_pct",
+            _metric_rate(overall_mapping.mapping_rate_pct),
+            "All utterances mapping rate; this is not expected to be 100% because non-member speakers intentionally have no member FK.",
+        ),
+        Metric(
             "member_titled_utterances_total",
             member_mapping.total_utterances,
-            "Utterances whose speaker_title is one of the 10 member-like titles used by ingest mapping.",
+            "Member-titled only: utterances whose speaker_title is one of the 10 member-like titles used by ingest mapping.",
         ),
         Metric(
             "unmapped_member_titled_utterances",
             member_mapping.unmapped_utterances,
-            "Member-titled utterances with no member FK across the full ingest title set.",
+            "Member-titled only: utterances with no member FK across the full ingest title set.",
         ),
         Metric(
             "member_titled_utterance_mapping_rate_pct",
             _metric_rate(member_mapping.mapping_rate_pct),
-            "Raw mapping rate across member-titled utterances.",
+            "Member-titled only: raw mapping rate across the titles that should normally map to legislators.",
         ),
         Metric(
             "ambiguous_name_unmapped_utterances",
@@ -234,7 +290,7 @@ def _build_metrics(
         Metric(
             "member_titled_utterance_actionable_mapping_rate_pct",
             _metric_rate(member_mapping.actionable_mapping_rate_pct),
-            "Mapping rate excluding intentionally ambiguous member-name collisions from the denominator.",
+            "Member-titled only: mapping rate excluding intentionally ambiguous member-name collisions from the denominator.",
         ),
         Metric(
             "safe_utterance_mapping_candidates",
@@ -268,6 +324,12 @@ def _metric_rate(value: float | None) -> float | str:
     if value is None:
         return "n/a"
     return value
+
+
+def _rate_pct(numerator: int, denominator: int) -> float | None:
+    if denominator <= 0:
+        return None
+    return round((numerator / denominator) * 100, 2)
 
 
 def _fetch_dicts(cur: object) -> tuple[dict[str, object], ...]:

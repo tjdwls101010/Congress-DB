@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import scripts.render_api_catalog as render_api_catalog_script
 from congress_db.api_catalog_render import render_pipeline_catalog_md
 
 
@@ -101,3 +102,37 @@ def test_pipe_in_usage_note_is_escaped() -> None:
 
     # | 가 \\| 로 escape되어야 markdown 테이블이 깨지지 않음
     assert "A \\| B" in md
+
+
+def test_empty_catalog_mentions_reseed_needed() -> None:
+    md = render_pipeline_catalog_md([], now=FIXED_NOW)
+
+    assert "api_catalog 비어 있음 — 재시드 필요" in md
+
+
+def test_render_catalog_cli_seeds_before_fetch(monkeypatch, tmp_path) -> None:
+    calls: list[object] = []
+
+    monkeypatch.setattr(render_api_catalog_script, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(render_api_catalog_script, "OUTPUT", tmp_path / "API-CATALOG.md")
+    monkeypatch.setattr(
+        render_api_catalog_script,
+        "seed_pipeline_endpoints",
+        lambda: calls.append("seed") or 2,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        render_api_catalog_script,
+        "fetch_pipeline_catalog_rows",
+        lambda: calls.append("fetch") or [_row("a"), _row("b")],
+    )
+    monkeypatch.setattr(
+        render_api_catalog_script,
+        "render_pipeline_catalog_md",
+        lambda rows: calls.append(("render", len(rows))) or "catalog md\n",
+    )
+
+    render_api_catalog_script.main()
+
+    assert calls == ["seed", "fetch", ("render", 2)]
+    assert (tmp_path / "API-CATALOG.md").read_text() == "catalog md\n"
