@@ -3,6 +3,64 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-06-06 — Track incumbency via a roster-derived boolean; never delete departed members
+
+Departed legislators (사퇴/의원직 상실 등) are never removed — FK ON DELETE RESTRICT already
+blocks deleting any member with votes/utterances, and member sync upserts rather than deletes.
+The only missing piece was knowing who currently serves: add `members.is_incumbent` (BOOLEAN),
+set TRUE for members present in the latest 인적사항 roster sync and FALSE otherwise, refreshed
+automatically every sync (not hand-maintained) — consistent with the "derive point-in-time
+facts from the source" pattern (cf. `votes.poly_nm_at_vote`). Chosen over a status enum +
+end-date (no reliable source for reason/exact date → mostly NULL = over-design). Members who
+depart after our sync window keep their last roster profile frozen; only the 20 pre-sync
+departures stay profile-NULL (separate backlog). Floor-only vote scope reaffirmed (committee
+votes are absent from the OpenAPI, not merely unimportant).
+
+## 2026-06-05 — Foundation diagnosis: clean facts, not yet a proposal basis
+
+A 9-agent diagnosis (transcript 2026-06-05) judged the DB a trustworthy SOURCE OF FACTS
+but not yet a trustworthy BASIS FOR PROPOSALS — the threads a bill proposal must follow
+dead-end. Two are now in scope to close in this repo (PRD #50-53): (1) bill-to-bill 대안
+관계 + passed-대안 summary backfill, (2) speaker_role normalization + executive-branch
+utterance attribution. Deferred to backlog: filling 20 profile-less member stubs, raising
+상임위 meeting_bills coverage. Indicative fit scores: data/domain 52, architecture 42.
+
+## 2026-06-05 — 국회 SDK stays a separate repo (reaffirmed after reconsidering in-place merge)
+
+Considered renaming this repo to congress-sdk and growing the API/SDK in place. Rejected:
+write-path (ingestion) and read-path (SDK) couple only through the Neon schema reached by
+one DATABASE_URL, so the SDK needs the database, not this repo's code, scraping stack, or
+batch lifecycle; their consumers and release cadences differ; and the downstream 법제처 SDK
++ harness (also separate repos) want 국회 SDK as an installable dependency. Reaffirms the
+roadmap (CONTEXT 프로젝트 경계). Reversible (separate↔mono via history-preserving subtree
+split/merge) if two-repo overhead proves too heavy for a solo PM.
+
+## 2026-06-05 — Hybrid sequencing: stabilize foundation here, then SDK slices parallel to data fixes
+
+Work order in THIS repo: M0 (doc-truth fixes, docs structure cleanup) → M1 (ADR-0008 schema
+cleanup, search-ranking migration, Neon migration, hosting-continuity hardening) → open the
+congress-sdk repo against the stabilized schema and build thin vertical slices, closing the
+two M2 data threads (대안 관계, speaker_role) in parallel. Chosen over "all data first"
+(delays end-to-end feedback) and "SDK first" (builds on knowingly-slanted data), per the
+vertical-slice philosophy.
+
+## 2026-06-05 — Accept the leaked (free) API key in git; remove legacy tree only for tidiness
+
+The National Assembly OpenAPI key committed at .Seongjin/legacy_congress/.env is free and
+trivially reissued, so the leak carries no billing risk; history is NOT scrubbed (PM
+decision). The only residual is per-key rate-limit abuse, accepted. Removing
+.Seongjin/legacy_congress/ (dead SQLite-era scripts + a 472KB binary) is therefore an
+optional tidiness slice, not a security action.
+
+## 2026-06-05 — Consolidate per-file ADRs into this log; split docs into design/ vs ops/
+
+Planned, executed in a dedicated structure slice. docs/adr/0001-0009 predate the
+single-decision-log decision (2026-05-27) and will be absorbed here (decision content
+preserved, newest-first) then removed. docs/ splits into design/ (hand-edited: PRD, IA, ERD,
+DECISIONS, migration runbook) vs ops/ (code-generated reports: sanity, completeness,
+readiness, benchmarks, DOM validation); generators write to docs/ops/ and that dir is
+gitignored.
+
 ## 2026-06-04 — Incremental meeting_bills skips linked bills and preserves existing links
 
 After #46, incremental meetings cost was dominated by re-querying `VCONFBILLCONFLIST`

@@ -72,8 +72,8 @@ erDiagram
 | `cmt_proc_dt` | DATE | 위원회 처리일자 |
 | `cmt_proc_result_cd` | TEXT | 위원회 처리결과 코드 |
 | `summary` | TEXT | 주요내용 |
-| `detail_link` | TEXT | 의안 상세 링크. 검색 core에는 낮은 우선순위이며 hosted Postgres 전 제거 재검토 |
-| `age` | SMALLINT | 대수. 22대만 유지하는 동안 제거 재검토 |
+| `detail_link` | TEXT | 의안 상세 링크. 검색 core 우선순위 낮음. **현재 살아 있음** — ADR-0008의 제거는 M1 스키마 정비 슬라이스에서 실행 예정 |
+| `age` | SMALLINT | 대수. 22대만 유지. **현재 살아 있음** — M1 스키마 정비에서 제거 재검토 |
 | `fetched_at` | TIMESTAMPTZ | 마지막 수집 시각 |
 
 ### 3. `bill_lead_proposers` — 대표발의 N:M
