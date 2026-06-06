@@ -16,8 +16,8 @@
   본회의/위원회 회의록은 `DAE_NUM=22 + CONF_DATE` 둘 다 필수.
 - **본회의 표결(`nojepdqqaweusdfbi`)과 의안별 회의록(`VCONFBILLCONFLIST`)은
   본회의 통과 법안의 BILL_ID에만 row 존재**. 발의만 된 법안은 no_data.
-- **`BPMBILLSUMMARY`는 BILL_NO 단위 1:1 호출**. legacy SQLite에 endpoint 컬럼이
-  비어 있는 데이터 결함이 있어 endpoint slug는 코드에서 직접 박음.
+- **`BPMBILLSUMMARY`는 BILL_NO 단위 1:1 호출**. 과거 legacy SQLite에 endpoint
+  컬럼이 비어 있는 데이터 결함이 있어 endpoint slug는 코드에서 직접 박음.
 - **국정감사/국정조사/인사청문회는 ERACO='제22대'** (다른 endpoint와 형식 다름).
 - **본회의/위원회 회의록의 `list_total_count`는 고유 회의 수가 아니라 `SUB_NAME`
   안건 row 수에 가깝다.** 캘리브레이션 적재는 raw row 수가 아니라 고유 `mnts_id`
@@ -52,7 +52,7 @@ class EndpointSpec:
 
 
 # PRD docs/design/PRD.md의 "외부 API 사용 목록 (확정)" 표 그대로.
-# inf_id는 `.Seongjin/legacy_congress/국회 api.db`(SQLite)에서 확인.
+# inf_id는 legacy SQLite 제거 전에 확인해 이 상수에 inline 보존.
 PIPELINE_ENDPOINTS: tuple[EndpointSpec, ...] = (
     EndpointSpec(
         inf_id="OWSSC6001134T516707",
@@ -71,7 +71,7 @@ PIPELINE_ENDPOINTS: tuple[EndpointSpec, ...] = (
         verify_sample=None,
     ),
     EndpointSpec(
-        # BPMBILLSUMMARY는 legacy SQLite에 inf_id만 있고 endpoint 컬럼이 비어 있음
+        # BPMBILLSUMMARY는 legacy SQLite에 inf_id만 있고 endpoint 컬럼이 비어 있었음
         # (legacy 데이터 결함). endpoint는 우리가 직접 박는다.
         inf_id="OS46YD0012559515463",
         endpoint="BPMBILLSUMMARY",

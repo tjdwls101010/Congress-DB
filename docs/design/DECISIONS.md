@@ -50,7 +50,8 @@ The National Assembly OpenAPI key committed at .Seongjin/legacy_congress/.env is
 trivially reissued, so the leak carries no billing risk; history is NOT scrubbed (PM
 decision). The only residual is per-key rate-limit abuse, accepted. Removing
 .Seongjin/legacy_congress/ (dead SQLite-era scripts + a 472KB binary) is therefore an
-optional tidiness slice, not a security action.
+optional tidiness slice, not a security action. Executed in #58 after inline-preserving
+the used endpoint inf_ids in `congress_db/core/endpoints.py`.
 
 ## 2026-06-05 — Consolidate per-file ADRs into this log; split docs into design/ vs ops/
 
@@ -235,8 +236,9 @@ cases. Absorbed from ADR-0002.
 ## 2026-05-26 — api_catalog covers only pipeline OpenAPI endpoints
 
 `api_catalog` verifies and documents only the PRD-confirmed OpenAPI endpoints used
-by the pipeline, with `used_in_pipeline=TRUE`; unused OpenAPI metadata stays in the
-legacy SQLite DB until a future source is needed. This avoided low-ROI verification
-of 263 unused APIs while preserving an easy extension path: add the needed endpoint
-row when the pipeline actually uses it. Later `ncocpgfiaoituanbr` was added through
-that path for vote candidate BILL_ID discovery. Absorbed from ADR-0001.
+by the pipeline, with `used_in_pipeline=TRUE`; unused OpenAPI metadata is not
+maintained in this repo after the #58 legacy cleanup. This avoided low-ROI
+verification of 263 unused APIs while preserving an easy extension path: find and
+add the needed endpoint row when the pipeline actually uses it. Later
+`ncocpgfiaoituanbr` was added through that path for vote candidate BILL_ID
+discovery. Absorbed from ADR-0001 and updated after #58.
