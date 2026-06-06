@@ -821,6 +821,45 @@ def _fetch_vconfbill_rows(bill_id: str) -> list[dict[str, Any]]:
     return rows
 
 
+def retry_vconfbill_rows(bill_id: str) -> bool:
+    """dead letter 재처리용: 단일 법안의 회의-법안 링크를 다시 가져와 upsert한다."""
+    bill_id = str(bill_id)
+    if not _bill_exists(bill_id):
+        return False
+    rows = _fetch_vconfbill_rows(bill_id)
+    meeting_ids = {
+        extract_mnts_id(row.get("DOWN_URL"))
+        for row in rows
+        if row.get("DOWN_URL")
+    }
+    existing_meeting_ids = _load_existing_meeting_ids(meeting_ids)
+    meeting_bill_rows = [
+        {"meeting_id": meeting_id, "bill_id": bill_id}
+        for meeting_id in sorted(existing_meeting_ids)
+    ]
+    with get_conn() as conn:
+        execute_many(conn, _INSERT_MEETING_BILLS_SQL, meeting_bill_rows)
+        conn.commit()
+    return True
+
+
+def _bill_exists(bill_id: str) -> bool:
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT EXISTS (SELECT 1 FROM bills WHERE bill_id = %s)", (bill_id,))
+        return bool(cur.fetchone()[0])
+
+
+def _load_existing_meeting_ids(meeting_ids: set[int]) -> set[int]:
+    if not meeting_ids:
+        return set()
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT mnts_id FROM meetings WHERE mnts_id = ANY(%s)",
+            (sorted(meeting_ids),),
+        )
+        return {int(row[0]) for row in cur.fetchall()}
+
+
 def _merge_meeting_bill_pairs(
     agenda_pairs: set[tuple[int, str]],
     vconf_pairs: set[tuple[int, str]],

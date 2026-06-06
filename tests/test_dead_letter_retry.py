@@ -5,7 +5,11 @@ from __future__ import annotations
 import pytest
 
 from congress_db.core.db import get_conn
-from congress_db.ingest.dead_letter_retry import DeadLetter, retry_dead_letters
+from congress_db.ingest.dead_letter_retry import (
+    DeadLetter,
+    default_retry_handlers,
+    retry_dead_letters,
+)
 from congress_db.ingest.ingest_state import record_dead_letter, start_run
 
 
@@ -94,3 +98,12 @@ def test_retry_dead_letters_leaves_unhandled_items_pending() -> None:
         row = cur.fetchone()
 
     assert row == ("pending", 1)
+
+
+def test_default_retry_handlers_cover_all_ingest_dead_letter_sources() -> None:
+    assert set(default_retry_handlers()) == {
+        ("minutes.html", "fetch"),
+        ("bills.summary", "fetch"),
+        ("votes.rows", "fetch"),
+        ("meeting_bills.vconfbill", "fetch"),
+    }
