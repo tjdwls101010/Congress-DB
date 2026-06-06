@@ -54,12 +54,11 @@ optional tidiness slice, not a security action.
 
 ## 2026-06-05 — Consolidate per-file ADRs into this log; split docs into design/ vs ops/
 
-Planned, executed in a dedicated structure slice. docs/adr/0001-0009 predate the
-single-decision-log decision (2026-05-27) and will be absorbed here (decision content
-preserved, newest-first) then removed. docs/ splits into design/ (hand-edited: PRD, IA, ERD,
-DECISIONS, migration runbook) vs ops/ (code-generated reports: sanity, completeness,
-readiness, benchmarks, DOM validation); generators write to docs/ops/ and that dir is
-gitignored.
+Executed in slice #57. The previous per-file ADRs predated the single-decision-log decision
+and were absorbed into this log with decision content preserved, then removed. docs/ now
+splits into design/ (hand-edited: PRD, IA, ERD, DECISIONS, migration runbook) vs ops/
+(code-generated reports: sanity, completeness, readiness, benchmarks, DOM validation);
+generators write to docs/ops/ and that dir is gitignored.
 
 ## 2026-06-04 — Incremental meeting_bills skips linked bills and preserves existing links
 
@@ -163,3 +162,81 @@ The local full backfill relinks hundreds of thousands of utterances to
 `session_groups`; maintaining the partial `session_group_id` index during that
 write caused excessive IO. Large relinks temporarily drop and recreate that
 index inside the transaction.
+
+## 2026-05-29 — Single ingest entrypoint for PM and operator runs
+
+PMs and operators should run one ingest command, not manually compose member, bill,
+vote, meeting, utterance, and session-group stages. The command decides whether the
+run is initial backfill or incremental sync, retries unresolved dead letters first,
+avoids duplicate rows through upserts and scoped recalculation, and records the
+decision path in `ingest_runs` so later sessions can audit what happened. Absorbed
+from ADR-0009.
+
+## 2026-05-29 — Keep core schema search-oriented
+
+Congress-DB is the foundation for future search APIs/SDKs, not a full archive of
+every upstream field. Source links, source-tracking fields, and `agenda_items` are
+kept out of the core schema before hosted Postgres migration; official meeting
+agenda text may be used transiently to derive `meeting_bills`, while policy topics
+and positions will be modeled later as a separate evidence-backed semantic layer.
+Absorbed from ADR-0008.
+
+## 2026-05-29 — Web minutes list is the canonical meeting universe
+
+The public OpenAPI meeting endpoints and the `record.assembly.go.kr/assembly/mnts/total/22.do`
+web listing do not expose the same 22대 minutes universe, while utterances are parsed
+only from HTML viewer pages. The web listing is the canonical meeting universe;
+OpenAPI meeting endpoints only enrich metadata and law-bill links by matching
+`mnts_id`, and PDF/HWP stay out of utterance extraction. Absorbed from ADR-0007.
+
+## 2026-05-27 — Backfill and incremental ingest share modules
+
+Initial 22대 backfill and later incremental sync use the same ingest modules; only
+execution mode differs. The original source-specific cursor + 30-day overlap window
+was later superseded on 2026-06-04: incremental now re-scans cheap list endpoints in
+full, skips immutable per-item fetches, and leaves cursors as audit markers. Absorbed
+from ADR-0006 and updated with its supersession note.
+
+## 2026-05-27 — Use pg_trgm for first Korean keyword search
+
+For the first hosted-Postgres-bound search slice, Korean keyword search uses `pg_trgm`
+GIN indexes on bill names, bill summaries, and utterance content. PGroonga remains a
+stronger multilingual option, but adopting it now would change the local Postgres
+runtime before the project proves substring keyword search is insufficient. Absorbed
+from ADR-0005.
+
+## 2026-05-27 — Validate minutes HTML before accepting utterances
+
+The meeting-minutes HTML endpoint can transiently return a different meeting's DOM
+under parallel scraping, so utterance ingest validates the parsed meeting date
+against `meetings.conf_date` before accepting a response. Scraping remains parallel,
+but the default worker count is capped at 5 until a later full-load run proves higher
+concurrency preserves metadata correctness, not just HTTP success. Absorbed from
+ADR-0004.
+
+## 2026-05-27 — Calibrate parallel ingest before full load
+
+The initial 10% load is a calibration phase, not the product goal: it measures worker
+counts for unknown National Assembly OpenAPI and meeting HTML limits before attempting
+100% collection. For meeting metadata the calibration target is about 500 meetings
+across all five source APIs, and per-bill enrichment (`VCONFBILLCONFLIST`) uses the
+measured worker policy so the later full load can be fast without blindly increasing
+concurrency. Absorbed from ADR-0003.
+
+## 2026-05-27 — Normalize lead proposers and member stubs
+
+The bill API can put multiple lead proposers in `RST_MONA_CD`, and it can reference
+MONA_CD values not returned by the member-profile API. Dropping those references or
+removing FKs would weaken the core "JOIN by member ID" value, so lead proposers are
+normalized into `bill_lead_proposers`, missing members are preserved as name-only
+`members` stubs, and `bills.rst_mona_cd` remains only a convenience FK for single-lead
+cases. Absorbed from ADR-0002.
+
+## 2026-05-26 — api_catalog covers only pipeline OpenAPI endpoints
+
+`api_catalog` verifies and documents only the PRD-confirmed OpenAPI endpoints used
+by the pipeline, with `used_in_pipeline=TRUE`; unused OpenAPI metadata stays in the
+legacy SQLite DB until a future source is needed. This avoided low-ROI verification
+of 263 unused APIs while preserving an easy extension path: add the needed endpoint
+row when the pipeline actually uses it. Later `ncocpgfiaoituanbr` was added through
+that path for vote candidate BILL_ID discovery. Absorbed from ADR-0001.

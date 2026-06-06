@@ -42,7 +42,7 @@ def test_renders_header_and_generated_timestamp() -> None:
 
     assert "# API Catalog" in md
     assert "_Generated: 2026-05-26T12:00:00+00:00_" in md
-    assert "ADR 0001" in md
+    assert "../design/DECISIONS.md" in md
 
 
 def test_renders_one_row_per_endpoint() -> None:

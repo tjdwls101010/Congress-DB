@@ -63,7 +63,7 @@ seed-catalog:
 verify-catalog:
 	uv run python -m scripts.verify_api_catalog
 
-# docs/API-CATALOG.md 자동 생성
+# docs/ops/API-CATALOG.md 자동 생성
 render-catalog:
 	uv run python -m scripts.render_api_catalog
 

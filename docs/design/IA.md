@@ -237,7 +237,7 @@ ORDER BY b.bill_name;
 ## 데이터 외 정보(메타) 흐름
 
 ```
-api_catalog ────────→ (사람이 docs/API-CATALOG.md 자동 생성으로 본다)
+api_catalog ────────→ (사람이 docs/ops/API-CATALOG.md 자동 생성으로 본다)
                 ↑
        277개 1회성 검증 결과 + 우리가 쓰기로 한 이유 메모
                 ↓

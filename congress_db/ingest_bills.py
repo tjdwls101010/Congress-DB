@@ -28,7 +28,7 @@ from .progress import ProgressReporter, safe_print
 
 BILLS_ENDPOINT = "nzmimeepazxkubdpn"
 SUMMARY_ENDPOINT = "BPMBILLSUMMARY"
-DEFAULT_BENCHMARK_OUTPUT = Path("docs/PARALLEL-BENCHMARK.md")
+DEFAULT_BENCHMARK_OUTPUT = Path("docs/ops/PARALLEL-BENCHMARK.md")
 SUMMARY_MAX_RETRY_RATE = 0.02
 SummaryFetchMode = Literal["all", "missing"]
 

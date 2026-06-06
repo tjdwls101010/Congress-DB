@@ -2,8 +2,8 @@
 
 22대 국회(2024-05-30~) 의정 활동을 한 의원 ID로 통합 조회하는 Postgres 16 DB.
 
-상세 도메인은 [CONTEXT.md](CONTEXT.md), 요구사항은 [docs/PRD.md](docs/PRD.md),
-화면/경로는 [docs/IA.md](docs/IA.md), 스키마는 [docs/ERD.md](docs/ERD.md) 참고.
+상세 도메인은 [CONTEXT.md](CONTEXT.md), 요구사항은 [docs/design/PRD.md](docs/design/PRD.md),
+화면/경로는 [docs/design/IA.md](docs/design/IA.md), 스키마는 [docs/design/ERD.md](docs/design/ERD.md) 참고.
 
 ## 환경 셋업
 
@@ -46,7 +46,7 @@ make test
 `ingest-utterances`, `ingest-session-groups`는 개발/진단용 stage 명령이다.
 일반 운영 흐름에서는 `make ingest`를 사용한다.
 
-Hosted Postgres 이전에는 [docs/PRE-MIGRATION-BACKFILL-GATE.md](docs/PRE-MIGRATION-BACKFILL-GATE.md)에 따라
+Hosted Postgres 이전에는 [docs/design/PRE-MIGRATION-BACKFILL-GATE.md](docs/design/PRE-MIGRATION-BACKFILL-GATE.md)에 따라
 깨끗한 로컬 DB에서 100% 백필을 모니터링하고, 이상 지점을 수정한 뒤 idempotency 재실행까지 통과해야 한다.
 
 ## 구조
@@ -56,7 +56,8 @@ congress_db/      # Python 패키지
 db/
   migrations/     # schema.sql 이후 적용되는 변경 SQL
 tests/            # pytest 통합 테스트
-docs/             # PRD / IA / ERD
+docs/design/      # 손편집 설계문서: PRD / IA / ERD / DECISIONS / runbooks
+docs/ops/         # 코드 생성 운영 리포트 (gitignored)
 docker-compose.yml
 Makefile
 pyproject.toml    # uv 관리
