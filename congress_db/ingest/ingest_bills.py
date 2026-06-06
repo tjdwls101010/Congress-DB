@@ -57,6 +57,21 @@ class IngestBillsResult:
 
 
 @dataclass(frozen=True)
+class BillSummaryBackfillResult:
+    """기존 bills 중 summary 결측만 채운 결과."""
+
+    target_count: int
+    updated_count: int
+    no_data_count: int
+    error_count: int
+    retry_count: int
+    retried_bill_count: int
+    remaining_missing_count: int
+    selected_worker_count: int
+    summary_failures: tuple["BillSummaryFailure", ...]
+
+
+@dataclass(frozen=True)
 class BillSummaryFailure:
     """법안 summary fetch 최종 실패."""
 
@@ -182,6 +197,14 @@ _INSERT_MEMBER_STUBS_SQL = """
     ON CONFLICT (mona_cd) DO NOTHING
 """
 
+_UPDATE_MISSING_SUMMARY_SQL = """
+    UPDATE bills
+    SET summary = %(summary)s,
+        fetched_at = now()
+    WHERE bill_no = %(bill_no)s
+      AND (summary IS NULL OR btrim(summary) = '')
+"""
+
 
 def ingest_bills(
     *,
@@ -258,6 +281,82 @@ def ingest_bills(
         summary_failures=summary_result.failures,
         age_param_used=bill_list.age_param_used,
     )
+
+
+def backfill_missing_bill_summaries(
+    *,
+    limit: int | None = None,
+    benchmark_sample_size: int = 100,
+    worker_levels: tuple[int, ...] = DEFAULT_WORKER_LEVELS,
+    benchmark_output_path: Path = DEFAULT_BENCHMARK_OUTPUT,
+    summary_worker_count: int | None = None,
+) -> BillSummaryBackfillResult:
+    """이미 적재된 bills 중 summary가 NULL/공백인 법안만 BPMBILLSUMMARY로 채운다."""
+    bill_nos = _load_missing_summary_bill_nos(limit=limit)
+    selected_worker_count, summary_result = _fetch_target_summaries(
+        bill_nos,
+        benchmark_sample_size=benchmark_sample_size,
+        worker_levels=worker_levels,
+        benchmark_output_path=benchmark_output_path,
+        summary_worker_count=summary_worker_count,
+    )
+    updates = [
+        {"bill_no": bill_no, "summary": summary}
+        for bill_no, summary in summary_result.summaries.items()
+        if summary is not None
+    ]
+    with get_conn() as conn:
+        updated_count = execute_many(conn, _UPDATE_MISSING_SUMMARY_SQL, updates)
+        conn.commit()
+
+    failed_bill_nos = {failure.bill_no for failure in summary_result.failures}
+    no_data_count = sum(
+        1
+        for bill_no, summary in summary_result.summaries.items()
+        if summary is None and bill_no not in failed_bill_nos
+    )
+    return BillSummaryBackfillResult(
+        target_count=len(bill_nos),
+        updated_count=updated_count,
+        no_data_count=no_data_count,
+        error_count=summary_result.error_count,
+        retry_count=summary_result.retry_count,
+        retried_bill_count=summary_result.retry_item_count,
+        remaining_missing_count=_count_missing_summaries(),
+        selected_worker_count=selected_worker_count,
+        summary_failures=summary_result.failures,
+    )
+
+
+def _load_missing_summary_bill_nos(*, limit: int | None = None) -> list[str]:
+    if limit is not None and limit <= 0:
+        raise ValueError("limit must be positive")
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT bill_no
+            FROM bills
+            WHERE bill_no IS NOT NULL
+              AND (summary IS NULL OR btrim(summary) = '')
+            ORDER BY propose_dt DESC NULLS LAST, bill_no
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        return [str(row[0]) for row in cur.fetchall()]
+
+
+def _count_missing_summaries() -> int:
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*)
+            FROM bills
+            WHERE bill_no IS NOT NULL
+              AND (summary IS NULL OR btrim(summary) = '')
+            """
+        )
+        return int(cur.fetchone()[0])
 
 
 def _load_existing_summaries(bill_nos: list[str]) -> dict[str, str]:
