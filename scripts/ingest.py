@@ -20,13 +20,12 @@ def main() -> None:
     parser.add_argument(
         "--force-meeting-id",
         action="append",
-        default=(),
         type=int,
         help="Meeting mnts_id to rescrape/regroup during incremental sync.",
     )
     args = parser.parse_args()
 
-    result = run_ingest(mode=args.mode, force_meeting_ids=tuple(args.force_meeting_id))
+    result = run_ingest(mode=args.mode, force_meeting_ids=tuple(args.force_meeting_id or ()))
     safe_print(
         "Completed ingest: "
         f"mode={result.mode} "
