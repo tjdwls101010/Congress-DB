@@ -46,6 +46,7 @@ erDiagram
 | `homepage` | TEXT | 홈페이지 |
 | `mem_title` | TEXT | 약력 |
 | `assem_addr` | TEXT | 의원회관 호실 |
+| `is_incumbent` | BOOLEAN NOT NULL DEFAULT FALSE | 최신 의원 인적사항 명부 등장 여부에서 파생한 현직 여부 |
 | `fetched_at` | TIMESTAMPTZ | 마지막 수집 시각 |
 
 ### 2. `bills` — 법안

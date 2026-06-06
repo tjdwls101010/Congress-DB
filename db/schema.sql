@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS members (
     homepage        TEXT,
     mem_title       TEXT,
     assem_addr      TEXT,
+    is_incumbent    BOOLEAN NOT NULL DEFAULT FALSE,
     fetched_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

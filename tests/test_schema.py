@@ -99,6 +99,12 @@ def test_meetings_has_only_search_oriented_core_columns() -> None:
     assert {"is_temporary", "is_appendix"} <= columns
 
 
+def test_members_exposes_roster_derived_incumbency() -> None:
+    """현직 여부는 최신 의원 명부에서 파생된 공개 조회 컬럼이다."""
+    columns = _public_columns("members")
+    assert "is_incumbent" in columns
+
+
 def test_bills_has_only_search_oriented_core_columns() -> None:
     """법안 상세 링크와 22대 고정 대수 컬럼은 core 스키마에 남기지 않는다."""
     columns = _public_columns("bills")
