@@ -37,6 +37,7 @@ def test_incremental_stages_scope_utterances_to_touched_meetings(
 ) -> None:
     calls: dict[str, object] = {}
 
+    monkeypatch.setattr(ingest_command, "meeting_bills_reconciliation_due", lambda: False)
     monkeypatch.setattr(ingest_command, "retry_dead_letters", lambda: {"retried": 0})
     monkeypatch.setattr(ingest_command, "ingest_members", lambda: {"stage": "members"})
 
@@ -118,6 +119,7 @@ def test_incremental_stages_cap_explicit_worker_counts(
     calls: dict[str, object] = {}
 
     monkeypatch.setenv("CONGRESS_DB_HTTP_CONCURRENCY_LIMIT", "7")
+    monkeypatch.setattr(ingest_command, "meeting_bills_reconciliation_due", lambda: False)
     monkeypatch.setattr(ingest_command, "retry_dead_letters", lambda: {"retried": 0})
     monkeypatch.setattr(ingest_command, "ingest_members", lambda: {"stage": "members"})
     monkeypatch.setattr(
@@ -179,6 +181,50 @@ def test_incremental_stages_cap_explicit_worker_counts(
     assert calls["votes_kwargs"]["vote_row_worker_count"] == 7
     assert calls["meetings_kwargs"]["vconfbill_worker_count"] == 7
     assert calls["utterances_kwargs"]["scrape_worker_count"] == 7
+
+
+def test_incremental_stages_run_meeting_bills_reconciliation_when_due(
+    monkeypatch,
+) -> None:
+    meeting_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(ingest_command, "meeting_bills_reconciliation_due", lambda: True)
+    monkeypatch.setattr(ingest_command, "retry_dead_letters", lambda: {"retried": 0})
+    monkeypatch.setattr(ingest_command, "ingest_members", lambda: {"stage": "members"})
+    monkeypatch.setattr(ingest_command, "ingest_bills", lambda **kwargs: {"stage": "bills"})
+    monkeypatch.setattr(ingest_command, "ingest_votes", lambda **kwargs: {"stage": "votes"})
+
+    def fake_meetings(**kwargs):
+        meeting_calls.append(kwargs)
+        return SimpleNamespace(
+            new_meeting_ids=(),
+            changed_meeting_ids=(),
+            stale_meeting_ids=(),
+            vconfbill_failures=(),
+        )
+
+    monkeypatch.setattr(ingest_command, "ingest_meetings", fake_meetings)
+    monkeypatch.setattr(ingest_command, "load_utterance_target_meeting_ids", lambda: ())
+    monkeypatch.setattr(ingest_command, "run_sanity_check", lambda: {"stage": "sanity"})
+    monkeypatch.setattr(
+        ingest_command,
+        "generate_data_completeness_report",
+        lambda: {"stage": "completeness"},
+    )
+    monkeypatch.setattr(
+        ingest_command,
+        "generate_migration_readiness_report",
+        lambda: {"stage": "readiness"},
+    )
+
+    summaries = {stage.name: stage.run().summary for stage in build_incremental_stages()}
+
+    assert len(meeting_calls) == 2
+    assert meeting_calls[0]["vconfbill_fetch_mode"] == "missing"
+    assert meeting_calls[0]["allow_partial_vconfbill"] is True
+    assert meeting_calls[1]["vconfbill_fetch_mode"] == "all"
+    assert meeting_calls[1]["allow_partial_vconfbill"] is False
+    assert summaries["meeting_bills_reconciliation"]["vconfbill_failures"] == []
 
 
 def test_resumable_stage_summary_health_checks_completed_ingest_stages() -> None:

@@ -331,6 +331,23 @@ def _fetch_vote_rows(bill_id: str) -> list[dict[str, Any]]:
     return response.rows
 
 
+def retry_vote_rows(bill_id: str) -> bool:
+    """dead letter 재처리용: 단일 법안의 표결 row를 다시 가져와 upsert한다."""
+    rows = _fetch_vote_rows(str(bill_id))
+    if not rows:
+        return True
+    canonical_bill_id = _load_canonical_bill_ids([rows[0]]).get(str(bill_id), str(bill_id))
+    bill_refs = [_normalize_bill_ref(rows[0], bill_id=canonical_bill_id)]
+    member_refs = _normalize_member_refs({str(bill_id): rows})
+    vote_rows = [_normalize_vote_row(row, bill_id=canonical_bill_id) for row in rows]
+    with get_conn() as conn:
+        execute_many(conn, _UPSERT_BILL_REFS_SQL, bill_refs)
+        execute_many(conn, _INSERT_MEMBER_REFS_SQL, member_refs)
+        execute_many(conn, _UPSERT_VOTES_SQL, vote_rows)
+        conn.commit()
+    return True
+
+
 def _fetch_vote_rows_with_retry(
     bill_id: str,
     *,

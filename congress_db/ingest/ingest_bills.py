@@ -328,6 +328,17 @@ def backfill_missing_bill_summaries(
     )
 
 
+def retry_bill_summary(bill_no: str) -> bool:
+    """dead letter 재처리용: 단일 BILL_NO summary를 다시 가져와 반영한다."""
+    result = _fetch_summary(str(bill_no))
+    if result.summary is None:
+        return True
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(_UPDATE_MISSING_SUMMARY_SQL, {"bill_no": str(bill_no), "summary": result.summary})
+        conn.commit()
+    return True
+
+
 def _load_missing_summary_bill_nos(*, limit: int | None = None) -> list[str]:
     if limit is not None and limit <= 0:
         raise ValueError("limit must be positive")

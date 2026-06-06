@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, is_dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
@@ -48,6 +48,7 @@ INCREMENTAL_BILL_SUMMARY_WORKERS = 100
 INCREMENTAL_VOTE_ROW_WORKERS = 20
 INCREMENTAL_MEETING_BILL_WORKERS = 200
 INCREMENTAL_SCRAPE_WORKERS = 20
+MEETING_BILLS_RECONCILIATION_INTERVAL_DAYS = 7
 
 
 @dataclass(frozen=True)
@@ -363,6 +364,22 @@ def build_incremental_stages(
         )
         return _stage_from_result(result, exclude=("vconfbill_failures",), dead_letters=failures)
 
+    def run_meeting_bills_reconciliation() -> StageResult:
+        if not meeting_bills_reconciliation_due():
+            return StageResult(
+                summary={
+                    "skipped_reason": "meeting_bills reconciliation not due",
+                    "interval_days": MEETING_BILLS_RECONCILIATION_INTERVAL_DAYS,
+                }
+            )
+        result = ingest_meetings(
+            calibration_limit=None,
+            vconfbill_worker_count=cap_worker_count(INCREMENTAL_MEETING_BILL_WORKERS),
+            vconfbill_fetch_mode="all",
+            allow_partial_vconfbill=False,
+        )
+        return _stage_from_result(result)
+
     def run_utterances() -> StageResult:
         missing_ids = set(load_utterance_target_meeting_ids())
         target_ids = tuple(sorted(set(touched_meeting_ids) | missing_ids | set(forced_ids)))
@@ -406,6 +423,7 @@ def build_incremental_stages(
         BackfillStage("bills", run_bills),
         BackfillStage("votes", run_votes),
         BackfillStage("meetings", run_meetings),
+        BackfillStage("meeting_bills_reconciliation", run_meeting_bills_reconciliation),
         BackfillStage("utterances", run_utterances),
         BackfillStage("sanity_check", lambda: _stage_from_result(run_sanity_check())),
         BackfillStage(
@@ -414,6 +432,30 @@ def build_incremental_stages(
         ),
         BackfillStage("migration_readiness", _run_migration_readiness),
     )
+
+
+def meeting_bills_reconciliation_due(
+    *,
+    interval_days: int = MEETING_BILLS_RECONCILIATION_INTERVAL_DAYS,
+) -> bool:
+    """최근 성공 reconciliation이 없거나 interval을 넘겼으면 실행한다."""
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT finished_at
+            FROM ingest_runs
+            WHERE mode = 'incremental'
+              AND status IN ('success', 'degraded_success')
+              AND summary #> '{stages,meeting_bills_reconciliation}' IS NOT NULL
+              AND summary #>> '{stages,meeting_bills_reconciliation,skipped_reason}' IS NULL
+            ORDER BY finished_at DESC NULLS LAST, id DESC
+            LIMIT 1
+            """
+        )
+        row = cur.fetchone()
+    if row is None or row[0] is None:
+        return True
+    return row[0] <= datetime.now(UTC) - timedelta(days=interval_days)
 
 
 def _run_dead_letter_retry() -> StageResult:

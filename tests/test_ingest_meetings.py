@@ -365,6 +365,82 @@ def test_prune_stale_meetings_removes_non_web_meeting_state() -> None:
         assert cur.fetchone()[0] == 0
 
 
+def test_full_meeting_bills_reconciliation_replaces_stale_links(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO meetings (mnts_id, title, meeting_type, conf_date, comm_name)
+            VALUES (910001, '기존 회의', '상임위', '2026-05-08', '테스트위원회')
+            """
+        )
+        cur.execute(
+            """
+            INSERT INTO meeting_bills (meeting_id, bill_id)
+            VALUES (910001, 'TEST_MEETING_BILL_2')
+            """
+        )
+        conn.commit()
+
+    monkeypatch.setattr(
+        "congress_db.ingest.ingest_meetings.collect_minutes_web_list",
+        lambda: MinutesWebListCrawlResult(
+            meetings=(
+                _web_meeting(
+                    910001,
+                    "제22대 제435회 제2차 테스트위원회 (2026. 05. 08.)",
+                    "상임위",
+                    date(2026, 5, 8),
+                    comm_name="테스트위원회",
+                ),
+            ),
+            html_unavailable=(),
+        ),
+    )
+    monkeypatch.setattr("congress_db.ingest.ingest_meetings._fetch_meeting_sources", lambda **kwargs: [])
+    monkeypatch.setattr(
+        "congress_db.ingest.ingest_meetings._normalize_meeting_sources",
+        lambda fetched: (
+            {},
+            [
+                {
+                    "meeting_id": 910001,
+                    "order_no": 1,
+                    "sub_name": "항공안전법 일부개정법률안",
+                    "bill_no": "9908348",
+                }
+            ],
+        ),
+    )
+    monkeypatch.setattr(
+        "congress_db.ingest.ingest_meetings._fetch_vconfbill_pairs",
+        lambda *args, **kwargs: ({(910001, "TEST_MEETING_BILL_1")}, 1, ()),
+    )
+    monkeypatch.setattr("congress_db.ingest.ingest_meetings._prune_stale_meetings", lambda conn, ids: ())
+
+    result = ingest_meetings(
+        calibration_limit=None,
+        vconfbill_fetch_mode="all",
+        vconfbill_worker_count=1,
+        allow_partial_vconfbill=False,
+    )
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT bill_id
+            FROM meeting_bills
+            WHERE meeting_id = 910001
+            ORDER BY bill_id
+            """
+        )
+        meeting_bill_ids = [row[0] for row in cur.fetchall()]
+
+    assert result.vconfbill_target_bill_count == 1
+    assert meeting_bill_ids == ["TEST_MEETING_BILL_1"]
+
+
 def test_select_vconfbill_bill_ids_keeps_missing_and_touched_bills() -> None:
     _insert_existing_web_only_meeting_bill()
     agenda_rows = [
