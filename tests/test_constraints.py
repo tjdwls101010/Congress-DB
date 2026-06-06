@@ -41,6 +41,7 @@ def _pk_columns(table: str) -> list[str]:
         ("members",          ["mona_cd"]),
         ("bills",            ["bill_id"]),
         ("meetings",         ["mnts_id"]),
+        ("bill_relations",   ["absorbed_bill_id"]),
         ("bill_lead_proposers", ["bill_id", "mona_cd"]),
         ("bill_coproposers", ["bill_id", "mona_cd"]),
         ("votes",            ["id"]),
@@ -165,5 +166,43 @@ def test_bills_bill_no_unique() -> None:
             cur.execute(
                 "INSERT INTO bills (bill_id, bill_no, bill_name) "
                 "VALUES ('U2', 'BNO_UNQ1', '같은 번호 다른 id')"
+            )
+        conn.rollback()
+
+
+def test_bill_relations_require_known_absorbed_bill_and_valid_relation_type() -> None:
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO bills (bill_id, bill_no, bill_name) "
+            "VALUES ('REL_ABSORB', 'RELNO1', '흡수 원안')"
+        )
+        cur.execute(
+            "INSERT INTO bills (bill_id, bill_no, bill_name) "
+            "VALUES ('REL_ALT', 'RELNO2', '흡수 대안')"
+        )
+        cur.execute(
+            """
+            INSERT INTO bill_relations (
+                absorbed_bill_id, alternative_bill_id, relation_type
+            )
+            VALUES ('REL_ABSORB', 'REL_ALT', '대안반영')
+            """
+        )
+        cur.execute(
+            """
+            INSERT INTO bill_relations (
+                absorbed_bill_id, alternative_bill_id, relation_type
+            )
+            VALUES ('REL_ALT', 'MISSING_ALT_SOURCE_KEY', '수정안반영')
+            """
+        )
+        with pytest.raises(psycopg.errors.CheckViolation):
+            cur.execute(
+                """
+                INSERT INTO bill_relations (
+                    absorbed_bill_id, alternative_bill_id, relation_type
+                )
+                VALUES ('REL_ALT', 'REL_ABSORB', '엉뚱관계')
+                """
             )
         conn.rollback()
