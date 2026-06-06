@@ -11,6 +11,8 @@ import hanja
 import requests
 from bs4 import BeautifulSoup
 
+from ..core.throttle import external_http_slot
+
 BASE_URL = "https://record.assembly.go.kr/assembly/viewer/minutes/xml.do"
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -57,12 +59,13 @@ class MinutesDomProfile:
 
 def fetch_minutes(mnts_id: int, *, timeout: int = 30) -> tuple[str, str]:
     """회의록 HTML을 가져온다."""
-    response = requests.get(
-        BASE_URL,
-        params={"id": str(mnts_id), "type": "view"},
-        headers={"User-Agent": USER_AGENT},
-        timeout=timeout,
-    )
+    with external_http_slot():
+        response = requests.get(
+            BASE_URL,
+            params={"id": str(mnts_id), "type": "view"},
+            headers={"User-Agent": USER_AGENT},
+            timeout=timeout,
+        )
     response.raise_for_status()
     response.encoding = response.apparent_encoding
     url = f"{BASE_URL}?id={mnts_id}&type=view"

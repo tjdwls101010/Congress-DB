@@ -153,6 +153,41 @@ def test_fetch_endpoint_with_retry_recovers_transient_timeout(
     assert calls == 2
 
 
+def test_fetch_endpoint_with_retry_honors_retry_after_on_429(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import requests
+
+    calls = 0
+    sleeps: list[float] = []
+
+    def fake_get(*args: Any, **kwargs: Any) -> MagicMock:
+        nonlocal calls
+        calls += 1
+        response = MagicMock()
+        if calls == 1:
+            response.status_code = 429
+            response.headers = {"Retry-After": "2"}
+            response.raise_for_status.side_effect = requests.HTTPError("429 Too Many Requests")
+            return response
+        response.status_code = 200
+        response.headers = {}
+        response.json.return_value = _ok_envelope("foo", total=1, rows=[{"x": 1}])
+        response.raise_for_status = MagicMock()
+        return response
+
+    monkeypatch.setattr("congress_db.core.api_client.requests.get", fake_get)
+    monkeypatch.setattr("congress_db.core.api_client.time.sleep", lambda delay: sleeps.append(delay))
+
+    resp = fetch_endpoint_with_retry("foo", api_key="testkey", retry_delays=(99,))
+
+    assert resp.status == "ok"
+    assert resp.rows == [{"x": 1}]
+    assert resp.retry_count == 1
+    assert calls == 2
+    assert sleeps == [2.0]
+
+
 # -------------------------------------------------------------------------
 # fetch_with_age_attempts
 # -------------------------------------------------------------------------

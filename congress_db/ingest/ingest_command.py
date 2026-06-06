@@ -31,6 +31,7 @@ from .ingest_members import ingest_members
 from .ingest_state import upsert_cursor
 from .ingest_utterances import ingest_utterances
 from .ingest_votes import ingest_votes
+from ..core.throttle import cap_worker_count
 
 ModeRequest = Literal["auto", "backfill", "incremental"]
 RunMode = Literal["backfill", "incremental"]
@@ -325,7 +326,7 @@ def build_incremental_stages(
             ingest_bills(
                 limit_pct=1.0,
                 summary_fetch_mode="missing",
-                summary_worker_count=INCREMENTAL_BILL_SUMMARY_WORKERS,
+                summary_worker_count=cap_worker_count(INCREMENTAL_BILL_SUMMARY_WORKERS),
             )
         )
 
@@ -334,7 +335,7 @@ def build_incremental_stages(
             ingest_votes(
                 limit_pct=1.0,
                 vote_row_fetch_mode="missing",
-                vote_row_worker_count=INCREMENTAL_VOTE_ROW_WORKERS,
+                vote_row_worker_count=cap_worker_count(INCREMENTAL_VOTE_ROW_WORKERS),
             )
         )
 
@@ -342,7 +343,7 @@ def build_incremental_stages(
         nonlocal touched_meeting_ids
         result = ingest_meetings(
             calibration_limit=None,
-            vconfbill_worker_count=INCREMENTAL_MEETING_BILL_WORKERS,
+            vconfbill_worker_count=cap_worker_count(INCREMENTAL_MEETING_BILL_WORKERS),
             vconfbill_fetch_mode="missing",
             vconfbill_force_meeting_ids=forced_ids,
             allow_partial_vconfbill=True,
@@ -385,7 +386,7 @@ def build_incremental_stages(
             calibration_limit=max(len(target_ids), 1),
             meeting_ids=target_ids,
             allow_partial=True,
-            scrape_worker_count=INCREMENTAL_SCRAPE_WORKERS,
+            scrape_worker_count=cap_worker_count(INCREMENTAL_SCRAPE_WORKERS),
         )
         failures = tuple(
             DeadLetterDraft(

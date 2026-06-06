@@ -112,6 +112,75 @@ def test_incremental_stages_scope_utterances_to_touched_meetings(
     assert calls["utterances_kwargs"]["scrape_worker_count"] > 0
 
 
+def test_incremental_stages_cap_explicit_worker_counts(
+    monkeypatch,
+) -> None:
+    calls: dict[str, object] = {}
+
+    monkeypatch.setenv("CONGRESS_DB_HTTP_CONCURRENCY_LIMIT", "7")
+    monkeypatch.setattr(ingest_command, "retry_dead_letters", lambda: {"retried": 0})
+    monkeypatch.setattr(ingest_command, "ingest_members", lambda: {"stage": "members"})
+    monkeypatch.setattr(
+        ingest_command,
+        "ingest_bills",
+        lambda **kwargs: calls.__setitem__("bills_kwargs", kwargs) or {"stage": "bills"},
+    )
+    monkeypatch.setattr(
+        ingest_command,
+        "ingest_votes",
+        lambda **kwargs: calls.__setitem__("votes_kwargs", kwargs) or {"stage": "votes"},
+    )
+    monkeypatch.setattr(
+        ingest_command,
+        "ingest_meetings",
+        lambda **kwargs: (
+            calls.__setitem__("meetings_kwargs", kwargs)
+            or SimpleNamespace(
+                new_meeting_ids=(),
+                changed_meeting_ids=(),
+                stale_meeting_ids=(),
+                vconfbill_failures=(),
+            )
+        ),
+    )
+    monkeypatch.setattr(ingest_command, "load_utterance_target_meeting_ids", lambda: (920103,))
+    monkeypatch.setattr(
+        ingest_command,
+        "ingest_utterances",
+        lambda **kwargs: calls.__setitem__("utterances_kwargs", kwargs)
+        or SimpleNamespace(
+            meeting_count=1,
+            scraped_meeting_count=1,
+            scraped_meeting_ids=(920103,),
+            utterance_count=10,
+            selected_worker_count=7,
+            scrape_error_count=0,
+            member_mapped_count=5,
+            sample_errors=(),
+            scrape_failures=(),
+        ),
+    )
+    monkeypatch.setattr(ingest_command, "run_sanity_check", lambda: {"stage": "sanity"})
+    monkeypatch.setattr(
+        ingest_command,
+        "generate_data_completeness_report",
+        lambda: {"stage": "completeness"},
+    )
+    monkeypatch.setattr(
+        ingest_command,
+        "generate_migration_readiness_report",
+        lambda: {"stage": "readiness"},
+    )
+
+    for stage in build_incremental_stages():
+        stage.run()
+
+    assert calls["bills_kwargs"]["summary_worker_count"] == 7
+    assert calls["votes_kwargs"]["vote_row_worker_count"] == 7
+    assert calls["meetings_kwargs"]["vconfbill_worker_count"] == 7
+    assert calls["utterances_kwargs"]["scrape_worker_count"] == 7
+
+
 def test_resumable_stage_summary_health_checks_completed_ingest_stages() -> None:
     assert _is_resumable_stage_summary_healthy(
         "bills",

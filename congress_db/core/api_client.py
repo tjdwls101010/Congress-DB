@@ -26,12 +26,15 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any, Literal, Sequence
 
 import requests
 from dotenv import load_dotenv
 
 from .progress import safe_print
+from .throttle import external_http_slot
 
 load_dotenv()
 
@@ -65,6 +68,7 @@ class ApiResponse:
     # fetch_with_age_attempts에서 채택된 대수 파라미터. None이면 미적용/무관.
     age_param_used: dict[str, str] | None = None
     retry_count: int = 0
+    retry_after_seconds: float | None = None
 
 
 # -------------------------------------------------------------------------
@@ -97,12 +101,20 @@ def fetch_endpoint(
 
     url = f"{BASE_URL}/{endpoint}"
     try:
-        r = requests.get(
-            url,
-            params=query,
-            headers={"User-Agent": DEFAULT_USER_AGENT},
-            timeout=timeout,
-        )
+        with external_http_slot():
+            r = requests.get(
+                url,
+                params=query,
+                headers={"User-Agent": DEFAULT_USER_AGENT},
+                timeout=timeout,
+            )
+        if r.status_code == 429:
+            return ApiResponse(
+                status="error",
+                total_count=0,
+                error="429 Too Many Requests",
+                retry_after_seconds=_parse_retry_after(r.headers.get("Retry-After")),
+            )
         r.raise_for_status()
         data = r.json()
     except requests.RequestException as exc:
@@ -139,7 +151,7 @@ def fetch_endpoint_with_retry(
             return _with_retry_count(response, attempts - 1)
         if attempts > len(retry_delays):
             return _with_retry_count(response, attempts - 1)
-        delay = retry_delays[attempts - 1]
+        delay = _retry_delay(response, retry_delays[attempts - 1])
         safe_print(
             f"[retry] openapi endpoint={endpoint} p_index={p_index} "
             f"attempt={attempts} next_delay={delay:.1f}s error={response.error}",
@@ -157,6 +169,7 @@ def _with_retry_count(response: ApiResponse, retry_count: int) -> ApiResponse:
         error=response.error,
         age_param_used=response.age_param_used,
         retry_count=retry_count,
+        retry_after_seconds=response.retry_after_seconds,
     )
 
 
@@ -164,6 +177,8 @@ def _is_retryable_error(error: str | None) -> bool:
     if not error:
         return False
     retryable_fragments = (
+        "429",
+        "Too Many Requests",
         "Read timed out",
         "Connection aborted",
         "Connection reset",
@@ -178,6 +193,31 @@ def _is_retryable_error(error: str | None) -> bool:
         "Gateway Timeout",
     )
     return any(fragment in error for fragment in retryable_fragments)
+
+
+def _retry_delay(response: ApiResponse, fallback: float) -> float:
+    if response.retry_after_seconds is not None:
+        return response.retry_after_seconds
+    return fallback
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        seconds = float(text)
+    except ValueError:
+        try:
+            parsed = parsedate_to_datetime(text)
+        except (TypeError, ValueError, IndexError, OverflowError):
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return max(0.0, (parsed - datetime.now(UTC)).total_seconds())
+    return max(0.0, seconds)
 
 
 def _parse_response(data: Any) -> ApiResponse:
@@ -261,6 +301,7 @@ def fetch_with_age_attempts(
                 error=response.error,
                 age_param_used=dict(age_params) if age_params else None,
                 retry_count=total_retry_count,
+                retry_after_seconds=response.retry_after_seconds,
             )
         last = response
         if sleep_between:

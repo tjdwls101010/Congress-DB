@@ -18,6 +18,7 @@ from ..core.api_client import ApiResponse, fetch_endpoint_with_retry, fetch_with
 from ..core.db import execute_many, get_conn
 from ..core.endpoints import ENDPOINTS_BY_SLUG
 from ..core.progress import ProgressReporter, safe_print
+from ..core.throttle import cap_worker_count, cap_worker_levels
 from ..ops.benchmark import (
     DEFAULT_WORKER_LEVELS,
     BenchmarkResult,
@@ -309,12 +310,12 @@ def _fetch_target_summaries(
     if summary_worker_count is None:
         benchmark = _benchmark_summary_workers(
             representative_sample(bill_nos, benchmark_sample_size),
-            worker_levels=worker_levels,
+            worker_levels=cap_worker_levels(worker_levels),
             output_path=benchmark_output_path,
         )
-        worker_count = benchmark.selected_worker_count
+        worker_count = cap_worker_count(benchmark.selected_worker_count)
     else:
-        worker_count = summary_worker_count
+        worker_count = cap_worker_count(summary_worker_count)
     return worker_count, _fetch_summaries(bill_nos, worker_count)
 
 
