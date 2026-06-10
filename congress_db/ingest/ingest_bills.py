@@ -63,6 +63,7 @@ class BillSummaryBackfillResult:
     target_count: int
     updated_count: int
     no_data_count: int
+    accepted_gap_count: int
     error_count: int
     retry_count: int
     retried_bill_count: int
@@ -319,6 +320,7 @@ def backfill_missing_bill_summaries(
         target_count=len(bill_nos),
         updated_count=updated_count,
         no_data_count=no_data_count,
+        accepted_gap_count=no_data_count,
         error_count=summary_result.error_count,
         retry_count=summary_result.retry_count,
         retried_bill_count=summary_result.retry_item_count,

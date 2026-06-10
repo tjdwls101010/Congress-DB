@@ -41,10 +41,12 @@ class _FakeCursor:
                 _Description("bill_metadata_gaps"),
                 _Description("bills_missing_propose_dt"),
                 _Description("bills_missing_summary"),
+                _Description("bills_missing_summary_fillable"),
+                _Description("bills_missing_summary_accepted_gap"),
                 _Description("vote_created_bill_gaps"),
                 _Description("non_vote_bill_gaps"),
             ]
-            self._row = (0, 0, 0, 0, 0)
+            self._row = (3, 0, 3, 1, 2, 0, 3)
         elif self.calls == 4:
             self.description = [
                 _Description("total_utterances"),
@@ -163,7 +165,12 @@ def test_generate_data_completeness_report_separates_member_titled_and_overall_m
     report = generate_data_completeness_report(tmp_path / "DATA-COMPLETENESS.md")
 
     metrics = {metric.name: metric for metric in report.metrics}
+    assert metrics["bills_missing_summary"].value == 3
+    assert metrics["bills_missing_summary_fillable"].value == 1
+    assert metrics["bills_missing_summary_accepted_gap"].value == 2
     assert metrics["member_titled_utterance_mapping_rate_pct"].value == 100.0
     assert metrics["overall_utterance_mapping_rate_pct"].value == 61.5
+    assert "BPMBILLSUMMARY" in metrics["bills_missing_summary_fillable"].interpretation
+    assert "accepted-gap" in metrics["bills_missing_summary_accepted_gap"].interpretation
     assert "Member-titled only" in metrics["member_titled_utterance_mapping_rate_pct"].interpretation
     assert "All utterances" in metrics["overall_utterance_mapping_rate_pct"].interpretation

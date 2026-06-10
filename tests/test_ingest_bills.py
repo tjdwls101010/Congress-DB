@@ -416,7 +416,7 @@ def test_backfill_missing_bill_summaries_updates_only_missing_summaries(
             INSERT INTO bills (bill_id, bill_no, bill_name, propose_dt, summary)
             VALUES
                 ('TEST_BILL_1', '9000001', '결측 법안', '2999-01-01', NULL),
-                ('TEST_BILL_2', '9000002', '진짜 요약 없음', '2999-01-01', ''),
+                ('TEST_BILL_2', '9000002', '진짜 요약 없음', '2999-01-01', NULL),
                 ('TEST_BILL_3', '9000003', '기존 요약 법안', '2999-01-01', '기존 요약')
             """
         )
@@ -456,6 +456,7 @@ def test_backfill_missing_bill_summaries_updates_only_missing_summaries(
     assert result.target_count == 2
     assert result.updated_count == 1
     assert result.no_data_count == 1
+    assert result.accepted_gap_count == 1
     assert result.error_count == 0
     assert result.remaining_missing_count >= 1
     assert result.summary_failures == ()
@@ -474,7 +475,7 @@ def test_backfill_missing_bill_summaries_updates_only_missing_summaries(
 
     assert rows == [
         ("9000001", "새 요약"),
-        ("9000002", ""),
+        ("9000002", None),
         ("9000003", "기존 요약"),
     ]
 

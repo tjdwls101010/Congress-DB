@@ -179,11 +179,57 @@ def _load_gap_counts(cur: object) -> dict[str, int]:
             WHERE b.propose_dt IS NULL
                OR b.summary IS NULL
                OR b.summary = ''
+        ), summary_gap_counts AS (
+            SELECT COUNT(*)::int AS bills_missing_summary
+            FROM bills
+            WHERE summary IS NULL OR summary = ''
+        ), summary_backfills AS (
+            SELECT
+                id,
+                started_at,
+                finished_at,
+                summary #> '{stages,bills_summary_backfill}' AS stage_summary
+            FROM ingest_runs
+            WHERE mode = 'backfill'
+              AND status IN ('success', 'degraded_success')
+              AND summary #> '{stages,bills_summary_backfill}' IS NOT NULL
+        ), complete_summary_backfills AS (
+            SELECT
+                id,
+                started_at,
+                finished_at,
+                COALESCE(
+                    NULLIF(stage_summary->>'accepted_gap_count', '')::int,
+                    NULLIF(stage_summary->>'no_data_count', '')::int,
+                    0
+                ) AS accepted_gap_count,
+                COALESCE(NULLIF(stage_summary->>'remaining_missing_count', '')::int, -1)
+                    AS remaining_missing_count,
+                COALESCE(NULLIF(stage_summary->>'error_count', '')::int, 0) AS error_count
+            FROM summary_backfills
+        ), latest_complete_summary_backfill AS (
+            SELECT accepted_gap_count
+            FROM complete_summary_backfills
+            WHERE error_count = 0
+              AND remaining_missing_count = accepted_gap_count
+            ORDER BY COALESCE(finished_at, started_at) DESC, id DESC
+            LIMIT 1
+        ), accepted_summary_gap AS (
+            SELECT LEAST(
+                (SELECT bills_missing_summary FROM summary_gap_counts),
+                COALESCE((SELECT accepted_gap_count FROM latest_complete_summary_backfill), 0)
+            )::int AS count
         )
         SELECT
             (SELECT COUNT(*) FROM bill_gaps) AS bill_metadata_gaps,
             (SELECT COUNT(*) FROM bill_gaps WHERE propose_dt IS NULL) AS bills_missing_propose_dt,
-            (SELECT COUNT(*) FROM bill_gaps WHERE summary IS NULL OR summary = '') AS bills_missing_summary,
+            (SELECT bills_missing_summary FROM summary_gap_counts) AS bills_missing_summary,
+            GREATEST(
+                (SELECT bills_missing_summary FROM summary_gap_counts)
+                    - (SELECT count FROM accepted_summary_gap),
+                0
+            )::int AS bills_missing_summary_fillable,
+            (SELECT count FROM accepted_summary_gap) AS bills_missing_summary_accepted_gap,
             (SELECT COUNT(*) FROM bill_gaps WHERE has_votes) AS vote_created_bill_gaps,
             (SELECT COUNT(*) FROM bill_gaps WHERE NOT has_votes) AS non_vote_bill_gaps
         """
@@ -253,6 +299,16 @@ def _build_metrics(
             "Bills whose summary cannot yet participate in keyword search.",
         ),
         Metric(
+            "bills_missing_summary_fillable",
+            gap_counts["bills_missing_summary_fillable"],
+            "Missing summaries not covered by the latest complete BPMBILLSUMMARY accepted-gap ledger; rerun the summary backfill before accepting them.",
+        ),
+        Metric(
+            "bills_missing_summary_accepted_gap",
+            gap_counts["bills_missing_summary_accepted_gap"],
+            "Missing summaries classified as accepted-gap because the latest complete BPMBILLSUMMARY backfill returned source no-data.",
+        ),
+        Metric(
             "overall_utterances_total",
             overall_mapping.total_utterances,
             "All utterances in the corpus, including ministers, witnesses, staff, and other non-member speakers.",
@@ -313,6 +369,8 @@ def _build_conclusions(
     return (
         "Do not backfill `members.poly_nm` from `votes.poly_nm_at_vote` in this slice; vote party is point-in-time data, while `members.poly_nm` is profile metadata.",
         f"{gap_counts['vote_created_bill_gaps']} vote-created bill rows still lack source proposal date and summary after full backfill; keep them as accepted source metadata gaps for migration unless a new source endpoint is added.",
+        f"{gap_counts['bills_missing_summary_fillable']} bills with missing summary remain fillable candidates; run the bill summary backfill before treating them as accepted gaps.",
+        f"{gap_counts['bills_missing_summary_accepted_gap']} bills still lack source summary after BPMBILLSUMMARY returned no-data; keep them as accepted-gap rows that affect summary-search recall, not relational integrity.",
         f"{gap_counts['non_vote_bill_gaps']} non-vote bill rows still lack source summary after full backfill; they affect summary-search recall, not relational integrity.",
         f"Member-titled utterance mapping is {_metric_rate(member_mapping.actionable_mapping_rate_pct)}% after excluding {member_mapping.ambiguous_name_unmapped} ambiguous-name rows from the denominator.",
         mapping_conclusion,

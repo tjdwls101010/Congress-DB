@@ -43,7 +43,7 @@ def main() -> None:
     run = run_staged_ingest(
         mode="backfill",
         stages=(BackfillStage("bills_summary_backfill", run_summary_backfill),),
-        run_metadata={"entrypoint": "ingest_bill_summaries", "issue": 73},
+        run_metadata={"entrypoint": "ingest_bill_summaries", "issue": 84},
     )
     summary = run.stage_summaries["bills_summary_backfill"]
     print(
@@ -52,6 +52,7 @@ def main() -> None:
         f"status={run.status} "
         f"target={summary['target_count']} "
         f"updated={summary['updated_count']} "
+        f"accepted_gap={summary['accepted_gap_count']} "
         f"no_data={summary['no_data_count']} "
         f"errors={summary['error_count']} "
         f"remaining_missing={summary['remaining_missing_count']} "
