@@ -1,6 +1,6 @@
 # ERD — Congress-DB (Postgres 16)
 
-9개 핵심 테이블 + source alias 테이블 1개 + audit 테이블 1개 + 카탈로그 1개 + 수집 운영 테이블 3개. core schema는 향후 검색 API/SDK에서 검색, 필터, 정렬, 조인, 결과 설명에 쓰이는 필드만 보존한다.
+9개 핵심 테이블 + source alias 테이블 1개 + final outcome 테이블 1개 + audit 테이블 1개 + 카탈로그 1개 + 수집 운영 테이블 3개. core schema는 향후 검색 API/SDK에서 검색, 필터, 정렬, 조인, 결과 설명에 쓰이는 필드만 보존한다.
 
 ## Mermaid 다이어그램
 
@@ -100,6 +100,21 @@ source마다 갈릴 수 있는 `BILL_ID`를 안정적인 `BILL_NO`를 경유해 
 | `bill_no` | TEXT | source detail에서 확인한 안정 의안번호 |
 | `canonical_bill_id` | TEXT REFERENCES bills(bill_id) | 기존 `bills` row. 해소 불가 gap은 row를 만들지 않으므로 nullable |
 | `fetched_at` | TIMESTAMPTZ | 마지막 해소 시각 |
+
+### 3b. `bill_final_outcomes` — 최종 처리·공포 이력
+
+ALLBILL이 제공하는 본회의 의결 이후 정부이송·공포 이력을 `BILL_NO` 기준으로 보존한다. `bills.law_proc_dt`는 법사위 처리일자에 가까우므로 공포일로 사용하지 않는다.
+
+| 컬럼 | 타입 | 비고 |
+|---|---|---|
+| `bill_no` | TEXT | **PK**. source 간 안정 의안번호 |
+| `plenary_dt` | DATE | 본회의 의결일 (`RGS_RSLN_DT`) |
+| `govt_transfer_dt` | DATE | 정부이송일 (`GVRN_TRSF_DT`) |
+| `promulgation_dt` | DATE | 공포일 (`PROM_DT`) |
+| `prom_no` | TEXT | 공포번호 (`PROM_NO`) |
+| `prom_law_nm` | TEXT | 공포 법률명 (`PROM_LAW_NM`) |
+| `source` | TEXT NOT NULL | 적재 출처. 현재 `allbill` |
+| `fetched_at` | TIMESTAMPTZ | 마지막 수집 시각 |
 
 ### 4. `bill_lead_proposers` — 대표발의 N:M
 

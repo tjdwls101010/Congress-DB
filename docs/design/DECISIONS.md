@@ -3,6 +3,15 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-06-11 — bill_final_outcomes stores PROM_LAW_NM, not a numeric law_id
+
+Issue #86 planned a `law_id` column as the 법제처 bridge, but a live ALLBILL check shows the endpoint
+returns no clean numeric 법령ID — only `PROM_LAW_NM` (the promulgated law name) and a `LINK_URL` that
+merely points back to the likms bill page (`billDetail.do?billId=<BILL_ID>`). Decision: store
+`prom_law_nm` (promulgated law name) instead of `law_id`; the law name is the actual key 법제처 (the
+future statute SDK) is queried by, so the bridge intent is preserved while staying honest about what
+the source provides. Reversible — a numeric 법령ID column can be added later if a source supplies one.
+
 ## 2026-06-10 — No 국회 SDK; the future skill queries Neon directly via SQL over a schema reference
 
 The planned 국회 SDK (roadmap step 2) was a fixed query surface — brittle (one wrong or

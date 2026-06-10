@@ -43,6 +43,7 @@ def _pk_columns(table: str) -> list[str]:
         ("meetings",         ["mnts_id"]),
         ("bill_relations",   ["absorbed_bill_id"]),
         ("bill_source_aliases", ["source", "source_bill_id"]),
+        ("bill_final_outcomes", ["bill_no"]),
         ("bill_lead_proposers", ["bill_id", "mona_cd"]),
         ("bill_coproposers", ["bill_id", "mona_cd"]),
         ("votes",            ["id"]),

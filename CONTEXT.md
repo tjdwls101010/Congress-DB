@@ -97,8 +97,8 @@ _Avoid_: 직함(raw 텍스트 그대로 — 정규화된 역할과 구분)
 **처리결과 (Proc Result)**:
 법안의 본회의 처리결과. 가결·부결·대안반영·철회 등. `bills.proc_result`에 텍스트로 저장.
 
-**최종 처리·공포 이력 (Final Outcome)** _(도입 예정 — 이슈)_:
-법안의 본회의 의결 이후 정부이송·공포 단계. 공포일·공포번호·정부이송일·법률ID를 ALLBILL에서 `BILL_NO` 기준으로 적재해 `bill_final_outcomes`에 보존한다(DECISIONS 2026-06-10). `bills.law_proc_dt`(법사위 처리일에 가까움)와 **다르다** — law_proc_dt를 공포일로 쓰지 말 것. 현행법 본문은 법제처 단계 소관이고, 이 이력은 거기로 가는 bridge key다.
+**최종 처리·공포 이력 (Final Outcome)**:
+법안의 본회의 의결 이후 정부이송·공포 단계. 공포일·공포번호·정부이송일·공포 법률명(`prom_law_nm`)을 ALLBILL에서 `BILL_NO` 기준으로 적재해 `bill_final_outcomes`에 보존한다(DECISIONS 2026-06-10, 2026-06-11). `bills.law_proc_dt`(법사위 처리일에 가까움)와 **다르다** — law_proc_dt를 공포일로 쓰지 말 것. 현행법 본문은 법제처 단계 소관이고, 이 이력은 법제처 질의로 이어지는 bridge key다.
 _Avoid_: law_proc_dt를 공포일로 사용
 
 **대안 관계 (Alternative Relation)** _(도입 예정 — M2)_:
