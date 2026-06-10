@@ -123,7 +123,9 @@ def test_ingest_utterances_scrapes_and_upserts_idempotently(
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             """
-            SELECT meeting_id, sequence, speaker_name, speaker_title, speaker_mona_cd, content
+            SELECT
+                meeting_id, sequence, speaker_name, speaker_title,
+                speaker_mona_cd, content, speaker_role
             FROM utterances
             WHERE meeting_id = ANY(%s)
             ORDER BY meeting_id, sequence
@@ -133,9 +135,9 @@ def test_ingest_utterances_scrapes_and_upserts_idempotently(
         rows = cur.fetchall()
 
     assert rows == [
-        (920101, 1, "가상일", "위원", "TEST_UTT_MEMBER_1", "의원 발언입니다."),
-        (920101, 2, "홍길동", "장관", None, "정부 답변입니다."),
-        (920102, 1, "김테스트", "의원", "TEST_UTT_MEMBER_2", "본회의 발언입니다."),
+        (920101, 1, "가상일", "위원", "TEST_UTT_MEMBER_1", "의원 발언입니다.", "의원"),
+        (920101, 2, "홍길동", "장관", None, "정부 답변입니다.", "국무위원(장관)"),
+        (920102, 1, "김테스트", "의원", "TEST_UTT_MEMBER_2", "본회의 발언입니다.", "의원"),
     ]
     assert "Scraping Stage" in (tmp_path / "PARALLEL-BENCHMARK.md").read_text()
 

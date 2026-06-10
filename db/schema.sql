@@ -1,6 +1,6 @@
 -- Congress-DB initial schema (Postgres 16)
 -- Source: docs/design/ERD.md
--- 9 core tables + 1 catalog table + 3 ingest operational tables = 13 tables.
+-- 9 core tables + 1 audit table + 1 catalog table + 3 ingest operational tables = 14 tables.
 -- 자연키 우선, FK는 ON DELETE RESTRICT (참조 무결성 우선).
 -- CREATE TABLE IF NOT EXISTS로 idempotent 적용 (변경은 db-reset 또는 향후 migrations/).
 -- 적용은 psql -1 (single-transaction)으로 wrap — 이 파일에는 BEGIN/COMMIT 없음.
@@ -173,12 +173,34 @@ CREATE TABLE IF NOT EXISTS utterances (
     speaker_name        TEXT NOT NULL,
     speaker_title       TEXT NOT NULL,
     speaker_mona_cd     TEXT REFERENCES members        (mona_cd) ON DELETE RESTRICT,
+    speaker_role        TEXT NOT NULL
+                        CHECK (speaker_role IN (
+                            '의원', '국무위원(장관)', '차관',
+                            '증인', '참고인', '전문위원', '기타'
+                        )),
     content             TEXT NOT NULL,
     UNIQUE (meeting_id, sequence)
 );
 
 CREATE INDEX IF NOT EXISTS idx_utterances_meeting       ON utterances (meeting_id);
 CREATE INDEX IF NOT EXISTS idx_utterances_speaker       ON utterances (speaker_mona_cd) WHERE speaker_mona_cd IS NOT NULL;
+
+-- =========================================================================
+-- 9a. speaker_title_role_map — raw 직함→발언 역할 audit
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS speaker_title_role_map (
+    speaker_title   TEXT PRIMARY KEY,
+    speaker_role    TEXT NOT NULL
+                    CHECK (speaker_role IN (
+                        '의원', '국무위원(장관)', '차관',
+                        '증인', '참고인', '전문위원', '기타'
+                    )),
+    n_utterances    BIGINT NOT NULL DEFAULT 0 CHECK (n_utterances >= 0),
+    n_no_mona       BIGINT NOT NULL DEFAULT 0 CHECK (n_no_mona >= 0),
+    n_mona          BIGINT NOT NULL DEFAULT 0 CHECK (n_mona >= 0),
+    classified_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (n_utterances = n_no_mona + n_mona)
+);
 
 -- =========================================================================
 -- 10. meeting_bills — 회의↔법안 N:M junction

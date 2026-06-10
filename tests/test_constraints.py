@@ -47,6 +47,7 @@ def _pk_columns(table: str) -> list[str]:
         ("votes",            ["id"]),
         ("meeting_bills",    ["meeting_id", "bill_id"]),
         ("utterances",       ["id"]),
+        ("speaker_title_role_map", ["speaker_title"]),
         ("api_catalog",      ["inf_id"]),
         ("ingest_runs",      ["id"]),
         ("ingest_cursors",   ["source"]),
@@ -144,14 +145,14 @@ def test_utterances_unique_meeting_sequence() -> None:
         )
         cur.execute(
             "INSERT INTO utterances "
-            "(meeting_id, sequence, speaker_name, speaker_title, content) "
-            "VALUES (999993, 1, '의장', '의장', '개회합니다')"
+            "(meeting_id, sequence, speaker_name, speaker_title, content, speaker_role) "
+            "VALUES (999993, 1, '의장', '의장', '개회합니다', '의원')"
         )
         with pytest.raises(psycopg.errors.UniqueViolation):
             cur.execute(
                 "INSERT INTO utterances "
-                "(meeting_id, sequence, speaker_name, speaker_title, content) "
-                "VALUES (999993, 1, '다른', '의원', '중복 시퀀스')"
+                "(meeting_id, sequence, speaker_name, speaker_title, content, speaker_role) "
+                "VALUES (999993, 1, '다른', '의원', '중복 시퀀스', '의원')"
             )
         conn.rollback()
 

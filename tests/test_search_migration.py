@@ -136,11 +136,13 @@ def test_search_utterances_orders_by_similarity_and_returns_snippet() -> None:
         )
         cur.execute(
             """
-            INSERT INTO utterances (meeting_id, sequence, speaker_name, speaker_title, content)
+            INSERT INTO utterances (
+                meeting_id, sequence, speaker_name, speaker_title, content, speaker_role
+            )
             VALUES
-                (%s, 1, '테스트일', '위원', '테스트전세사기 피해 구제 대책을 질의합니다.'),
-                (%s, 2, '테스트이', '위원', '주거 정책 전반과 테스트전세사기 예방 예산을 묻습니다.'),
-                (%s, 3, '테스트삼', '위원', '항공안전 점검 체계가 필요합니다.')
+                (%s, 1, '테스트일', '위원', '테스트전세사기 피해 구제 대책을 질의합니다.', '의원'),
+                (%s, 2, '테스트이', '위원', '주거 정책 전반과 테스트전세사기 예방 예산을 묻습니다.', '의원'),
+                (%s, 3, '테스트삼', '위원', '항공안전 점검 체계가 필요합니다.', '의원')
             """,
             (TEST_SEARCH_MEETING, TEST_SEARCH_MEETING, TEST_SEARCH_MEETING),
         )

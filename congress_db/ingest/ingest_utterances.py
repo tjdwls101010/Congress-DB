@@ -23,6 +23,7 @@ from .scrape_minutes import (
     normalize_speaker_name,
     parse_minutes,
 )
+from .speaker_roles import classify_speaker_role
 
 DEFAULT_SCRAPE_BENCHMARK_OUTPUT = Path("docs/ops/PARALLEL-BENCHMARK.md")
 DEFAULT_RETRY_DELAYS = (1.0, 4.0, 16.0)
@@ -91,17 +92,19 @@ class _RetryTelemetry:
 
 _UPSERT_UTTERANCES_SQL = """
     INSERT INTO utterances (
-        meeting_id, sequence, speaker_name, speaker_title, speaker_mona_cd, content
+        meeting_id, sequence, speaker_name, speaker_title,
+        speaker_mona_cd, content, speaker_role
     )
     VALUES (
         %(meeting_id)s, %(sequence)s, %(speaker_name)s, %(speaker_title)s,
-        %(speaker_mona_cd)s, %(content)s
+        %(speaker_mona_cd)s, %(content)s, %(speaker_role)s
     )
     ON CONFLICT (meeting_id, sequence) DO UPDATE SET
         speaker_name    = EXCLUDED.speaker_name,
         speaker_title   = EXCLUDED.speaker_title,
         speaker_mona_cd = EXCLUDED.speaker_mona_cd,
-        content         = EXCLUDED.content
+        content         = EXCLUDED.content,
+        speaker_role    = EXCLUDED.speaker_role
 """
 
 
@@ -530,6 +533,10 @@ def _normalize_utterance_rows(
                     "speaker_title": utterance.speaker_title,
                     "speaker_mona_cd": speaker_mona_cd,
                     "content": utterance.content,
+                    "speaker_role": classify_speaker_role(
+                        utterance.speaker_title,
+                        speaker_mona_cd,
+                    ),
                 }
             )
     return rows

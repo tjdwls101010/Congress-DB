@@ -259,9 +259,9 @@ def test_load_utterance_target_meeting_ids_only_returns_empty_meetings() -> None
         cur.execute(
             """
             INSERT INTO utterances (
-                meeting_id, sequence, speaker_name, speaker_title, content
+                meeting_id, sequence, speaker_name, speaker_title, content, speaker_role
             )
-            VALUES (930101, 1, '테스트', '위원', '이미 적재됨')
+            VALUES (930101, 1, '테스트', '위원', '이미 적재됨', '의원')
             """
         )
         conn.commit()

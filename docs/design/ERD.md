@@ -1,6 +1,6 @@
 # ERD — Congress-DB (Postgres 16)
 
-9개 핵심 테이블 + 카탈로그 1개 + 수집 운영 테이블 3개. core schema는 향후 검색 API/SDK에서 검색, 필터, 정렬, 조인, 결과 설명에 쓰이는 필드만 보존한다.
+9개 핵심 테이블 + audit 테이블 1개 + 카탈로그 1개 + 수집 운영 테이블 3개. core schema는 향후 검색 API/SDK에서 검색, 필터, 정렬, 조인, 결과 설명에 쓰이는 필드만 보존한다.
 
 ## Mermaid 다이어그램
 
@@ -165,8 +165,24 @@ HTML viewer DOM에서 파싱한 발언 stream.
 | `speaker_name` | TEXT NOT NULL | 화자 이름 |
 | `speaker_title` | TEXT NOT NULL | 화자 직함 |
 | `speaker_mona_cd` | TEXT REFERENCES members(mona_cd) | 의원 매핑 nullable |
+| `speaker_role` | TEXT NOT NULL CHECK (...) | 의원/국무위원(장관)/차관/증인/참고인/전문위원/기타 |
 | `content` | TEXT NOT NULL | 발언 내용 |
 | | | **UNIQUE(meeting_id, sequence)** |
+
+## Audit Tables
+
+### `speaker_title_role_map`
+
+원천 `speaker_title`을 어떤 **발언 역할**로 정규화했는지 보존하는 내부 audit 테이블. 외부 조회 interface는 `utterances.speaker_role`이고, 이 테이블은 백필 검증과 추후 역할 승격 검토에 쓴다.
+
+| 컬럼 | 타입 | 비고 |
+|---|---|---|
+| `speaker_title` | TEXT | **PK**. 원천 직함 |
+| `speaker_role` | TEXT NOT NULL CHECK (...) | 정규화된 발언 역할 |
+| `n_utterances` | BIGINT NOT NULL | 해당 직함 전체 발언 수 |
+| `n_no_mona` | BIGINT NOT NULL | `speaker_mona_cd` NULL 발언 수 |
+| `n_mona` | BIGINT NOT NULL | `speaker_mona_cd` present 발언 수 |
+| `classified_at` | TIMESTAMPTZ NOT NULL | 마지막 분류 시각 |
 
 ## Operational Tables
 
@@ -204,6 +220,7 @@ CREATE INDEX idx_meetings_type_date ON meetings(meeting_type, conf_date DESC);
 CREATE INDEX idx_mb_bill ON meeting_bills(bill_id);
 CREATE INDEX idx_utterances_meeting ON utterances(meeting_id);
 CREATE INDEX idx_utterances_speaker ON utterances(speaker_mona_cd) WHERE speaker_mona_cd IS NOT NULL;
+CREATE INDEX idx_utterances_role_meeting_sequence ON utterances(speaker_role, meeting_id, sequence);
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE INDEX idx_bills_bill_name_trgm ON bills USING gin (bill_name gin_trgm_ops);
