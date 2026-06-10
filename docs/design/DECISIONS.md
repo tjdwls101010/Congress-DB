@@ -3,6 +3,44 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-06-10 — No 국회 SDK; the future skill queries Neon directly via SQL over a schema reference
+
+The planned 국회 SDK (roadmap step 2) was a fixed query surface — brittle (one wrong or
+missing method blocks the consumer) and an ongoing maintenance burden for a solo PM, while real
+legislative-analysis questions are open-ended. Decision: drop the SDK; the future 입법전문가 스킬
+connects to Neon and runs read-only SQL directly, guided by this DB's own schema/usage
+documentation, because Claude is strong at SQL and the target skill is a human-in-the-loop
+deliberative copilot (the user reviews every result, bounding ad-hoc-SQL risk). Consequences:
+(1) a least-privilege **read-only DB role is now mandatory** — an LLM writing SQL must not hold
+owner rights; (2) the DB must be **self-sufficient** because there is no SDK layer to paper over
+gaps, which elevates the source-fact backfills below; (3) `docs/CONGRESS-SDK-CODEX-BRIEF.md` is
+obsolete; (4) roadmap step 2 changes from "국회 SDK" to "DB reference + direct SQL". Reversible —
+an SDK can wrap the same schema later if direct SQL proves insufficient.
+
+## 2026-06-10 — BILL_NO is the stable cross-source key; BILL_ID can diverge per source
+
+A 4-agent analysis + adversarial verification (transcript 2026-06-10) found that the 130 "missing"
+대안 `bill_relations.alternative_bill_id`s compress to **15 distinct source ids, and 15/15 already
+exist in `bills` under the same `BILL_NO` but a different `BILL_ID`** — e.g. relation target
+`PRC_D2L5…` is, per likms/ALLBILL, `BILL_NO 2212725`, which `bills` stores as `PRC_V2S5…`. likms
+and ALLBILL key by `BILL_NO`. Decision: keep `bills.bill_id` as PK, but treat `BILL_NO` as the
+stable cross-source identity and add `bill_source_aliases(source, source_bill_id, bill_no,
+canonical_bill_id)` to reconcile divergent source `BILL_ID`s to the canonical row. This
+operationalizes (does not reverse) the 2026-06-06 "alternative_bill_id is a source key, not an FK"
+decision, and still forbids synthetic `bills` rows.
+
+## 2026-06-10 — Add bill_final_outcomes (ALLBILL 공포 bridge) keyed by BILL_NO, not columns on bills
+
+`bills.law_proc_dt` is a 법사위 처리일, not 공포일 (570 present, all earlier than `proc_dt`;
+promulgation absent entirely), and 720 distinct passed alternatives have it NULL — so "그 대안은
+결국 통과·공포됐나?" dead-ends. A live ALLBILL check returns `PROM_DT` (공포일), `PROM_NO`
+(공포번호), `GVRN_TRSF_DT` (정부이송일), `PPSL_DT` (제안일) keyed by `BILL_NO`. Decision: add a
+separate `bill_final_outcomes(bill_no PK, plenary_dt, govt_transfer_dt, promulgation_dt, prom_no,
+law_id, source)` ingested from ALLBILL rather than NULL-heavy columns on `bills` — keying by
+`BILL_NO` reaches the BILL_ID-alias'd and missing alternatives that bills-columns cannot,
+simultaneously backfills 대안 `propose_dt` via `PPSL_DT`, and provides the 국회-stage bridge key
+(`law_id`) toward the later 법제처 layer (statute text stays out of scope).
+
 ## 2026-06-06 — bill_relations alternative id is a source key, not a required bills FK
 
 During the #72 backfill, `selRefBillId` resolved all 3,715 target original bills, but 169 pointed to

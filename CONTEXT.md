@@ -9,9 +9,9 @@
 이 저장소는 4단계 로드맵의 **1단계(국회 데이터 DB)** 만 담는다. 각 단계는 독립 프로젝트이며, 경계를 넘는 기능은 다음 단계로 미뤄 스코프를 묶는다.
 
 1. **국회 데이터 DB** — *이 저장소.* 22대 국회의 발의 법안·본회의 표결·회의록 발언을 정규화 적재.
-2. **국회 SDK** — 위 DB 위 조회 계층(별도 저장소).
+2. **국회 DB 직접 조회** — 별도 SDK를 만들지 않는다(DECISIONS 2026-06-10). 스킬이 이 DB의 스키마·활용 레퍼런스를 보고 read-only SQL로 직접 조회한다. 고정 SDK 표면의 브리틀니스(1개만 틀려도 막힘)를 피하고 클로드의 SQL 능력을 활용한다.
 3. **법제처 SDK** — 현행법령·시행령·행정규칙·법령해석례(유권해석)·판례·헌재결정례를 법제처 OpenAPI에서 제공(별도 저장소). 국회는 API가 흩어져 DB 정규화가 필요했지만, 법제처는 `법령ID` 기반으로 본문·신구대조·체계도가 정연해 live API+SDK로 충분할 수 있다(3단계 진입 시 재판단).
-4. **입법 harness (스킬)** — 2·3 SDK와 WebSearch(사회문제 맥락)를 함께 쓰는 입법 코파일럿(별도 저장소). 입법전문가가 사회문제를 놓고 현황·갭·사법해석·입법이력을 종합해 법안을 고안하도록 돕는다. `legislative-copilot` 프로토타입은 참고만, 새로 구축.
+4. **입법 harness (스킬)** — 국회 DB(직접 SQL)·법제처 데이터와 WebSearch(사회문제 맥락)를 함께 쓰는 입법 코파일럿(별도 저장소). 입법전문가가 사회문제를 놓고 현황·갭·사법해석·입법이력을 종합해 법안을 고안하도록 돕는다. `legislative-copilot` 프로토타입은 참고만, 새로 구축.
 
 **이 DB가 담지 않는 것 (경계):**
 - 시행 중인 **현행법·시행령 본문, 유권해석, 판례** → 3단계(법제처 SDK). 이 DB의 `bills`는 *발의된 의안*만이며 *시행 중인 법*과 구분한다(아래 **법안** 정의 참조).
@@ -25,7 +25,7 @@
 _Avoid_: 위원(회의 컨텍스트에서의 호칭만으로 사용), 국회의원(전체 명칭으로 한 번 정도만)
 
 **현직 여부 (Incumbency)** _(도입 예정 — M1)_:
-의원이 *현재 재직 중*인지를 나타내는 `members.is_incumbent`(BOOLEAN). 손으로 관리하지 않고, 매 동기화 때 의원 인적사항 API(현직 명부)에 잡히면 TRUE, 안 잡히면 FALSE로 자동 갱신한다. 사퇴·의원직 상실 등으로 떠난 의원도 행은 그대로 두고(`ON DELETE RESTRICT`) `is_incumbent=FALSE`로만 표시해 행적 추적이 끊기지 않게 한다. 시점 정당(`poly_nm_at_vote`)과 같은 "출처에서 파생" 원칙을 따른다(별도 상태 테이블 없음).
+의원이 *현재 재직 중*인지를 나타내는 `members.is_incumbent`(BOOLEAN). 손으로 관리하지 않고, 매 동기화 때 의원 인적사항 API(현직 명부)에 잡히면 TRUE, 안 잡히면 FALSE로 자동 갱신한다. 사퇴·의원직 상실 등으로 떠난 의원도 행은 그대로 두고(`ON DELETE RESTRICT`) `is_incumbent=FALSE`로만 표시해 행적 추적이 끊기지 않게 한다. 시점 정당(`poly_nm_at_vote`)과 같은 "출처에서 파생" 원칙을 따른다(별도 상태 테이블 없음). 사퇴 등으로 명부 동기화 전에 떠난 의원은 프로필 정당(`poly_nm`)이 NULL일 수 있다 — 시점 정당이 필요하면 `votes.poly_nm_at_vote`를 쓰고, 이를 `members.poly_nm`로 덮지 않는다(DECISIONS 2026-06-10).
 _Avoid_: 활성/active(DB 활성 행과 혼동), 삭제
 
 **법안 (Bill)**:
@@ -84,8 +84,9 @@ _Avoid_: 직함(raw 텍스트 그대로 — 정규화된 역할과 구분)
 국회의원 고유 코드 (예: `T2T8225E`). 대수에 무관한 의원 식별자. 우리 DB의 `members.mona_cd` PK.
 
 **BILL_ID / BILL_NO**:
-- `BILL_ID`: `PRC_D2C6E...` 형식. 영구 고유 식별자. 자연키.
-- `BILL_NO`: `2218872` 같은 7자리 숫자. 사람이 읽기 편한 보조키. 22대 일련번호처럼 보임.
+- `BILL_ID`: `PRC_D2C6E...` 형식. `bills` PK이자 한 source 안의 식별자. **단, source마다 같은 의안에 다른 BILL_ID를 줄 수 있다** — likms/ALLBILL의 BILL_ID와 우리 `bills`의 BILL_ID가 갈리는 사례 확인(DECISIONS 2026-06-10). BILL_ID를 cross-source 영구키로 가정하지 말 것.
+- `BILL_NO`: `2218872` 같은 7자리 숫자. **source 간 안정적인 키.** likms·ALLBILL이 BILL_NO로 조회된다. 의안 동일성 판단·alias 해소의 기준은 BILL_NO다.
+- `bill_source_aliases` _(도입 예정 — 이슈)_: source별 BILL_ID를 canonical `bills` row(BILL_NO 기준)에 잇는 정규화.
 
 **mnts_id / confer_num / CONF_ID**:
 회의록을 가리키는 식별자가 API마다 형식이 다르다.
@@ -95,6 +96,10 @@ _Avoid_: 직함(raw 텍스트 그대로 — 정규화된 역할과 구분)
 
 **처리결과 (Proc Result)**:
 법안의 본회의 처리결과. 가결·부결·대안반영·철회 등. `bills.proc_result`에 텍스트로 저장.
+
+**최종 처리·공포 이력 (Final Outcome)** _(도입 예정 — 이슈)_:
+법안의 본회의 의결 이후 정부이송·공포 단계. 공포일·공포번호·정부이송일·법률ID를 ALLBILL에서 `BILL_NO` 기준으로 적재해 `bill_final_outcomes`에 보존한다(DECISIONS 2026-06-10). `bills.law_proc_dt`(법사위 처리일에 가까움)와 **다르다** — law_proc_dt를 공포일로 쓰지 말 것. 현행법 본문은 법제처 단계 소관이고, 이 이력은 거기로 가는 bridge key다.
+_Avoid_: law_proc_dt를 공포일로 사용
 
 **대안 관계 (Alternative Relation)** _(도입 예정 — M2)_:
 위원회 심사에서 여러 법안 내용을 통합해 새 **대안**(또는 **수정안**)을 만들고 원안들을 *대안반영폐기*(또는 *수정안반영폐기*)할 때, 폐기된 원안과 그 내용을 흡수한 대안/수정안 법안 사이의 연결. `bill_relations`(absorbed_bill_id → alternative_bill_id, relation_type)로 보존한다. 국회 OpenAPI엔 이 관계 필드가 없어, 의안정보시스템(likms) 상세페이지의 `selRefBillId` 숨은 필드를 스크래핑해 채운다(DECISIONS 2026-06-06). 이 연결이 없으면 "이 주제가 과거에 어떻게 입법됐고 무엇이 법으로 남았나"를 추적할 수 없다(대안반영폐기 3,676 + 수정안반영폐기 39건, 통과 대안에 연결고리 없음).
