@@ -1,6 +1,6 @@
 # ERD — Congress-DB (Postgres 16)
 
-9개 핵심 테이블 + audit 테이블 1개 + 카탈로그 1개 + 수집 운영 테이블 3개. core schema는 향후 검색 API/SDK에서 검색, 필터, 정렬, 조인, 결과 설명에 쓰이는 필드만 보존한다.
+9개 핵심 테이블 + source alias 테이블 1개 + audit 테이블 1개 + 카탈로그 1개 + 수집 운영 테이블 3개. core schema는 향후 검색 API/SDK에서 검색, 필터, 정렬, 조인, 결과 설명에 쓰이는 필드만 보존한다.
 
 ## Mermaid 다이어그램
 
@@ -14,7 +14,7 @@ erDiagram
     members ||--o{ votes : "mona_cd"
     bills ||--o{ votes : "bill_id"
     bills ||--o{ bill_relations : "absorbed_bill_id"
-    bills ||--o{ bill_relations : "alternative_bill_id"
+    bills ||--o{ bill_source_aliases : "canonical_bill_id"
     meetings ||--o{ utterances : "meeting_id"
     meetings ||--o{ meeting_bills : "meeting_id"
     bills ||--o{ meeting_bills : "bill_id"
@@ -88,6 +88,18 @@ erDiagram
 | `relation_type` | TEXT NOT NULL CHECK (...) | `대안반영` / `수정안반영` |
 | `source` | TEXT NOT NULL DEFAULT 'likms_selrefbillid' | 관계 출처 |
 | `fetched_at` | TIMESTAMPTZ | 마지막 수집 시각 |
+
+### 3a. `bill_source_aliases` — source별 법안 ID alias
+
+source마다 갈릴 수 있는 `BILL_ID`를 안정적인 `BILL_NO`를 경유해 canonical `bills` row로 연결한다. `bill_relations.alternative_bill_id`는 source key로 보존하고, 이 테이블이 canonical 연결을 담당한다.
+
+| 컬럼 | 타입 | 비고 |
+|---|---|---|
+| `source` | TEXT NOT NULL | **PK 일부**. source id의 출처 |
+| `source_bill_id` | TEXT NOT NULL | **PK 일부**. source가 제공한 `BILL_ID` |
+| `bill_no` | TEXT | source detail에서 확인한 안정 의안번호 |
+| `canonical_bill_id` | TEXT REFERENCES bills(bill_id) | 기존 `bills` row. 해소 불가 gap은 row를 만들지 않으므로 nullable |
+| `fetched_at` | TIMESTAMPTZ | 마지막 해소 시각 |
 
 ### 4. `bill_lead_proposers` — 대표발의 N:M
 
