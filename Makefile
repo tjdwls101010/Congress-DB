@@ -1,7 +1,7 @@
 .PHONY: db-up db-down db-migrate db-shell db-reset test ingest \
         seed-catalog verify-catalog render-catalog ingest-members ingest-bills \
         ingest-bill-relations ingest-bill-summaries ingest-votes ingest-meetings validate-minutes-dom ingest-utterances \
-        backfill-speaker-roles backfill-bill-source-aliases backfill-bill-final-outcomes ingest-backfill sanity-check data-completeness migration-readiness
+        backfill-speaker-roles backfill-bill-source-aliases backfill-bill-final-outcomes ingest-backfill sanity-check data-completeness migration-readiness regression-pack
 
 # .env가 있으면 변수 자동 로드 (없어도 통과)
 -include .env
@@ -126,3 +126,7 @@ data-completeness:
 # hosted Postgres migration 전 로컬 백필 readiness 리포트 생성
 migration-readiness:
 	uv run python -m scripts.migration_readiness
+
+# M3 demand-gate: 4개 retrieval anchor read-only regression pack
+regression-pack:
+	uv run python -m scripts.regression_pack

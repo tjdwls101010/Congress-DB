@@ -22,6 +22,7 @@ from dotenv import load_dotenv
 
 # .env 파일이 있으면 환경 변수로 흡수. 파일 없으면 조용히 통과.
 load_dotenv()
+load_dotenv(".env.local", override=False)
 
 _pool_lock = Lock()
 _pool: ConnectionPool | None = None
@@ -55,6 +56,26 @@ def get_pooled_conn() -> Iterator[psycopg.Connection]:
     pool = _get_pool()
     with pool.connection() as conn:
         yield conn
+
+
+@contextmanager
+def get_readonly_conn() -> Iterator[psycopg.Connection]:
+    """`CONGRESS_RO_URL`로 read-only Postgres에 연결한다.
+
+    `CONGRESS_RO_URL`은 Neon pooled endpoint이므로 PgBouncer transaction mode와
+    호환되도록 prepared statement를 비활성화한다. 읽기 전용 ops 리포트는
+    transaction 경계를 가질 필요가 없어 autocommit으로 실행한다.
+
+    Raises:
+        KeyError: CONGRESS_RO_URL 환경변수가 없을 때.
+        psycopg.OperationalError: DB가 기동되지 않았거나 접속 정보가 틀렸을 때.
+    """
+    url = os.environ["CONGRESS_RO_URL"]
+    conn = psycopg.connect(url, autocommit=True, prepare_threshold=None)
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def close_pool() -> None:
