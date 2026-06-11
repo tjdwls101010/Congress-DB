@@ -121,6 +121,7 @@ FROM meeting_bills mb
 JOIN meetings mt ON mt.mnts_id = mb.meeting_id
 WHERE mb.bill_id = (SELECT bill_id FROM bills WHERE bill_no = '2213457')
 ORDER BY mt.conf_date;
+-- 증거 강도(회의 fanout)는 Q11/bill_meeting_contexts 참조: 붐비는 회의 발언을 이 법안 직접 증거로 단정 금지.
 ```
 
 ### Q7. 대표발의를 많이 한 의원 (free-text 아닌 정규화 테이블로)
@@ -157,6 +158,18 @@ SELECT u.speaker_role, count(*)
 FROM utterances u
 WHERE u.meeting_id = 12345        -- mnts_id
 GROUP BY 1 ORDER BY 2 DESC;
+```
+
+### Q11. 회의 evidence 강도 — fanout 주의 (발언을 특정 법안에 단정 금지)
+한 회의에 수십~수백 법안이 함께 걸리므로(평균 32, p90 75, max 756), "이 회의에서 다뤄짐"을 특정 법안의 직접 발언 증거로 단정하면 과잉주장이 된다. `bill_meeting_contexts` 뷰가 회의 fanout과 회의-단위 발언 통계를 한 자리에 준다.
+```sql
+SELECT comm_name, conf_date, linked_bill_count, utterance_count, utterances_by_role
+FROM bill_meeting_contexts
+WHERE bill_id = (SELECT bill_id FROM bills WHERE bill_no = '2213457')
+ORDER BY linked_bill_count DESC;
+-- linked_bill_count 클수록(예: 45) 이 회의 발언을 해당 법안 직접 증거로 보기 어려움 → raw count로 판단(버킷 라벨 없음).
+-- evidence_scope='meeting_level': 발언↔특정 법안 직접 귀속은 원천이 안 줌. 답에 이 한계를 밝힐 것.
+-- 결과가 0행이어도 미논의가 아님(meeting_bills 커버리지 부분적, §5).
 ```
 
 ---
