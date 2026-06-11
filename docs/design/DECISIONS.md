@@ -3,6 +3,49 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-06-11 — DB upgrades become demand-gated by a regression pack + skill prototype, not speculative additions
+
+A 4-persona analysis round (demand / connect / source / critic, run as parallel Codex against live
+Neon) converged: after #82–#86 the DB's *facts* are largely sufficient (원안→대안→공포 chain ~closed —
+3,676/3,715 relations canonical, 3,674 with outcomes), and the remaining gaps are mostly
+[3 법제처] / [4 skill-layer] boundary or **consumption packaging / over-claim guardrails**, not
+missing facts. The critic argued — and I agree — that continuing to upgrade the DB *before* the
+입법전문가 skill exists is increasingly the wrong order: the real residual demand depends on the
+skill's dialog flow and query strategy, which can't be known until it's prototyped. Decision:
+(1) the next implementation round **leads with a 4-scenario retrieval regression pack**
+(전세사기·의대정원·AI 기본법·채상병 특검) — a schema-free read-only pass/fail harness that anchors every
+further DB change to a real query the skill would issue (the "feedback loop first" discipline applied
+to the DB); (2) a **skill dialog-flow prototype** then runs against the live DB, and only query
+failures that are genuinely [1] (missing source fact / SQL ergonomics, not [3]/[4] boundary)
+graduate into DB work; (3) larger [1] candidates (lifecycle views, new sources) are written as
+issues now but **prototype-gated** — issued, not built blind. Every finding is boundary-tagged
+[1 congress-db] / [3 법제처] / [4 skill]; [3]/[4] items are roadmap backlog, not this-repo issues.
+Reversible — if the prototype reveals a broad structural need, a bigger DB round can follow.
+
+## 2026-06-11 — Committee becomes a first-class dimension; committee *membership* stays gated on source verification
+
+Every anchor scenario needs "who sits on the 소관 위원회" (국토위/법사위/복지위/과방위), which the DB cannot
+answer: `members.cmits` is populated for only 49/320 members and committee identity is scattered as
+inconsistent strings across `bills.committee(_id)` (31 names) and `meetings.comm_name` (38 names, only
+24 overlapping, with spacing-variant duplicates). Decision: (1) build a **committee dimension**
+(canonical names + aliases derived from existing strings — low risk, no new source) now; (2) committee
+**membership** (who is on which committee) is **not built** until a source-verification slice proves
+the roster API `nktulghcadyhmiqxi` returns full, stable committee rosters — it returned only 34 rows
+with no_data for major standing committees, so ingesting it now would be guessing. If verified, the
+PRD's deliberate `member_committees` exclusion is formally revisited. Why: high skill demand justifies
+reopening the exclusion, but an unreliable source must not be ingested on a guess.
+
+## 2026-06-11 — 의안유형 (bill_kind) is name-derived and consolidated with the promulgation-bridge ledger
+
+`bills` mixes 법률안 with non-law 의안 (감사요구안 15·수사요구안 3·규칙안 2·결의안 20·동의안 31·승인안 4 ≈ 75 of
+18,361), but the source bill-list API exposes no 의안종류 field, so a classifier must derive type from
+`bill_name` — non-trivial because law bills appear as 법률안 / 법안 / 특별법안 / 특별조치법안 / 전부개정법률안.
+Decision: a tested name-based classifier (`bill_kind`, carrying provenance) is built **together with**
+the promulgation-bridge completeness ledger, because the same fact — "is this a 법률안?" — is what
+distinguishes an expected-no-공포 의안 from a genuine `prom_law_nm` gap (66 promulgated rows lack a law
+name; 294 is the gross blank count including not-yet-promulgated). "Passed but no 공포" is normal for a
+non-law 의안, a real gap only for a 법률안. Derived law names are candidates, never overwrites of source.
+
 ## 2026-06-11 — DB self-description layer for direct-SQL LLM consumption (COMMENT ON + query guide)
 
 An LLM-consumption audit (run as `congress_ro`, the skill's own role) found the DB had **zero

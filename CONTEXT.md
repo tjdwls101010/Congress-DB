@@ -101,6 +101,28 @@ _Avoid_: 직함(raw 텍스트 그대로 — 정규화된 역할과 구분)
 법안의 본회의 의결 이후 정부이송·공포 단계. 공포일·공포번호·정부이송일·공포 법률명(`prom_law_nm`)을 ALLBILL에서 `BILL_NO` 기준으로 적재해 `bill_final_outcomes`에 보존한다(DECISIONS 2026-06-10, 2026-06-11). `bills.law_proc_dt`(법사위 처리일에 가까움)와 **다르다** — law_proc_dt를 공포일로 쓰지 말 것. 현행법 본문은 법제처 단계 소관이고, 이 이력은 법제처 질의로 이어지는 bridge key다.
 _Avoid_: law_proc_dt를 공포일로 사용
 
+**의안유형 (Proposal Type / `bill_kind`)** _(도입 예정 — M3)_:
+`bills`에 섞인 의안의 종류. 법률안(공포 대상) vs 비-법률 의안(감사요구안·수사요구안·규칙안·결의안·동의안·승인안 — 공포 비대상). 원천에 종류 필드가 없어 `bill_name`에서 파생하며(특별법안·특별조치법안도 법률안), "통과했는데 공포 없음"이 정상(비대상)인지 결측인지를 가른다.
+_Avoid_: 법안종류(법안=법률안에 한정되어 좁음)
+
+**정부측 발언자 소속 (Speaker Affiliation)** _(도입 예정 — M3)_:
+발언자의 부처·기관. `speaker_role`이 7종 역할까지만 주므로, '기타'에 묻힌 정부측 actor(부처 실장·청장·○○위원장·정책관)를 `speaker_title` 기반 보조조회로 회수한다. role enum을 늘리지 않고 raw 직함을 authoritative로 둔다.
+_Avoid_: 역할(speaker_role enum과 구분 — 소속/기관은 별개 축)
+
+**증거 강도 (Evidence Strength)** _(도입 예정 — M3)_:
+`meeting_bills`는 회의-level 연결이라 한 회의에 수십~수백 법안이 걸린다(시나리오 p50 47~66, max 756). "같은 회의에서 다뤄짐"을 특정 법안의 발언 증거로 단정하지 않도록 `linked_bill_count`와 강도 힌트를 소비 표면에 노출한다.
+_Avoid_: 안건 세그먼트(저장된 단위 — agenda_items 제외 결정과 충돌)
+
+**법안 문서 (Bill Document)** _(도입 예정 — M3)_:
+법안 원문·비용추계·첨부의 파일 URL. `ALLBILLV2`가 `BILL_NO` 키로 HWP/PDF URL을 준다. `bill_documents` inventory에 **URL만** 보존하고 본문은 파싱하지 않는다(out-of-scope).
+
+**청원 / 공청회 / 입법예고 (Petition / Public Hearing / Legislative Notice)** _(도입 예정 — M3)_:
+국회의 공식 시민수요·전문가증언·의견수렴 source. 청원(`PTT_ID`, 302건)은 시민 요구의 공식 신호이되 '여론' 대표성으로 단정하지 않는다(해석은 [4]). 공청회(59건)는 회의록 universe에 없어 별도 inventory·파싱검증 대상. 입법예고(17,708건)는 notice 메타만, 의견 본문은 범위 밖.
+
+**위원회 차원 (Committee Dimension)** _(도입 예정 — M3)_:
+`bills.committee`·`meetings.comm_name` 문자열로 흩어진 위원회를 canonical 이름+별칭으로 정규화한 1급 dimension. 위원회 **membership**(누가 어느 위원)은 명부 API 검증 후에만 — 별개 개념이다.
+_Avoid_: 위원회 history(시점별 membership — 검증 전까지 제외)
+
 **대안 관계 (Alternative Relation)** _(도입 예정 — M2)_:
 위원회 심사에서 여러 법안 내용을 통합해 새 **대안**(또는 **수정안**)을 만들고 원안들을 *대안반영폐기*(또는 *수정안반영폐기*)할 때, 폐기된 원안과 그 내용을 흡수한 대안/수정안 법안 사이의 연결. `bill_relations`(absorbed_bill_id → alternative_bill_id, relation_type)로 보존한다. 국회 OpenAPI엔 이 관계 필드가 없어, 의안정보시스템(likms) 상세페이지의 `selRefBillId` 숨은 필드를 스크래핑해 채운다(DECISIONS 2026-06-06). 이 연결이 없으면 "이 주제가 과거에 어떻게 입법됐고 무엇이 법으로 남았나"를 추적할 수 없다(대안반영폐기 3,676 + 수정안반영폐기 39건, 통과 대안에 연결고리 없음).
 _Avoid_: 병합(코드 merge와 혼동)
