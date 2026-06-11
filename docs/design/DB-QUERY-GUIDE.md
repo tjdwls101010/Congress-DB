@@ -83,6 +83,19 @@ JOIN bill_final_outcomes o ON o.bill_no = b.bill_no   -- ★ bill_no로 join (bi
 WHERE b.bill_no = '2213457';   -- 예: 양자과학기술법 → 공포 2026-06-09 (law_proc_dt는 NULL)
 ```
 
+**공포 완전성 — "통과했는데 공포 없음"을 [1] 갭으로 단정하기 전에:** `bills`에는 법률안 외 **비-법률 의안**(결의안·동의안·승인안·감사요구안·규칙안·각종 `~의 건`·기금운용계획변경안·국정조사계획서 등 약 169건)이 섞여 있고, 이들은 통과해도 **공포 대상이 아니다**(not_promulgable, 예: `2207635` "의대정원…감사요구안" 원안가결). 그래서 "가결인데 공포 outcome 없음"은 **법률안일 때만** 진짜 [1] 갭이다. 비-법률을 *열거*하지 말고 **양성 법률안 필터** `bill_name ~ '법(률)?안'`(비-법률과 오탐 0 검증)로 거른다 — 분류 컬럼은 두지 않으니 소비자가 패턴으로 판정한다.
+```sql
+-- 통과한 '법률안'인데 공포 outcome이 없음 = pending 또는 진짜 [1] 갭 (비-법률 의안 제외)
+SELECT b.bill_no, b.bill_name, b.proc_dt
+FROM bills b
+WHERE b.proc_result IN ('원안가결','수정가결')
+  AND b.bill_name ~ '법(률)?안'                       -- 법률안류만 (결의안/동의안/감사요구안 등 제외)
+  AND NOT EXISTS (SELECT 1 FROM bill_final_outcomes o
+                  WHERE o.bill_no = b.bill_no AND o.promulgation_dt IS NOT NULL)
+ORDER BY b.proc_dt DESC NULLS LAST;   -- 현재 59건
+```
+공포일은 있으나 `prom_law_nm`(공포 법률명)이 NULL인 **66건**은 전부 법률안의 실제 [1] 품질 갭(원천 ALLBILL 미제공, 숫자 법령ID도 없음 → [3] 법제처 bridge 몫). 이름에서 유도해 채우지 말 것.
+
 ### Q3. 한 의원의 표결 성향
 ```sql
 SELECT m.hg_nm, v.result_vote_mod, count(*)
@@ -179,6 +192,7 @@ ORDER BY linked_bill_count DESC;
 | 영역 | 상태 | 영향 |
 |---|---|---|
 | `bills.summary` | 233건 NULL (원천 미제공) | summary 키워드 검색이 그만큼 누락 |
+| 공포 완전성 | 법률안 66건 `prom_law_nm` NULL + 59건 공포 outcome 없음 | "통과=공포"로 단정 말 것; 비-법률 의안은 not_promulgable(정상) |
 | `meeting_bills` | 법안 15%·회의 41% 미연결 | "논의된 회의"가 부분 목록일 수 있음 |
 | `members` (떠난 20명) | `poly_nm`·프로필 NULL | 정당은 `votes.poly_nm_at_vote`로 |
 | `utterances.speaker_mona_cd` | 38.5% NULL (비-의원) | members INNER JOIN 금지 |
