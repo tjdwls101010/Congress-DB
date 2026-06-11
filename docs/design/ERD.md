@@ -2,6 +2,8 @@
 
 9개 핵심 테이블 + source alias 테이블 1개 + final outcome 테이블 1개 + audit 테이블 1개 + 카탈로그 1개 + 수집 운영 테이블 3개. core schema는 향후 검색 API/SDK에서 검색, 필터, 정렬, 조인, 결과 설명에 쓰이는 필드만 보존한다.
 
+> **LLM 직접-SQL 소비자용:** 함정·어휘·검증된 join 레시피는 [DB-QUERY-GUIDE.md](DB-QUERY-GUIDE.md)에, 같은 경고는 스키마 `COMMENT`(`migrations/011_schema_comments.sql`, introspect 시 인라인으로 보임)에도 박혀 있다.
+
 ## Mermaid 다이어그램
 
 ```mermaid

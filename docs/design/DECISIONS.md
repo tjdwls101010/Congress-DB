@@ -3,6 +3,22 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-06-11 — DB self-description layer for direct-SQL LLM consumption (COMMENT ON + query guide)
+
+An LLM-consumption audit (run as `congress_ro`, the skill's own role) found the DB had **zero
+in-database self-description** (0 table/column/function COMMENTs): an LLM that introspects the
+schema sees bare column names and writes plausible-but-wrong SQL — `law_proc_dt` as 공포일 (wrong in
+520/520 cases), `proc_result = '가결'` (0 rows; real values are 원안가결/수정가결), INNER-joining
+`utterances → members` (silently drops 38.5% non-member speakers). Decision: add the gotcha/semantic
+knowledge **where the LLM actually looks** — `COMMENT ON` on every trap-bearing table/column/function
+(`db/migrations/011_schema_comments.sql`, applied to Neon and run by `db-migrate` on fresh installs) —
+plus a consolidated, query-verified `docs/design/DB-QUERY-GUIDE.md` (table map, vocab, join recipes,
+coverage caveats). The gotchas are intentionally duplicated across COMMENT / guide / CONTEXT.md because
+each serves a different reader (the introspecting LLM, the skill author, the PM); the COMMENT is the
+canonical inline surface and cannot drift out of the DB. This realizes the "DB must be self-sufficient"
+consequence of the no-SDK decision (2026-06-10). No data changed — the gap was the consumption layer,
+not the facts.
+
 ## 2026-06-11 — bill_final_outcomes stores PROM_LAW_NM, not a numeric law_id
 
 Issue #86 planned a `law_id` column as the 법제처 bridge, but a live ALLBILL check shows the endpoint
