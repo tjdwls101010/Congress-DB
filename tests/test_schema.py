@@ -14,6 +14,7 @@ EXPECTED_TABLES = frozenset(
         "bill_relations",
         "bill_source_aliases",
         "bill_final_outcomes",
+        "bill_documents",
         "bill_lead_proposers",
         "bill_coproposers",
         "votes",
