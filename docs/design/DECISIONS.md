@@ -3,6 +3,10 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-06-12 — 소비층을 COMMENT+schema로 일원화, DB-QUERY-GUIDE는 cross-table 레시피만
+
+PM이 소비-원칙(모델 지능 신뢰, hard-rule이 아닌 inform)을 직접 적용해 짚었다: 어떤 필드로 무엇을 추론하는지를 *문서*로 명시하는 것은 (a) 구조(타입·FK)는 `schema.sql`+introspection에 이미 있어 중복이고, (b) 통째 SQL 레시피는 Claude의 SQL 지능을 불신하는 over-specification이며, (c) 별도 레포 markdown은 다른 코드베이스의 스킬로 따라가지 않는다. 감사 결과 가이드의 함정 8개·어휘·커버리지가 *전부 이미 COMMENT/`schema.sql`에* 있었다. 결정: 함정·어휘·구조는 COMMENT+schema(DB와 함께 이동, `\d+`로 introspect)에 일원화하고, `DB-QUERY-GUIDE.md`는 introspection이 조립 못 하는 **cross-table 패턴만**(Q2 공포완전성·Q9 alias해소·Q11 fanout뷰·Q12 소관위정규화) 남겨 224→~70줄로 축소했다(COMMENT가 가리키는 Q2·Q12 번호는 유지, 새 마이그레이션·데이터 변경 없음). 이로써 'inform'은 별도 hard-rule 문서가 아니라 모델이 introspect하는 in-DB 자기설명 + 소비자 지능이 된다. 기존-데이터 소비 준비는 이로써 종료 — 추가 DB 작업은 스킬 프로토타입이 실제 수요를 드러낼 때(prototype-gated).
+
 ## 2026-06-12 — bill_documents(#96) 적재 후 되돌림: 신규 소스는 prototype-gated
 
 법안 문서 URL inventory(`bill_documents`, BILLRCPV2)를 구현·머지·Neon 적재(21,494행)했다가 같은 날 되돌렸다(Neon+로컬 `DROP TABLE` + main revert). 이유: #96은 Tier C **신규 소스**인데 demand-gated 원칙(2026-06-11)상 신규 소스는 스킬 프로토타입이 수요를 입증할 때까지 prototype-gated여야 한다 — 프로토타입이 없어 "스킬이 문서 링크를 실제로 쓰는가"가 미입증인 채 적재한 건 원칙이 금지하는 추측성 [1]이었다(게다가 `link_url`은 `bill_id`로 파생 가능해 저장조차 불필요). 이슈 #96은 prototype-gated로 재개방(BILLRCPV2 방법·필드 매핑은 이슈에 보존) — 프로토타입이 수요를 입증하면 재구축. 교훈: "신규 소스/구조"(Tier C)를 "안전 가드레일"(Tier A)로 오분류해 demand-gate를 건너뛰지 말 것.
