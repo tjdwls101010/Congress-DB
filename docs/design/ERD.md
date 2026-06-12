@@ -1,6 +1,6 @@
 # ERD — Congress-DB (Postgres 16)
 
-9개 핵심 테이블 + source alias 테이블 1개 + final outcome 테이블 1개 + audit 테이블 1개 + 카탈로그 1개 + 수집 운영 테이블 3개. core schema는 향후 검색 API/SDK에서 검색, 필터, 정렬, 조인, 결과 설명에 쓰이는 필드만 보존한다.
+9개 핵심 테이블 + source alias 테이블 1개 + final outcome 테이블 1개 + 수집 운영 테이블 3개. core schema는 향후 검색 API/SDK에서 검색, 필터, 정렬, 조인, 결과 설명에 쓰이는 필드만 보존한다.
 
 > **LLM 직접-SQL 소비자용:** 함정·어휘·커버리지 경고는 스키마 `COMMENT`(`migrations/011_schema_comments.sql` 등, `\d+`로 introspect 시 인라인으로 보임)에 있고, introspection이 조립 못 하는 cross-table 레시피만 [DB-QUERY-GUIDE.md](DB-QUERY-GUIDE.md)에 있다.
 
@@ -181,26 +181,7 @@ HTML viewer DOM에서 파싱한 발언 stream.
 | `content` | TEXT NOT NULL | 발언 내용 |
 | | | **UNIQUE(meeting_id, sequence)** |
 
-## Audit Tables
-
-### `speaker_title_role_map`
-
-원천 `speaker_title`을 어떤 **발언 역할**로 정규화했는지 보존하는 내부 audit 테이블. 외부 조회 interface는 `utterances.speaker_role`이고, 이 테이블은 백필 검증과 추후 역할 승격 검토에 쓴다.
-
-| 컬럼 | 타입 | 비고 |
-|---|---|---|
-| `speaker_title` | TEXT | **PK**. 원천 직함 |
-| `speaker_role` | TEXT NOT NULL CHECK (...) | 정규화된 발언 역할 |
-| `n_utterances` | BIGINT NOT NULL | 해당 직함 전체 발언 수 |
-| `n_no_mona` | BIGINT NOT NULL | `speaker_mona_cd` NULL 발언 수 |
-| `n_mona` | BIGINT NOT NULL | `speaker_mona_cd` present 발언 수 |
-| `classified_at` | TIMESTAMPTZ NOT NULL | 마지막 분류 시각 |
-
 ## Operational Tables
-
-### `api_catalog`
-
-사용 확정 OpenAPI의 작동 여부와 22대 데이터 보유 여부를 기록한다. 회의록 HTML과 웹 목록은 OpenAPI가 아니므로 catalog가 아니라 별도 DOM/coverage 문서에서 관리한다.
 
 ### `ingest_runs`
 

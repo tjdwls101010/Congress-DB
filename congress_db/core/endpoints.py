@@ -1,8 +1,7 @@
 """PRD 확정 사용 OpenAPI 11개 정의.
 
-이 모듈은 single source of truth로, `api_catalog` 적재·검증·향후 적재 스크립트
-모두 이 상수를 import해서 사용한다. 새 endpoint를 쓰기 시작하면 여기 추가
-하고 ADR 또는 PRD 업데이트.
+이 모듈은 single source of truth다. 새 endpoint를 쓰기 시작하면 여기 추가하고
+ADR 또는 PRD 업데이트. docs/ops/API-CATALOG.md도 이 상수에서 직접 생성한다.
 
 회의록 본문 HTML(`record.assembly.go.kr/.../xml.do`)은 OpenAPI가 아니라
 스크래핑이라 별도 — 여기 포함하지 않는다.
@@ -34,7 +33,7 @@ class EndpointSpec:
     """PRD 확정 사용 OpenAPI 1개의 메타.
 
     Attributes:
-        inf_id: 국회 OpenAPI 시스템 내부 ID (api_catalog PK).
+        inf_id: 국회 OpenAPI 시스템 내부 ID.
         endpoint: 호출 URL slug.
         name: 한국어 이름.
         usage_note: 어디에 쓰이는지 + 핵심 대수 파라미터 힌트.

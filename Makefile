@@ -1,5 +1,5 @@
 .PHONY: db-up db-down db-migrate db-shell db-reset test ingest \
-        seed-catalog verify-catalog render-catalog ingest-members ingest-bills \
+        render-catalog ingest-members ingest-bills \
         ingest-bill-relations ingest-bill-summaries ingest-votes ingest-meetings validate-minutes-dom ingest-utterances \
         backfill-speaker-roles backfill-bill-source-aliases backfill-bill-final-outcomes ingest-backfill sanity-check data-completeness migration-readiness regression-pack
 
@@ -54,14 +54,6 @@ test:
 # 공식 단일 수집 명령 (auto: 첫 baseline 전에는 backfill, 이후에는 incremental)
 ingest:
 	uv run python -m scripts.ingest
-
-# api_catalog seed (PRD 확정 10개 endpoint UPSERT)
-seed-catalog:
-	uv run python -m scripts.seed_api_catalog
-
-# api_catalog verify (10개 endpoint 실제 호출 + 결과 기록)
-verify-catalog:
-	uv run python -m scripts.verify_api_catalog
 
 # docs/ops/API-CATALOG.md 자동 생성
 render-catalog:
