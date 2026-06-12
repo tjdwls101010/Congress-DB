@@ -192,6 +192,19 @@ ORDER BY linked_bill_count DESC;
 -- 결과가 0행이어도 미논의가 아님(meeting_bills 커버리지 부분적, §5).
 ```
 
+### Q12. 회의 소관위 ↔ 법안 소관위 연결 (comm_name → committee_id)
+위원회 정체성이 `bills.committee`(31종)·`bills.committee_id`(31종, 18,161/18,361 채움)·`meetings.comm_name`(38종)으로 흩어져 있다. `meetings`엔 committee_id가 없어 회의 소관과 법안 소관을 잇으려면 **공백 정규화**가 필요하다(`12.29 여객기…` vs `12.29여객기…` 같은 공백변형 중복). 새 canonical 테이블은 두지 않고 아래 JOIN으로 도출한다.
+```sql
+SELECT mt.comm_name, b.committee_id, b.committee AS bills_committee
+FROM (SELECT DISTINCT comm_name FROM meetings WHERE comm_name IS NOT NULL) mt
+LEFT JOIN (SELECT DISTINCT committee, committee_id FROM bills WHERE committee IS NOT NULL) b
+  ON regexp_replace(b.committee, '\s', '', 'g') = regexp_replace(mt.comm_name, '\s', '', 'g')
+ORDER BY b.committee_id NULLS LAST;
+-- 38종 중 30종 매칭. committee_id가 NULL인 8종은 1회성 인사청문·국정조사·연금개혁 특위로
+-- 법안이 회부되지 않는 회의-전용 위원회 — 누락이 아니라 정상(이름기반 매핑은 best-effort, 강제 FK 아님).
+```
+한 의제가 어느 소관위 경로로 움직였는지 볼 때는 문자열 group by 대신 이 매핑으로 법안·회의를 한 `committee_id`로 묶는다. 위원회 **membership**(누가 위원인지)은 이 DB에 없다(범위 밖).
+
 ---
 
 ## 5. 커버리지·결측 — 답에 한계를 밝혀라
@@ -201,6 +214,7 @@ ORDER BY linked_bill_count DESC;
 | `bills.summary` | 233건 NULL (원천 미제공) | summary 키워드 검색이 그만큼 누락 |
 | 공포 완전성 | 법률안 66건 `prom_law_nm` NULL + 59건 공포 outcome 없음 | "통과=공포"로 단정 말 것; 비-법률 의안은 not_promulgable(정상) |
 | `meeting_bills` | 법안 15%·회의 41% 미연결 | "논의된 회의"가 부분 목록일 수 있음 |
+| 위원회 식별 | `meetings.comm_name`(38종)에 committee_id 없음; 8종은 1회성 특위(회의-전용) | 회의↔법안 소관위는 공백 정규화 JOIN(Q12); 위원회 membership은 데이터에 없음 |
 | `members` (떠난 20명) | `poly_nm`·프로필 NULL | 정당은 `votes.poly_nm_at_vote`로 |
 | `utterances.speaker_mona_cd` | 38.5% NULL (비-의원) | members INNER JOIN 금지 |
 | `bill_relations` 39건 | 수정안 source에 안정키 없음 | 대안 체인 일부 끊김 |
