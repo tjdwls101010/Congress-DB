@@ -1,7 +1,7 @@
 .PHONY: db-up db-down db-migrate db-shell db-reset test ingest \
         seed-catalog verify-catalog render-catalog ingest-members ingest-bills \
         ingest-bill-relations ingest-bill-summaries ingest-votes ingest-meetings validate-minutes-dom ingest-utterances \
-        backfill-speaker-roles backfill-bill-source-aliases backfill-bill-final-outcomes backfill-bill-documents ingest-backfill sanity-check data-completeness migration-readiness regression-pack
+        backfill-speaker-roles backfill-bill-source-aliases backfill-bill-final-outcomes ingest-backfill sanity-check data-completeness migration-readiness regression-pack
 
 # .env가 있으면 변수 자동 로드 (없어도 통과)
 -include .env
@@ -90,10 +90,6 @@ backfill-bill-source-aliases:
 # 진단용: ALLBILL 공포 이력 + 결측 propose_dt 백필
 backfill-bill-final-outcomes:
 	uv run python -m scripts.backfill_bill_final_outcomes
-
-# 진단용: BILLRCPV2 법안 문서 URL inventory 백필
-backfill-bill-documents:
-	uv run python -m scripts.backfill_bill_documents
 
 # 진단용: votes 적재 (기본 10%)
 ingest-votes:
