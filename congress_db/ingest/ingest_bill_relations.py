@@ -15,7 +15,6 @@ from ..core.progress import ProgressReporter, safe_print
 from ..core.throttle import cap_worker_count, external_http_slot
 
 LIKMS_DETAIL_URL = "https://likms.assembly.go.kr/bill/billDetail.do"
-SOURCE = "likms_selrefbillid"
 DEFAULT_WORKER_COUNT = 20
 DEFAULT_RETRY_DELAYS = (1.0, 4.0, 16.0)
 USER_AGENT = (
@@ -65,7 +64,6 @@ class _FetchedBillRelation:
     absorbed_bill_id: str
     alternative_bill_id: str
     relation_type: str
-    source: str = SOURCE
 
 
 class MissingSelRefBillId(RuntimeError):
@@ -74,15 +72,14 @@ class MissingSelRefBillId(RuntimeError):
 
 _UPSERT_BILL_RELATION_SQL = """
     INSERT INTO bill_relations (
-        absorbed_bill_id, alternative_bill_id, relation_type, source
+        absorbed_bill_id, alternative_bill_id, relation_type
     )
     VALUES (
-        %(absorbed_bill_id)s, %(alternative_bill_id)s, %(relation_type)s, %(source)s
+        %(absorbed_bill_id)s, %(alternative_bill_id)s, %(relation_type)s
     )
     ON CONFLICT (absorbed_bill_id) DO UPDATE SET
         alternative_bill_id = EXCLUDED.alternative_bill_id,
         relation_type       = EXCLUDED.relation_type,
-        source              = EXCLUDED.source,
         fetched_at          = now()
 """
 
@@ -106,7 +103,6 @@ def ingest_bill_relations(
             "absorbed_bill_id": relation.absorbed_bill_id,
             "alternative_bill_id": relation.alternative_bill_id,
             "relation_type": relation.relation_type,
-            "source": relation.source,
         }
         for relation in fetched
     ]

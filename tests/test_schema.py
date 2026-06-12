@@ -28,29 +28,85 @@ EXPECTED_TABLES = frozenset(
     }
 )
 
-RETIRED_MEETING_COLUMNS = frozenset(
+EXPECTED_MEMBER_COLUMNS = frozenset(
     {
-        "conf_id",
-        "class_name",
-        "dae_num",
-        "comm_code",
-        "pdf_link_url",
-        "vod_link_url",
-        "conf_link_url",
-        "source_api",
+        "mona_cd",
+        "hg_nm",
+        "hj_nm",
+        "eng_nm",
+        "bth_date",
+        "sex_gbn_nm",
+        "poly_nm",
+        "orig_nm",
+        "elect_gbn_nm",
+        "units",
+        "is_incumbent",
+        "fetched_at",
     }
 )
 
-RETIRED_BILL_COLUMNS = frozenset(
+EXPECTED_MEETING_COLUMNS = frozenset(
     {
-        "detail_link",
-        "age",
+        "mnts_id",
+        "title",
+        "meeting_type",
+        "session_no",
+        "conf_date",
+        "comm_name",
+        "fetched_at",
     }
 )
 
-RETIRED_MEETING_BILL_COLUMNS = frozenset(
+EXPECTED_BILL_COLUMNS = frozenset(
     {
-        "source",
+        "bill_id",
+        "bill_no",
+        "bill_name",
+        "propose_dt",
+        "rst_mona_cd",
+        "proposer",
+        "committee",
+        "committee_id",
+        "proc_result",
+        "proc_dt",
+        "law_proc_dt",
+        "committee_dt",
+        "cmt_proc_dt",
+        "cmt_proc_result",
+        "summary",
+        "fetched_at",
+    }
+)
+
+EXPECTED_VOTE_COLUMNS = frozenset(
+    {
+        "id",
+        "bill_id",
+        "mona_cd",
+        "vote_date",
+        "result_vote_mod",
+        "poly_nm_at_vote",
+    }
+)
+
+EXPECTED_BILL_RELATION_COLUMNS = frozenset(
+    {
+        "absorbed_bill_id",
+        "alternative_bill_id",
+        "relation_type",
+        "fetched_at",
+    }
+)
+
+EXPECTED_BILL_FINAL_OUTCOME_COLUMNS = frozenset(
+    {
+        "bill_no",
+        "plenary_dt",
+        "govt_transfer_dt",
+        "promulgation_dt",
+        "prom_no",
+        "prom_law_nm",
+        "fetched_at",
     }
 )
 
@@ -98,21 +154,32 @@ def test_no_unexpected_tables() -> None:
 
 def test_meetings_has_only_search_oriented_core_columns() -> None:
     """회의 source/link/upstream 컬럼은 core 스키마에 남기지 않는다."""
-    columns = _public_columns("meetings")
-    assert not (columns & RETIRED_MEETING_COLUMNS)
-    assert {"is_temporary", "is_appendix"} <= columns
+    assert _public_columns("meetings") == EXPECTED_MEETING_COLUMNS
 
 
 def test_members_exposes_roster_derived_incumbency() -> None:
     """현직 여부는 최신 의원 명부에서 파생된 공개 조회 컬럼이다."""
-    columns = _public_columns("members")
-    assert "is_incumbent" in columns
+    assert _public_columns("members") == EXPECTED_MEMBER_COLUMNS
 
 
 def test_bills_has_only_search_oriented_core_columns() -> None:
     """법안 상세 링크와 22대 고정 대수 컬럼은 core 스키마에 남기지 않는다."""
-    columns = _public_columns("bills")
-    assert not (columns & RETIRED_BILL_COLUMNS)
+    assert _public_columns("bills") == EXPECTED_BILL_COLUMNS
+
+
+def test_votes_has_only_vote_fact_columns() -> None:
+    """표결 row는 표결 사실과 시점 정당만 보존한다."""
+    assert _public_columns("votes") == EXPECTED_VOTE_COLUMNS
+
+
+def test_bill_relations_has_only_relationship_columns() -> None:
+    """법안 흡수 관계는 관계 자체만 보존한다."""
+    assert _public_columns("bill_relations") == EXPECTED_BILL_RELATION_COLUMNS
+
+
+def test_bill_final_outcomes_has_only_outcome_columns() -> None:
+    """최종 처리 이력은 본회의 이후 날짜와 공포 정보만 보존한다."""
+    assert _public_columns("bill_final_outcomes") == EXPECTED_BILL_FINAL_OUTCOME_COLUMNS
 
 
 def test_meeting_bills_has_only_junction_columns() -> None:

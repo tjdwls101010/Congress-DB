@@ -42,14 +42,7 @@ erDiagram
 | `poly_nm` | TEXT | 현재 정당 |
 | `orig_nm` | TEXT | 현재 선거구 |
 | `elect_gbn_nm` | TEXT | 지역구 / 비례대표 |
-| `cmits` | TEXT | 현재 위원회 원문 |
-| `reele_gbn_nm` | TEXT | 초선 / 재선 등 |
 | `units` | TEXT | 역대 대수 원문 |
-| `tel_no` | TEXT | 공개 연락처 |
-| `e_mail` | TEXT | 공개 이메일 |
-| `homepage` | TEXT | 홈페이지 |
-| `mem_title` | TEXT | 약력 |
-| `assem_addr` | TEXT | 의원회관 호실 |
 | `is_incumbent` | BOOLEAN NOT NULL DEFAULT FALSE | 최신 의원 인적사항 명부 등장 여부에서 파생한 현직 여부 |
 | `fetched_at` | TIMESTAMPTZ | 마지막 수집 시각 |
 
@@ -64,18 +57,15 @@ erDiagram
 | `bill_name` | TEXT NOT NULL | 법안명 |
 | `propose_dt` | DATE | 발의일 |
 | `rst_mona_cd` | TEXT REFERENCES members(mona_cd) | 단일 대표발의 편의 FK |
-| `rst_proposer` | TEXT | 대표발의자 원문 |
-| `publ_proposer` | TEXT | 공동발의자 원문 |
 | `proposer` | TEXT | 제안자 문구 원문 |
 | `committee` | TEXT | 소관 위원회명 |
 | `committee_id` | TEXT | 소관 위원회 코드 |
 | `proc_result` | TEXT | 처리결과 |
 | `proc_dt` | DATE | 처리일자 |
 | `law_proc_dt` | DATE | 법사위 처리일자 |
-| `law_proc_result_cd` | TEXT | 법사위 처리결과 코드 |
 | `committee_dt` | DATE | 위원회 회부일자 |
 | `cmt_proc_dt` | DATE | 위원회 처리일자 |
-| `cmt_proc_result_cd` | TEXT | 위원회 처리결과 코드 |
+| `cmt_proc_result` | TEXT | 위원회 처리결과(라벨) |
 | `summary` | TEXT | 주요내용 |
 | `fetched_at` | TIMESTAMPTZ | 마지막 수집 시각 |
 
@@ -88,7 +78,6 @@ erDiagram
 | `absorbed_bill_id` | TEXT REFERENCES bills(bill_id) | **PK**. 폐기된 원안 |
 | `alternative_bill_id` | TEXT NOT NULL | likms `selRefBillId`. 내용을 흡수한 대안/수정안 source key. 현재 `bills`에 row가 있으면 join 가능하나 FK로 강제하지 않는다(DECISIONS 2026-06-06) |
 | `relation_type` | TEXT NOT NULL CHECK (...) | `대안반영` / `수정안반영` |
-| `source` | TEXT NOT NULL DEFAULT 'likms_selrefbillid' | 관계 출처 |
 | `fetched_at` | TIMESTAMPTZ | 마지막 수집 시각 |
 
 ### 3a. `bill_source_aliases` — source별 법안 ID alias
@@ -115,7 +104,6 @@ ALLBILL이 제공하는 본회의 의결 이후 정부이송·공포 이력을 `
 | `promulgation_dt` | DATE | 공포일 (`PROM_DT`) |
 | `prom_no` | TEXT | 공포번호 (`PROM_NO`) |
 | `prom_law_nm` | TEXT | 공포 법률명 (`PROM_LAW_NM`) |
-| `source` | TEXT NOT NULL | 적재 출처. 현재 `allbill` |
 | `fetched_at` | TIMESTAMPTZ | 마지막 수집 시각 |
 
 ### 4. `bill_lead_proposers` — 대표발의 N:M
@@ -148,8 +136,6 @@ OpenAPI가 복수 대표발의자를 줄 수 있어 정규화한다.
 | `vote_date` | TIMESTAMPTZ NOT NULL | 표결 시각 |
 | `result_vote_mod` | TEXT NOT NULL | 찬성/반대/기권/불참 |
 | `poly_nm_at_vote` | TEXT | 표결 시점 정당 |
-| `session_cd` | INT | 회기 |
-| `currents_cd` | INT | 원천 코드 |
 | | | **UNIQUE(bill_id, mona_cd)** |
 
 ### 7. `meetings` — 회의
@@ -164,9 +150,6 @@ HTML 회의록 목록의 한 회의. `total/22.do` 웹 목록이 canonical sourc
 | `conf_date` | DATE NOT NULL | 회의일 |
 | `comm_name` | TEXT | 위원회명. 본회의는 NULL 가능 |
 | `session_no` | INT | 회기 번호 |
-| `degree` | TEXT | 제N차 / 개회식 등 |
-| `is_temporary` | BOOLEAN NOT NULL DEFAULT FALSE | 웹 목록의 `[임시]` 표기 |
-| `is_appendix` | BOOLEAN NOT NULL DEFAULT FALSE | 웹 목록의 `(부록)` 표기 |
 | `fetched_at` | TIMESTAMPTZ | 마지막 수집 시각 |
 
 제외 필드: PDF/HWP/VOD/요약 링크, `source_api`, `conf_id`, `class_name`, `comm_code`. 이 값들은 검색 API/SDK의 core query에 쓰이지 않으므로 coverage report, ingest summary, dead letter에서만 다룬다.

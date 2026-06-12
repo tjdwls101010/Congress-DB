@@ -103,18 +103,16 @@ _INSERT_MEMBER_REFS_SQL = """
 _UPSERT_VOTES_SQL = """
     INSERT INTO votes (
         bill_id, mona_cd, vote_date, result_vote_mod,
-        poly_nm_at_vote, session_cd, currents_cd
+        poly_nm_at_vote
     )
     VALUES (
         %(bill_id)s, %(mona_cd)s, %(vote_date)s, %(result_vote_mod)s,
-        %(poly_nm_at_vote)s, %(session_cd)s, %(currents_cd)s
+        %(poly_nm_at_vote)s
     )
     ON CONFLICT (bill_id, mona_cd) DO UPDATE SET
         vote_date       = EXCLUDED.vote_date,
         result_vote_mod = EXCLUDED.result_vote_mod,
-        poly_nm_at_vote = EXCLUDED.poly_nm_at_vote,
-        session_cd      = EXCLUDED.session_cd,
-        currents_cd     = EXCLUDED.currents_cd
+        poly_nm_at_vote = EXCLUDED.poly_nm_at_vote
 """
 
 
@@ -484,8 +482,6 @@ def _normalize_vote_row(row: dict[str, Any], *, bill_id: str | None = None) -> d
         "vote_date": _parse_vote_date(_required(row, "VOTE_DATE")),
         "result_vote_mod": _required(row, "RESULT_VOTE_MOD"),
         "poly_nm_at_vote": _required(row, "POLY_NM"),
-        "session_cd": _int_or_none(row.get("SESSION_CD")),
-        "currents_cd": _int_or_none(row.get("CURRENTS_CD")),
     }
 
 
@@ -531,12 +527,6 @@ def _required(row: dict[str, Any], key: str) -> Any:
     if value is None:
         raise ValueError(f"vote API row missing {key}")
     return value
-
-
-def _int_or_none(value: Any) -> int | None:
-    if value is None or value == "":
-        return None
-    return int(value)
 
 
 def _int_or_zero(value: Any) -> int:

@@ -20,14 +20,7 @@ CREATE TABLE IF NOT EXISTS members (
     poly_nm         TEXT,
     orig_nm         TEXT,
     elect_gbn_nm    TEXT,
-    cmits           TEXT,
-    reele_gbn_nm    TEXT,
     units           TEXT,
-    tel_no          TEXT,
-    e_mail          TEXT,
-    homepage        TEXT,
-    mem_title       TEXT,
-    assem_addr      TEXT,
     is_incumbent    BOOLEAN NOT NULL DEFAULT FALSE,
     fetched_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -47,11 +40,8 @@ CREATE TABLE IF NOT EXISTS meetings (
                         '국정감사', '국정조사', '인사청문회', '소위원회'
                     )),
     session_no      INT,
-    degree          TEXT,
     conf_date       DATE NOT NULL,
     comm_name       TEXT,
-    is_temporary    BOOLEAN NOT NULL DEFAULT FALSE,
-    is_appendix     BOOLEAN NOT NULL DEFAULT FALSE,
     fetched_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -87,18 +77,15 @@ CREATE TABLE IF NOT EXISTS bills (
     bill_name            TEXT NOT NULL,
     propose_dt           DATE,
     rst_mona_cd          TEXT REFERENCES members (mona_cd) ON DELETE RESTRICT,
-    rst_proposer         TEXT,
-    publ_proposer        TEXT,
     proposer             TEXT,
     committee            TEXT,
     committee_id         TEXT,
     proc_result          TEXT,
     proc_dt              DATE,
     law_proc_dt          DATE,
-    law_proc_result_cd   TEXT,
     committee_dt         DATE,
     cmt_proc_dt          DATE,
-    cmt_proc_result_cd   TEXT,
+    cmt_proc_result      TEXT,
     summary              TEXT,
     fetched_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -115,7 +102,6 @@ CREATE TABLE IF NOT EXISTS bill_relations (
     alternative_bill_id  TEXT NOT NULL,
     relation_type        TEXT NOT NULL
                          CHECK (relation_type IN ('대안반영', '수정안반영')),
-    source               TEXT NOT NULL DEFAULT 'likms_selrefbillid',
     fetched_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -144,7 +130,6 @@ CREATE TABLE IF NOT EXISTS bill_final_outcomes (
     promulgation_dt      DATE,
     prom_no              TEXT,
     prom_law_nm          TEXT,
-    source               TEXT NOT NULL,
     fetched_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -182,8 +167,6 @@ CREATE TABLE IF NOT EXISTS votes (
     vote_date         TIMESTAMPTZ NOT NULL,
     result_vote_mod   TEXT NOT NULL,
     poly_nm_at_vote   TEXT,
-    session_cd        INT,
-    currents_cd       INT,
     UNIQUE (bill_id, mona_cd)
 );
 

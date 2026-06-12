@@ -146,7 +146,7 @@ def test_allbill_row_maps_to_bill_final_outcomes() -> None:
         cur.execute(
             """
             SELECT bill_no, plenary_dt, govt_transfer_dt, promulgation_dt,
-                   prom_no, prom_law_nm, source
+                   prom_no, prom_law_nm
             FROM bill_final_outcomes
             WHERE bill_no = %s
             """,
@@ -161,7 +161,6 @@ def test_allbill_row_maps_to_bill_final_outcomes() -> None:
         date(2026, 5, 12),
         "21634",
         "전세사기피해자 지원 및 주거안정에 관한 특별법",
-        "allbill",
     )
 
 

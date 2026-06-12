@@ -3,6 +3,10 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-06-12 — 소비자 스키마 정리: 중복·죽은·이름거짓 필드 18개 DROP + ops 5테이블 REVOKE
+
+소비자(입법전문가 스킬)가 introspect하는 스키마 표면 자체가 소비자 컨텍스트라, 노이즈 필드가 추론을 흐린다(skill-creator 'irrelevant text degrades the model'를 DB에 적용). 16-테이블 심층 설계 감사 2회(워크플로, 33+30 에이전트, 반증 검증)로 *소비자/회귀/뷰가 읽지 않고 전부 재도출 가능한* 것만 제거(migration 015). DROP: bills(rst_proposer·publ_proposer = join string_agg 정확중복, law_proc_result_cd = 96.9% NULL 죽음), members(tel_no·e_mail·homepage·assem_addr = 연락처 directory, reele_gbn_nm = units 토큰수 도출, cmits = 84.7% NULL '현재 위원회'라 거짓·특위 노이즈, mem_title = HTML 약력 blob), votes(session_cd = meetings.session_no 도출, currents_cd = 불투명 죽은 원천코드), meetings(is_appendix·degree·is_temporary = title 파생 웹목록 잔재), bill_relations·bill_final_outcomes(source = 단일 상수). RENAME bills.cmt_proc_result_cd→cmt_proc_result(_cd인데 라벨 담는 거짓이름 — 728건 소관위-사망 신호라 keeper). REVOKE SELECT(api_catalog·ingest_runs·ingest_cursors·dead_letters·speaker_title_role_map) → 소비자 introspection 17→12. + legibility COMMENT 14개(동명이인·선수도출·서명순서·생존편향·fanout 등). 감사가 drop 권한 **bills.committee·rst_mona_cd·canonical_bill_id는 KEEP** — Q9/Q12 레시피·FK검증에 엮여 drop 시 재작성 비용 > 노이즈 절감이라 COMMENT로 명료화가 옳다. ops 내부 죽은 NULL컬럼·api_catalog 물리삭제는 REVOKE로 소비자에게 안 보이니 별도 ops 위생으로 deferred. ETL/schema/test 동기화는 supervised Codex(로컬 docker 테스트), 201 passed.
+
 ## 2026-06-12 — 소비층을 COMMENT+schema로 일원화, DB-QUERY-GUIDE는 cross-table 레시피만
 
 PM이 소비-원칙(모델 지능 신뢰, hard-rule이 아닌 inform)을 직접 적용해 짚었다: 어떤 필드로 무엇을 추론하는지를 *문서*로 명시하는 것은 (a) 구조(타입·FK)는 `schema.sql`+introspection에 이미 있어 중복이고, (b) 통째 SQL 레시피는 Claude의 SQL 지능을 불신하는 over-specification이며, (c) 별도 레포 markdown은 다른 코드베이스의 스킬로 따라가지 않는다. 감사 결과 가이드의 함정 8개·어휘·커버리지가 *전부 이미 COMMENT/`schema.sql`에* 있었다. 결정: 함정·어휘·구조는 COMMENT+schema(DB와 함께 이동, `\d+`로 introspect)에 일원화하고, `DB-QUERY-GUIDE.md`는 introspection이 조립 못 하는 **cross-table 패턴만**(Q2 공포완전성·Q9 alias해소·Q11 fanout뷰·Q12 소관위정규화) 남겨 224→~70줄로 축소했다(COMMENT가 가리키는 Q2·Q12 번호는 유지, 새 마이그레이션·데이터 변경 없음). 이로써 'inform'은 별도 hard-rule 문서가 아니라 모델이 introspect하는 in-DB 자기설명 + 소비자 지능이 된다. 기존-데이터 소비 준비는 이로써 종료 — 추가 DB 작업은 스킬 프로토타입이 실제 수요를 드러낼 때(prototype-gated).

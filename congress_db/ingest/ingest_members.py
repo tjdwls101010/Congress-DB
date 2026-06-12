@@ -38,14 +38,7 @@ _MEMBER_FIELDS: tuple[str, ...] = (
     "poly_nm",
     "orig_nm",
     "elect_gbn_nm",
-    "cmits",
-    "reele_gbn_nm",
     "units",
-    "tel_no",
-    "e_mail",
-    "homepage",
-    "mem_title",
-    "assem_addr",
 )
 
 _API_TO_DB: dict[str, str] = {
@@ -58,26 +51,17 @@ _API_TO_DB: dict[str, str] = {
     "POLY_NM": "poly_nm",
     "ORIG_NM": "orig_nm",
     "ELECT_GBN_NM": "elect_gbn_nm",
-    "CMITS": "cmits",
-    "REELE_GBN_NM": "reele_gbn_nm",
     "UNITS": "units",
-    "TEL_NO": "tel_no",
-    "E_MAIL": "e_mail",
-    "HOMEPAGE": "homepage",
-    "MEM_TITLE": "mem_title",
-    "ASSEM_ADDR": "assem_addr",
 }
 
 _UPSERT_MEMBERS_SQL = """
     INSERT INTO members (
         mona_cd, hg_nm, hj_nm, eng_nm, bth_date, sex_gbn_nm,
-        poly_nm, orig_nm, elect_gbn_nm, cmits, reele_gbn_nm, units,
-        tel_no, e_mail, homepage, mem_title, assem_addr, is_incumbent
+        poly_nm, orig_nm, elect_gbn_nm, units, is_incumbent
     )
     VALUES (
         %(mona_cd)s, %(hg_nm)s, %(hj_nm)s, %(eng_nm)s, %(bth_date)s, %(sex_gbn_nm)s,
-        %(poly_nm)s, %(orig_nm)s, %(elect_gbn_nm)s, %(cmits)s, %(reele_gbn_nm)s, %(units)s,
-        %(tel_no)s, %(e_mail)s, %(homepage)s, %(mem_title)s, %(assem_addr)s, TRUE
+        %(poly_nm)s, %(orig_nm)s, %(elect_gbn_nm)s, %(units)s, TRUE
     )
     ON CONFLICT (mona_cd) DO UPDATE SET
         hg_nm        = EXCLUDED.hg_nm,
@@ -88,14 +72,7 @@ _UPSERT_MEMBERS_SQL = """
         poly_nm      = EXCLUDED.poly_nm,
         orig_nm      = EXCLUDED.orig_nm,
         elect_gbn_nm = EXCLUDED.elect_gbn_nm,
-        cmits        = EXCLUDED.cmits,
-        reele_gbn_nm = EXCLUDED.reele_gbn_nm,
         units        = EXCLUDED.units,
-        tel_no       = EXCLUDED.tel_no,
-        e_mail       = EXCLUDED.e_mail,
-        homepage     = EXCLUDED.homepage,
-        mem_title    = EXCLUDED.mem_title,
-        assem_addr   = EXCLUDED.assem_addr,
         is_incumbent = TRUE,
         fetched_at   = now()
 """
