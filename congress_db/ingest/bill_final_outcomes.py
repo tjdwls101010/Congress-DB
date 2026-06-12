@@ -12,7 +12,6 @@ from ..core.db import execute_many, get_conn
 from ..core.progress import ProgressReporter
 
 ALLBILL_ENDPOINT = "ALLBILL"
-OUTCOME_SOURCE = "allbill"
 PASSED_PROC_RESULTS = frozenset({"원안가결", "수정가결"})
 
 FetchAllbill = Callable[..., ApiResponse]
@@ -70,11 +69,11 @@ class _FetchedAllbillRow:
 _UPSERT_OUTCOME_SQL = """
     INSERT INTO bill_final_outcomes (
         bill_no, plenary_dt, govt_transfer_dt, promulgation_dt,
-        prom_no, prom_law_nm, source
+        prom_no, prom_law_nm
     )
     VALUES (
         %(bill_no)s, %(plenary_dt)s, %(govt_transfer_dt)s, %(promulgation_dt)s,
-        %(prom_no)s, %(prom_law_nm)s, %(source)s
+        %(prom_no)s, %(prom_law_nm)s
     )
     ON CONFLICT (bill_no) DO UPDATE SET
         plenary_dt       = EXCLUDED.plenary_dt,
@@ -82,7 +81,6 @@ _UPSERT_OUTCOME_SQL = """
         promulgation_dt  = EXCLUDED.promulgation_dt,
         prom_no          = EXCLUDED.prom_no,
         prom_law_nm      = EXCLUDED.prom_law_nm,
-        source           = EXCLUDED.source,
         fetched_at       = now()
 """
 
@@ -272,7 +270,6 @@ def _normalize_outcome_row(row: dict[str, Any]) -> dict[str, Any]:
         "promulgation_dt": _blank_to_none(row.get("PROM_DT")),
         "prom_no": _blank_to_none(row.get("PROM_NO")),
         "prom_law_nm": _blank_to_none(row.get("PROM_LAW_NM")),
-        "source": OUTCOME_SOURCE,
     }
 
 

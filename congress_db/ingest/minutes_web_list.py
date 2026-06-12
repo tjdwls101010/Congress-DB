@@ -127,11 +127,8 @@ def web_meeting_to_row(meeting: MinutesWebListMeeting) -> dict[str, Any]:
         "title": meeting.title,
         "meeting_type": meeting.meeting_type,
         "session_no": meeting.session_no,
-        "degree": meeting.degree,
         "conf_date": meeting.conf_date,
         "comm_name": meeting.comm_name,
-        "is_temporary": meeting.is_temporary,
-        "is_appendix": meeting.is_appendix,
     }
 
 

@@ -92,11 +92,8 @@ def test_web_meeting_to_row_matches_meetings_schema() -> None:
         "title",
         "meeting_type",
         "session_no",
-        "degree",
         "conf_date",
         "comm_name",
-        "is_temporary",
-        "is_appendix",
     }
     assert row["mnts_id"] == meeting.mnts_id
 

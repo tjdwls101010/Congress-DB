@@ -44,7 +44,6 @@ def _member_row(
     hj_nm: str,
     *,
     poly_nm: str = "테스트정당",
-    mem_title: str = "긴 약력\n두 번째 줄",
 ) -> dict[str, str]:
     return {
         "MONA_CD": mona_cd,
@@ -56,14 +55,7 @@ def _member_row(
         "POLY_NM": poly_nm,
         "ORIG_NM": "테스트선거구",
         "ELECT_GBN_NM": "지역구",
-        "CMITS": "테스트위원회",
-        "REELE_GBN_NM": "초선",
         "UNITS": "제22대",
-        "TEL_NO": "02-0000-0000",
-        "E_MAIL": "member@example.com",
-        "HOMEPAGE": "https://example.com",
-        "MEM_TITLE": mem_title,
-        "ASSEM_ADDR": "의원회관 000호",
     }
 
 
@@ -81,7 +73,7 @@ def test_ingest_members_fetches_once_and_upserts_idempotently(
 ) -> None:
     rows = [
         _member_row("TEST_MEMBER_1", "테스트일", "姜景淑"),
-        _member_row("TEST_MEMBER_2", "테스트이", "金二", mem_title="약력 원문\r\n보존"),
+        _member_row("TEST_MEMBER_2", "테스트이", "金二"),
     ]
     calls: list[dict[str, Any]] = []
 
@@ -105,7 +97,7 @@ def test_ingest_members_fetches_once_and_upserts_idempotently(
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             """
-            SELECT mona_cd, hg_nm, hj_nm, mem_title
+            SELECT mona_cd, hg_nm, hj_nm, units
             FROM members
             WHERE mona_cd = ANY(%s)
             ORDER BY mona_cd
@@ -115,8 +107,8 @@ def test_ingest_members_fetches_once_and_upserts_idempotently(
         saved = cur.fetchall()
 
     assert saved == [
-        ("TEST_MEMBER_1", "테스트일", "姜景淑", "긴 약력\n두 번째 줄"),
-        ("TEST_MEMBER_2", "테스트이", "金二", "약력 원문\r\n보존"),
+        ("TEST_MEMBER_1", "테스트일", "姜景淑", "제22대"),
+        ("TEST_MEMBER_2", "테스트이", "金二", "제22대"),
     ]
 
 

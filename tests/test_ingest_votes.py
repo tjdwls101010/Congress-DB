@@ -86,8 +86,6 @@ def _vote_row(
         "VOTE_DATE": "20260507 181630",
         "RESULT_VOTE_MOD": result,
         "POLY_NM": "테스트정당",
-        "SESSION_CD": 435,
-        "CURRENTS_CD": 1,
     }
 
 
@@ -440,17 +438,15 @@ def test_ingest_votes_incremental_fetches_only_missing_vote_rows(
                 """
                 INSERT INTO votes (
                     bill_id, mona_cd, vote_date, result_vote_mod,
-                    poly_nm_at_vote, session_cd, currents_cd
+                    poly_nm_at_vote
                 )
-                VALUES (%s, %s, '2026-05-07 18:16:30+09', %s, %s, %s, %s)
+                VALUES (%s, %s, '2026-05-07 18:16:30+09', %s, %s)
                 """,
                 (
                     row["BILL_ID"],
                     row["MONA_CD"],
                     row["RESULT_VOTE_MOD"],
                     row["POLY_NM"],
-                    row["SESSION_CD"],
-                    row["CURRENTS_CD"],
                 ),
             )
         conn.commit()

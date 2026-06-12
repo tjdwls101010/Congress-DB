@@ -294,7 +294,7 @@ def test_ingest_meetings_normalizes_sources_and_bills_idempotently(
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             """
-            SELECT mnts_id, meeting_type, is_temporary, is_appendix
+            SELECT mnts_id, meeting_type
             FROM meetings
             WHERE mnts_id = ANY(%s)
             ORDER BY mnts_id
@@ -314,11 +314,11 @@ def test_ingest_meetings_normalizes_sources_and_bills_idempotently(
         meeting_bills = cur.fetchall()
 
     assert meetings == [
-        (910001, "본회의", False, False),
-        (910002, "소위원회", False, False),
-        (910003, "국정조사", False, False),
-        (910004, "인사청문회", False, False),
-        (910005, "상임위", False, False),
+        (910001, "본회의"),
+        (910002, "소위원회"),
+        (910003, "국정조사"),
+        (910004, "인사청문회"),
+        (910005, "상임위"),
     ]
     assert meeting_bills == [
         (910001, "TEST_MEETING_BILL_1"),

@@ -92,22 +92,19 @@ class VconfBillFailure:
 
 _UPSERT_MEETINGS_SQL = """
     INSERT INTO meetings (
-        mnts_id, title, meeting_type, session_no, degree, conf_date,
-        comm_name, is_temporary, is_appendix
+        mnts_id, title, meeting_type, session_no, conf_date,
+        comm_name
     )
     VALUES (
-        %(mnts_id)s, %(title)s, %(meeting_type)s, %(session_no)s, %(degree)s,
-        %(conf_date)s, %(comm_name)s, %(is_temporary)s, %(is_appendix)s
+        %(mnts_id)s, %(title)s, %(meeting_type)s, %(session_no)s,
+        %(conf_date)s, %(comm_name)s
     )
     ON CONFLICT (mnts_id) DO UPDATE SET
         title         = EXCLUDED.title,
         meeting_type  = EXCLUDED.meeting_type,
         session_no    = COALESCE(EXCLUDED.session_no, meetings.session_no),
-        degree        = COALESCE(EXCLUDED.degree, meetings.degree),
         conf_date     = EXCLUDED.conf_date,
         comm_name     = COALESCE(EXCLUDED.comm_name, meetings.comm_name),
-        is_temporary  = EXCLUDED.is_temporary,
-        is_appendix   = EXCLUDED.is_appendix,
         fetched_at    = now()
 """
 
@@ -387,11 +384,8 @@ def _normalize_standard_meeting(endpoint: str, row: dict[str, Any]) -> dict[str,
         "title": title,
         "meeting_type": _standard_meeting_type(endpoint, row),
         "session_no": _parse_session_no(title),
-        "degree": _parse_degree(title),
         "conf_date": _parse_date(row.get("CONF_DATE"), title),
         "comm_name": comm_name,
-        "is_temporary": _is_temporary_title(title),
-        "is_appendix": _is_appendix_title(title),
     }
 
 
@@ -406,11 +400,8 @@ def _normalize_special_meeting(endpoint: str, row: dict[str, Any]) -> dict[str, 
         "title": _special_title(comm_name, class_name, row.get("SESS"), degree, conf_date),
         "meeting_type": _special_meeting_type(endpoint),
         "session_no": session_no,
-        "degree": degree,
         "conf_date": conf_date,
         "comm_name": comm_name,
-        "is_temporary": False,
-        "is_appendix": False,
     }
 
 
@@ -452,11 +443,9 @@ def _merge_meeting(meetings: dict[int, dict[str, Any]], meeting: dict[str, Any])
         meetings[meeting["mnts_id"]] = meeting
         return
     _validate_duplicate_meeting(existing, meeting)
-    for key in ("session_no", "degree", "comm_name"):
+    for key in ("session_no", "comm_name"):
         if not existing.get(key) and meeting.get(key):
             existing[key] = meeting[key]
-    existing["is_temporary"] = bool(existing.get("is_temporary") or meeting.get("is_temporary"))
-    existing["is_appendix"] = bool(existing.get("is_appendix") or meeting.get("is_appendix"))
 
 
 def _enrich_web_meeting_row(
@@ -465,7 +454,7 @@ def _enrich_web_meeting_row(
 ) -> dict[str, Any]:
     if api_row is None:
         return web_row
-    for key in ("session_no", "degree", "comm_name"):
+    for key in ("session_no", "comm_name"):
         if not web_row.get(key) and api_row.get(key):
             web_row[key] = api_row[key]
     return web_row
@@ -479,8 +468,8 @@ def _reconcile_meeting_rows(
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             """
-            SELECT mnts_id, title, meeting_type, session_no, degree, conf_date,
-                   comm_name, is_temporary, is_appendix
+            SELECT mnts_id, title, meeting_type, session_no, conf_date,
+                   comm_name
             FROM meetings
             WHERE mnts_id = ANY(%s)
             """,
@@ -491,11 +480,8 @@ def _reconcile_meeting_rows(
                 "title": row[1],
                 "meeting_type": row[2],
                 "session_no": row[3],
-                "degree": row[4],
-                "conf_date": row[5],
-                "comm_name": row[6],
-                "is_temporary": row[7],
-                "is_appendix": row[8],
+                "conf_date": row[4],
+                "comm_name": row[5],
             }
             for row in cur.fetchall()
         }
@@ -518,11 +504,8 @@ def _meeting_row_changed(existing: dict[str, Any], incoming: dict[str, Any]) -> 
             "title",
             "meeting_type",
             "session_no",
-            "degree",
             "conf_date",
             "comm_name",
-            "is_temporary",
-            "is_appendix",
         )
     )
 
@@ -942,19 +925,6 @@ def _parse_date(value: Any, fallback_text: str | None) -> date:
 def _parse_session_no(value: Any) -> int | None:
     match = re.search(r"제\s*(\d+)\s*회", str(value or ""))
     return int(match.group(1)) if match else None
-
-
-def _parse_degree(value: Any) -> str | None:
-    match = re.search(r"제\s*\d+\s*차|개회식", str(value or ""))
-    return match.group(0).replace(" ", "") if match else None
-
-
-def _is_temporary_title(value: str) -> bool:
-    return "[임시]" in value
-
-
-def _is_appendix_title(value: str) -> bool:
-    return "(부록)" in value
 
 
 def _required(row: dict[str, Any], key: str) -> Any:

@@ -65,8 +65,9 @@ def _bill_row(
     bill_name: str,
     rst_mona_cd: str,
     publ_mona_cd: str,
-    publ_proposer: str,
-    rst_proposer: str = "대표",
+    co_names_text: str,
+    lead_names_text: str = "대표",
+    cmt_proc_result: str | None = None,
 ) -> dict[str, str | None]:
     return {
         "BILL_ID": bill_id,
@@ -74,19 +75,18 @@ def _bill_row(
         "BILL_NAME": bill_name,
         "PROPOSE_DT": "2026-05-22",
         "RST_MONA_CD": rst_mona_cd,
-        "RST_PROPOSER": rst_proposer,
+        "RST_PROPOSER": lead_names_text,
         "PUBL_MONA_CD": publ_mona_cd,
-        "PUBL_PROPOSER": publ_proposer,
+        "PUBL_PROPOSER": co_names_text,
         "PROPOSER": "대표의원 등 3인",
         "COMMITTEE": "테스트위원회",
         "COMMITTEE_ID": "TESTCMT",
         "PROC_RESULT": None,
         "PROC_DT": None,
         "LAW_PROC_DT": None,
-        "LAW_PROC_RESULT_CD": None,
         "COMMITTEE_DT": None,
         "CMT_PROC_DT": None,
-        "CMT_PROC_RESULT_CD": None,
+        "CMT_PROC_RESULT_CD": cmt_proc_result,
         "DETAIL_LINK": "https://example.com/bill",
         "AGE": "22",
     }
@@ -117,6 +117,7 @@ def test_ingest_bills_upserts_bills_and_coproposers_idempotently(
             "TEST_BILL_MEMBER_1",
             "TEST_BILL_MEMBER_2,TEST_BILL_MEMBER_3",
             "공동이,공동삼",
+            cmt_proc_result="수정가결",
         ),
         _bill_row(
             "TEST_BILL_2",
@@ -125,7 +126,7 @@ def test_ingest_bills_upserts_bills_and_coproposers_idempotently(
             "TEST_BILL_MEMBER_2,TEST_BILL_MEMBER_4",
             "",
             "",
-            rst_proposer="대표이,대표사",
+            lead_names_text="대표이,대표사",
         ),
     ]
     calls: list[tuple[str, dict[str, str]]] = []
@@ -181,7 +182,7 @@ def test_ingest_bills_upserts_bills_and_coproposers_idempotently(
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             """
-            SELECT bill_id, bill_no, bill_name, rst_mona_cd, publ_proposer,
+            SELECT bill_id, bill_no, bill_name, rst_mona_cd, cmt_proc_result,
                    proposer, summary
             FROM bills
             WHERE bill_id = ANY(%s)
@@ -217,7 +218,7 @@ def test_ingest_bills_upserts_bills_and_coproposers_idempotently(
             "9000001",
             "테스트 법안 1",
             "TEST_BILL_MEMBER_1",
-            "공동이,공동삼",
+            "수정가결",
             "대표의원 등 3인",
             "요약 9000001",
         ),

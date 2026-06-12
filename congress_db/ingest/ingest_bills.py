@@ -110,18 +110,15 @@ _BILL_FIELDS: tuple[str, ...] = (
     "bill_name",
     "propose_dt",
     "rst_mona_cd",
-    "rst_proposer",
-    "publ_proposer",
     "proposer",
     "committee",
     "committee_id",
     "proc_result",
     "proc_dt",
     "law_proc_dt",
-    "law_proc_result_cd",
     "committee_dt",
     "cmt_proc_dt",
-    "cmt_proc_result_cd",
+    "cmt_proc_result",
     "summary",
 )
 
@@ -131,51 +128,44 @@ _API_TO_DB: dict[str, str] = {
     "BILL_NAME": "bill_name",
     "PROPOSE_DT": "propose_dt",
     "RST_MONA_CD": "rst_mona_cd",
-    "RST_PROPOSER": "rst_proposer",
-    "PUBL_PROPOSER": "publ_proposer",
     "PROPOSER": "proposer",
     "COMMITTEE": "committee",
     "COMMITTEE_ID": "committee_id",
     "PROC_RESULT": "proc_result",
     "PROC_DT": "proc_dt",
     "LAW_PROC_DT": "law_proc_dt",
-    "LAW_PROC_RESULT_CD": "law_proc_result_cd",
     "COMMITTEE_DT": "committee_dt",
     "CMT_PROC_DT": "cmt_proc_dt",
-    "CMT_PROC_RESULT_CD": "cmt_proc_result_cd",
+    "CMT_PROC_RESULT_CD": "cmt_proc_result",
 }
 
 _UPSERT_BILLS_SQL = """
     INSERT INTO bills (
-        bill_id, bill_no, bill_name, propose_dt, rst_mona_cd, rst_proposer,
-        publ_proposer, proposer, committee, committee_id, proc_result, proc_dt,
-        law_proc_dt, law_proc_result_cd, committee_dt, cmt_proc_dt,
-        cmt_proc_result_cd, summary
+        bill_id, bill_no, bill_name, propose_dt, rst_mona_cd,
+        proposer, committee, committee_id, proc_result, proc_dt,
+        law_proc_dt, committee_dt, cmt_proc_dt, cmt_proc_result, summary
     )
     VALUES (
         %(bill_id)s, %(bill_no)s, %(bill_name)s, %(propose_dt)s,
-        %(rst_mona_cd)s, %(rst_proposer)s, %(publ_proposer)s, %(proposer)s,
+        %(rst_mona_cd)s, %(proposer)s,
         %(committee)s, %(committee_id)s, %(proc_result)s, %(proc_dt)s,
-        %(law_proc_dt)s, %(law_proc_result_cd)s, %(committee_dt)s,
-        %(cmt_proc_dt)s, %(cmt_proc_result_cd)s, %(summary)s
+        %(law_proc_dt)s, %(committee_dt)s,
+        %(cmt_proc_dt)s, %(cmt_proc_result)s, %(summary)s
     )
     ON CONFLICT (bill_id) DO UPDATE SET
         bill_no            = EXCLUDED.bill_no,
         bill_name          = EXCLUDED.bill_name,
         propose_dt         = EXCLUDED.propose_dt,
         rst_mona_cd        = EXCLUDED.rst_mona_cd,
-        rst_proposer       = EXCLUDED.rst_proposer,
-        publ_proposer      = EXCLUDED.publ_proposer,
         proposer           = EXCLUDED.proposer,
         committee          = EXCLUDED.committee,
         committee_id       = EXCLUDED.committee_id,
         proc_result        = EXCLUDED.proc_result,
         proc_dt            = EXCLUDED.proc_dt,
         law_proc_dt        = EXCLUDED.law_proc_dt,
-        law_proc_result_cd = EXCLUDED.law_proc_result_cd,
         committee_dt       = EXCLUDED.committee_dt,
         cmt_proc_dt        = EXCLUDED.cmt_proc_dt,
-        cmt_proc_result_cd = EXCLUDED.cmt_proc_result_cd,
+        cmt_proc_result    = EXCLUDED.cmt_proc_result,
         summary            = COALESCE(EXCLUDED.summary, bills.summary),
         fetched_at         = now()
 """

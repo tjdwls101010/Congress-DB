@@ -107,7 +107,7 @@ def test_ingest_bill_relations_upserts_relations_idempotently(
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             """
-            SELECT absorbed_bill_id, alternative_bill_id, relation_type, source
+            SELECT absorbed_bill_id, alternative_bill_id, relation_type
             FROM bill_relations
             WHERE absorbed_bill_id = ANY(%s)
             ORDER BY absorbed_bill_id
@@ -117,12 +117,12 @@ def test_ingest_bill_relations_upserts_relations_idempotently(
         rows = cur.fetchall()
 
     assert rows == [
-        (TEST_ABSORBED_1, TEST_ALT, "대안반영", "likms_selrefbillid"),
-        (TEST_ABSORBED_2, TEST_ALT, "수정안반영", "likms_selrefbillid"),
+        (TEST_ABSORBED_1, TEST_ALT, "대안반영"),
+        (TEST_ABSORBED_2, TEST_ALT, "수정안반영"),
     ]
 
 
-def test_ingest_bill_relations_preserves_missing_alt_source_key_but_fails_missing_selref(
+def test_ingest_bill_relations_preserves_missing_alt_bill_id_but_fails_missing_selref(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _insert_bill(TEST_ABSORBED_3, "9900003", "대안반영폐기")
