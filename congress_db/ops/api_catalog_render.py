@@ -1,7 +1,7 @@
-"""api_catalog → Markdown 변환 모듈.
+"""PIPELINE_ENDPOINTS → Markdown 변환 모듈.
 
-deep module: 호출자는 `render_pipeline_catalog_md(rows)`만 알면 사람이 읽기 좋은
-MD 문자열을 받는다. 컬럼 escape, 비어 있는 값 처리, status 별 표시 등 디테일은
+deep module: 호출자는 `pipeline_catalog_rows()`와 `render_pipeline_catalog_md(rows)`만
+알면 사람이 읽기 좋은 MD 문자열을 받는다. 컬럼 escape와 비어 있는 값 처리 디테일은
 내부에 흡수.
 """
 
@@ -10,12 +10,32 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from congress_db.core.endpoints import PIPELINE_ENDPOINTS
+
+
+def pipeline_catalog_rows() -> list[dict[str, Any]]:
+    """PIPELINE_ENDPOINTS 상수를 문서 렌더링용 row로 변환한다."""
+    return [
+        {
+            "inf_id": spec.inf_id,
+            "name": spec.name,
+            "endpoint": spec.endpoint,
+            "used_in_pipeline": True,
+            "usage_note": spec.usage_note,
+            "status": "not-applicable",
+            "has_22nd_data": None,
+            "total_count_22nd": None,
+            "skip_reason": None,
+        }
+        for spec in sorted(PIPELINE_ENDPOINTS, key=lambda item: item.endpoint)
+    ]
+
 
 def render_pipeline_catalog_md(rows: list[dict[str, Any]], *, now: datetime | None = None) -> str:
-    """`api_catalog`의 used_in_pipeline=TRUE row들을 Markdown 표로 변환.
+    """PRD 확정 OpenAPI row들을 Markdown 표로 변환.
 
     Args:
-        rows: `fetch_pipeline_catalog_rows()`의 결과 형식.
+        rows: `pipeline_catalog_rows()`의 결과 형식.
         now: 생성 시각 (테스트 시 주입 가능; 기본은 호출 시각).
     """
     when = (now or datetime.now(timezone.utc)).isoformat(timespec="seconds")
@@ -23,7 +43,8 @@ def render_pipeline_catalog_md(rows: list[dict[str, Any]], *, now: datetime | No
     lines: list[str] = [
         "# API Catalog",
         "",
-        "PRD 확정 OpenAPI의 작동 검증 결과. 1회성 — 자동 재검증 없음.",
+        "PRD 확정 OpenAPI 목록. `congress_db/core/endpoints.py`의 `PIPELINE_ENDPOINTS`에서 생성된다.",
+        "테이블 미러와 1회성 검증 컬럼은 제거되어 status/row 수는 적용 대상이 아니다.",
         "범위 결정 배경은 [DECISIONS](../design/DECISIONS.md) 참고.",
         "",
         f"_Generated: {when}_",
@@ -38,7 +59,7 @@ def render_pipeline_catalog_md(rows: list[dict[str, Any]], *, now: datetime | No
                 "",
                 "## Status",
                 "",
-                "api_catalog 비어 있음 — 재시드 필요. `make seed-catalog` 후 다시 렌더링해야 한다.",
+                "PIPELINE_ENDPOINTS가 비어 있다. 사용 중인 OpenAPI가 없거나 상수 정의를 확인해야 한다.",
             ]
         )
         return "\n".join(lines) + "\n"

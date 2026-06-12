@@ -6,7 +6,7 @@
 
 from congress_db.core.db import get_conn
 
-# ERD.md에 정의된 9개 핵심 + 1개 alias + 1개 outcome + 1개 audit + 1개 카탈로그 + 3개 수집 운영 테이블.
+# ERD.md에 정의된 9개 핵심 + 1개 alias + 1개 outcome + 3개 수집 운영 테이블.
 EXPECTED_TABLES = frozenset(
     {
         "members",
@@ -20,8 +20,6 @@ EXPECTED_TABLES = frozenset(
         "meetings",
         "meeting_bills",
         "utterances",
-        "speaker_title_role_map",
-        "api_catalog",
         "ingest_runs",
         "ingest_cursors",
         "dead_letters",

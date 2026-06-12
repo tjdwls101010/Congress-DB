@@ -1,6 +1,6 @@
-"""Slice 2 RGR 4 — api_catalog → Markdown 변환 단위 테스트.
+"""Slice 2 RGR 4 — PIPELINE_ENDPOINTS → Markdown 변환 단위 테스트.
 
-DB에 의존하지 않는 순수 함수 테스트. 입력 dict 리스트 → MD 문자열.
+DB에 의존하지 않는 순수 함수 테스트. 상수 → 입력 dict 리스트 → MD 문자열.
 """
 
 from __future__ import annotations
@@ -8,7 +8,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import scripts.render_api_catalog as render_api_catalog_script
-from congress_db.ops.api_catalog_render import render_pipeline_catalog_md
+from congress_db.core.endpoints import PIPELINE_ENDPOINTS
+from congress_db.ops.api_catalog_render import pipeline_catalog_rows, render_pipeline_catalog_md
 
 
 FIXED_NOW = datetime(2026, 5, 26, 12, 0, 0, tzinfo=timezone.utc)
@@ -104,26 +105,36 @@ def test_pipe_in_usage_note_is_escaped() -> None:
     assert "A \\| B" in md
 
 
-def test_empty_catalog_mentions_reseed_needed() -> None:
+def test_empty_catalog_mentions_missing_constant() -> None:
     md = render_pipeline_catalog_md([], now=FIXED_NOW)
 
-    assert "api_catalog 비어 있음 — 재시드 필요" in md
+    assert "PIPELINE_ENDPOINTS가 비어 있다" in md
 
 
-def test_render_catalog_cli_seeds_before_fetch(monkeypatch, tmp_path) -> None:
+def test_pipeline_catalog_rows_are_generated_from_endpoint_constant() -> None:
+    rows = pipeline_catalog_rows()
+
+    assert len(rows) == len(PIPELINE_ENDPOINTS) == 11
+    assert [row["endpoint"] for row in rows] == sorted(
+        spec.endpoint for spec in PIPELINE_ENDPOINTS
+    )
+    by_inf_id = {row["inf_id"]: row for row in rows}
+    for spec in PIPELINE_ENDPOINTS:
+        assert by_inf_id[spec.inf_id]["endpoint"] == spec.endpoint
+        assert by_inf_id[spec.inf_id]["name"] == spec.name
+        assert by_inf_id[spec.inf_id]["usage_note"] == spec.usage_note
+        assert by_inf_id[spec.inf_id]["status"] == "not-applicable"
+        assert by_inf_id[spec.inf_id]["total_count_22nd"] is None
+
+
+def test_render_catalog_cli_renders_rows_from_constant(monkeypatch, tmp_path) -> None:
     calls: list[object] = []
 
     monkeypatch.setattr(render_api_catalog_script, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(render_api_catalog_script, "OUTPUT", tmp_path / "API-CATALOG.md")
     monkeypatch.setattr(
         render_api_catalog_script,
-        "seed_pipeline_endpoints",
-        lambda: calls.append("seed") or 2,
-        raising=False,
-    )
-    monkeypatch.setattr(
-        render_api_catalog_script,
-        "fetch_pipeline_catalog_rows",
+        "pipeline_catalog_rows",
         lambda: calls.append("fetch") or [_row("a"), _row("b")],
     )
     monkeypatch.setattr(
@@ -134,5 +145,5 @@ def test_render_catalog_cli_seeds_before_fetch(monkeypatch, tmp_path) -> None:
 
     render_api_catalog_script.main()
 
-    assert calls == ["seed", "fetch", ("render", 2)]
+    assert calls == ["fetch", ("render", 2)]
     assert (tmp_path / "API-CATALOG.md").read_text() == "catalog md\n"

@@ -25,13 +25,10 @@ COMMENT ON TABLE votes IS
   '본회의 표결, 의원 1명당 1행(법안당 약 297행). 위원회 단계 표결은 원천이 제공하지 않아 데이터에 아예 없음. count(*)는 표결 횟수가 아니라 의원-표 수 — 표결된 법안 수는 count(DISTINCT bill_id).';
 COMMENT ON TABLE utterances IS
   '회의록 발언 stream(meeting_id+sequence 순). speaker_mona_cd는 비-의원 화자(장관·차관·증인·참고인·전문위원 등)에서 NULL이며 전체 발언의 38.5% — members와는 반드시 LEFT JOIN(INNER는 38.5%를 조용히 누락). 역할 필터는 speaker_role.';
-COMMENT ON TABLE speaker_title_role_map IS
-  '내부 audit: 원천 speaker_title→speaker_role 분류를 보존. 외부 조회 interface는 utterances.speaker_role이며, 이 표는 백필 검증과 향후 역할 승격(예: 정부기관장) 검토에 쓴다.';
 COMMENT ON TABLE meetings IS
   '회의록 인스턴스(웹 HTML 목록 기준). PK mnts_id. comm_name은 본회의에서 NULL 가능.';
 COMMENT ON TABLE meeting_bills IS
   '회의↔법안 N:M. 커버리지가 부분적(법안 약 85%·회의 약 59%만 연결) — 결과가 비어도 논의되지 않음을 뜻하지 않음(미연결일 수 있음). 답에 이 한계를 밝힐 것.';
-COMMENT ON TABLE api_catalog IS '운영용 OpenAPI 카탈로그. 스킬 조회 대상 아님.';
 COMMENT ON TABLE ingest_runs IS '운영용 수집 실행 기록. 스킬 조회 대상 아님.';
 COMMENT ON TABLE ingest_cursors IS '운영용 source별 증분 기준점. 스킬 조회 대상 아님.';
 COMMENT ON TABLE dead_letters IS

@@ -49,13 +49,13 @@ BEGIN
     END IF;
 END $$;
 
--- ============================ 3. REVOKE — ops/audit를 소비자 introspection에서 숨김 ============================
--- 물리 유지(ETL/운영용). information_schema가 권한 필터링하므로 소비자 테이블 목록에서 사라진다(17→12).
+-- ============================ 3. REVOKE — ops를 소비자 introspection에서 숨김 ============================
+-- 물리 유지(ETL/운영용). information_schema가 권한 필터링하므로 소비자 테이블 목록에서 사라진다.
 -- congress_ro는 Neon 전용 role이라 로컬 docker엔 없음 → role-guard.
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='congress_ro') THEN
-        REVOKE SELECT ON api_catalog, ingest_runs, ingest_cursors, dead_letters, speaker_title_role_map FROM congress_ro;
+        REVOKE SELECT ON ingest_runs, ingest_cursors, dead_letters FROM congress_ro;
     END IF;
 END $$;
 

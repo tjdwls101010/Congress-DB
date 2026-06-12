@@ -34,21 +34,6 @@ def _delete_test_rows() -> None:
         cur.execute("DELETE FROM utterances WHERE meeting_id = %s", (TEST_MEETING,))
         cur.execute("DELETE FROM meetings WHERE mnts_id = %s", (TEST_MEETING,))
         cur.execute("DELETE FROM members WHERE mona_cd = %s", (TEST_MEMBER,))
-        cur.execute(
-            """
-            DELETE FROM speaker_title_role_map
-            WHERE speaker_title = ANY(%s)
-            """,
-            (
-                [
-                    "위원",
-                    "국토교통부제1차관",
-                    "국토교통부장관",
-                    "증인",
-                    "금융위원장",
-                ],
-            ),
-        )
         conn.commit()
 
 

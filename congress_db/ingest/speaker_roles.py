@@ -141,7 +141,6 @@ def normalize_speaker_roles(*, other_threshold: int = 500) -> SpeakerRoleNormali
         role_keys = _build_role_keys(title_rows)
         title_summaries = _build_title_summaries(title_rows)
 
-        _upsert_title_role_map(conn, title_summaries)
         _drop_role_index(conn)
         updated = _backfill_utterance_roles(conn, role_keys)
         _ensure_no_null_roles(conn)
@@ -244,40 +243,6 @@ def _build_title_summaries(rows: list[dict[str, object]]) -> tuple[SpeakerTitleR
         for row in rows
     ]
     return tuple(sorted(summaries, key=lambda row: (-row.n_utterances, row.speaker_title)))
-
-
-def _upsert_title_role_map(
-    conn: object,
-    title_summaries: tuple[SpeakerTitleRoleSummary, ...],
-) -> None:
-    with conn.cursor() as cur:
-        cur.executemany(
-            """
-            INSERT INTO speaker_title_role_map (
-                speaker_title, speaker_role, n_utterances, n_no_mona, n_mona, classified_at
-            )
-            VALUES (
-                %(speaker_title)s, %(speaker_role)s, %(n_utterances)s,
-                %(n_no_mona)s, %(n_mona)s, now()
-            )
-            ON CONFLICT (speaker_title) DO UPDATE SET
-                speaker_role = EXCLUDED.speaker_role,
-                n_utterances = EXCLUDED.n_utterances,
-                n_no_mona = EXCLUDED.n_no_mona,
-                n_mona = EXCLUDED.n_mona,
-                classified_at = now()
-            """,
-            [
-                {
-                    "speaker_title": row.speaker_title,
-                    "speaker_role": row.speaker_role,
-                    "n_utterances": row.n_utterances,
-                    "n_no_mona": row.n_no_mona,
-                    "n_mona": row.n_mona,
-                }
-                for row in title_summaries
-            ],
-        )
 
 
 def _backfill_utterance_roles(conn: object, role_keys: list[dict[str, object]]) -> int:
