@@ -1,7 +1,7 @@
 -- Congress-DB initial schema (Postgres 16)
 -- Source: docs/design/ERD.md
 -- 컬럼·테이블·함수 의미/함정 주석은 COMMENT로 migrations/011_schema_comments.sql에 있다(db-migrate가 적용).
--- LLM 직접-SQL 조회 가이드(함정·어휘·레시피): docs/design/DB-QUERY-GUIDE.md.
+-- 함정·어휘는 위 COMMENT에 있고(introspect로 보임), cross-table 레시피만 docs/design/DB-QUERY-GUIDE.md.
 -- 9 core tables + 1 alias table + 1 outcome table + 1 audit table + 1 catalog table + 3 ingest operational tables = 16 tables.
 -- 자연키 우선, FK는 ON DELETE RESTRICT (참조 무결성 우선).
 -- CREATE TABLE IF NOT EXISTS로 idempotent 적용 (변경은 db-reset 또는 향후 migrations/).
