@@ -29,6 +29,7 @@
 | `bill_relations` | 대안/수정안 흡수 관계 | `absorbed_bill_id` (PK) | 3,715 |
 | `bill_source_aliases` | source별 BILL_ID → canonical | `(source, source_bill_id)` | |
 | `bill_final_outcomes` | 정부이송·**공포** 이력 | `bill_no` (PK) | 1,593 |
+| `bill_documents` | 법안 문서 URL inventory(원문·비용추계, 미파싱) | `bill_no`×`document_kind` | |
 | `speaker_title_role_map` | (audit) 직함→역할 분류 | `speaker_title` (PK) | ~3,100 직함 |
 
 운영 테이블(`api_catalog`, `ingest_runs`, `ingest_cursors`, `dead_letters`)은 스킬 조회 대상이 아니다.
