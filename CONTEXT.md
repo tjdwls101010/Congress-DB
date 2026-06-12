@@ -113,8 +113,8 @@ _Avoid_: 역할(speaker_role enum과 구분 — 소속/기관은 별개 축)
 `meeting_bills`는 회의-level 연결이라 한 회의에 수십~수백 법안이 걸린다(시나리오 p50 47~66, max 756). "같은 회의에서 다뤄짐"을 특정 법안의 발언 증거로 단정하지 않도록 `linked_bill_count`와 강도 힌트를 소비 표면에 노출한다.
 _Avoid_: 안건 세그먼트(저장된 단위 — agenda_items 제외 결정과 충돌)
 
-**법안 문서 (Bill Document)** _(도입 예정 — M3)_:
-법안 원문·비용추계·첨부의 파일 URL. `ALLBILLV2`가 `BILL_NO` 키로 HWP/PDF URL을 준다. `bill_documents` inventory에 **URL만** 보존하고 본문은 파싱하지 않는다(out-of-scope).
+**법안 문서 (Bill Document)** _(prototype-gated — 미적재)_:
+법안 원문·비용추계의 파일 URL(`BILLRCPV2`가 `BILL_ID` 키로 `BOOK_*`=원문·`COST_*`=비용추계 HWP/PDF 제공). **현재 DB에 적재하지 않음** — 2026-06-12 `bill_documents`로 적재했다 demand 미입증으로 되돌림(DECISIONS 2026-06-12). 스킬 프로토타입이 문서 링크 수요를 입증하면 재구축(방법은 이슈 #96에 보존).
 
 **청원 / 공청회 / 입법예고 (Petition / Public Hearing / Legislative Notice)** _(도입 예정 — M3)_:
 국회의 공식 시민수요·전문가증언·의견수렴 source. 청원(`PTT_ID`, 302건)은 시민 요구의 공식 신호이되 '여론' 대표성으로 단정하지 않는다(해석은 [4]). 공청회(59건)는 회의록 universe에 없어 별도 inventory·파싱검증 대상. 입법예고(17,708건)는 notice 메타만, 의견 본문은 범위 밖.

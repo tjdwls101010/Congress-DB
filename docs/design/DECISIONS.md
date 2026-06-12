@@ -3,6 +3,10 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-06-12 — bill_documents(#96) 적재 후 되돌림: 신규 소스는 prototype-gated
+
+법안 문서 URL inventory(`bill_documents`, BILLRCPV2)를 구현·머지·Neon 적재(21,494행)했다가 같은 날 되돌렸다(Neon+로컬 `DROP TABLE` + main revert). 이유: #96은 Tier C **신규 소스**인데 demand-gated 원칙(2026-06-11)상 신규 소스는 스킬 프로토타입이 수요를 입증할 때까지 prototype-gated여야 한다 — 프로토타입이 없어 "스킬이 문서 링크를 실제로 쓰는가"가 미입증인 채 적재한 건 원칙이 금지하는 추측성 [1]이었다(게다가 `link_url`은 `bill_id`로 파생 가능해 저장조차 불필요). 이슈 #96은 prototype-gated로 재개방(BILLRCPV2 방법·필드 매핑은 이슈에 보존) — 프로토타입이 수요를 입증하면 재구축. 교훈: "신규 소스/구조"(Tier C)를 "안전 가드레일"(Tier A)로 오분류해 demand-gate를 건너뛰지 말 것.
+
 ## 2026-06-11 — 소비 적합성 원칙: 소비자 지능을 신뢰, materialize 아닌 inform
 
 DB는 소비자(입법전문가 스킬 속 Claude)가 멀티키워드 검색으로 *도출할 수 없는* 구조·관계 사실만 담는다(교차소스 ID 조인·원안→대안→공포 lineage·공포 사실·정규화 엔터티). 소비자가 스스로 도출 가능한 어휘 변형(콜로퀴얼→공식명)·판정(증거강도·is_government·의안종류)은 DB가 떠안지 않고 검색 표면(`search_*`) + COMMENT/쿼리가이드 caveat로 *알린다*. 3-에이전트 독립 감사(구현 스키마/M3 이슈/문서)가 구현 DB는 이 원칙에 이미 정렬됨을 확인(session_groups·agenda_items 제거, 판정 불리언 거부, membership 게이팅); 미구현 M3에서 #91 evidence 버킷·#94 committee(이미 `bills.committee_id` 존재)·#93 affiliation 판정·#97 ops-카탈로그를 정리(materialize→inform/축소). skill-creator의 'hard-rule이 아닌 principle로 모델 지능을 신뢰' 통찰을 데이터 설계에 적용한 것.
