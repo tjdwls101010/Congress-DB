@@ -6,10 +6,11 @@
 
 from congress_db.core.db import get_conn
 
-# ERD.md에 정의된 9개 핵심 + 1개 alias + 1개 outcome + 3개 수집 운영 테이블.
+# ERD.md에 정의된 핵심/차원/alias/outcome + 3개 수집 운영 테이블.
 EXPECTED_TABLES = frozenset(
     {
         "members",
+        "committees",
         "bills",
         "bill_relations",
         "bill_source_aliases",
@@ -62,7 +63,6 @@ EXPECTED_BILL_COLUMNS = frozenset(
         "bill_name",
         "propose_dt",
         "proposer",
-        "committee",
         "committee_id",
         "proc_result",
         "proc_dt",
@@ -72,6 +72,13 @@ EXPECTED_BILL_COLUMNS = frozenset(
         "cmt_proc_result",
         "summary",
         "fetched_at",
+    }
+)
+
+EXPECTED_COMMITTEE_COLUMNS = frozenset(
+    {
+        "committee_id",
+        "committee_name",
     }
 )
 
@@ -209,8 +216,13 @@ def test_members_exposes_roster_derived_incumbency() -> None:
     assert _public_columns("members") == EXPECTED_MEMBER_COLUMNS
 
 
+def test_committees_has_only_bill_side_identity_columns() -> None:
+    """위원회 dimension은 bill-side 소관 id/name 정본만 보존한다."""
+    assert _public_columns("committees") == EXPECTED_COMMITTEE_COLUMNS
+
+
 def test_bills_has_only_search_oriented_core_columns() -> None:
-    """법안 상세 링크와 22대 고정 대수 컬럼은 core 스키마에 남기지 않는다."""
+    """위원회 표시명 중복과 source/link/upstream 컬럼은 bills에 남기지 않는다."""
     assert _public_columns("bills") == EXPECTED_BILL_COLUMNS
 
 
@@ -241,14 +253,27 @@ def test_bill_final_outcomes_bill_no_references_bills_bill_no() -> None:
     )
 
 
+def test_bills_committee_id_references_committees_committee_id() -> None:
+    assert _fk_columns(
+        "bills",
+        "bills_committee_id_fkey",
+    ) == (
+        "bills",
+        "committees",
+        ["committee_id"],
+        ["committee_id"],
+    )
+
+
 def test_high_risk_consumer_columns_have_comments() -> None:
     for table, column in (
+        ("committees", "committee_id"),
+        ("committees", "committee_name"),
         ("bill_final_outcomes", "bill_no"),
         ("bill_final_outcomes", "govt_transfer_dt"),
         ("bill_final_outcomes", "prom_no"),
         ("bill_source_aliases", "source_bill_id"),
         ("bill_source_aliases", "canonical_bill_id"),
-        ("bills", "committee"),
         ("bills", "committee_id"),
         ("votes", "bill_id"),
         ("votes", "mona_cd"),

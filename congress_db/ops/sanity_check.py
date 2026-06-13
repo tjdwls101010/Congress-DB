@@ -230,13 +230,14 @@ def _load_s2_bill_process(cur: object, sample_size: int) -> SanitySection:
             b.bill_no AS "의안번호",
             left(b.bill_name, 90) AS "법안명",
             b.propose_dt AS "제안일",
-            b.committee AS "소관위",
+            cm.committee_name AS "소관위",
             b.proc_result AS "처리결과",
             COALESCE(l.cnt, 0) AS "대표발의자수",
             COALESCE(c.cnt, 0) AS "공동발의자수",
             COALESCE(v.vote_count, 0) AS "표결수",
             COALESCE(v.summary::text, '{}') AS "표결요약"
         FROM bills b
+        LEFT JOIN committees cm ON cm.committee_id = b.committee_id
         LEFT JOIN lead_counts l ON l.bill_id = b.bill_id
         LEFT JOIN co_counts c ON c.bill_id = b.bill_id
         LEFT JOIN vote_summary v ON v.bill_id = b.bill_id
@@ -271,11 +272,12 @@ def _load_s4_bill_keyword(cur: object, sample_size: int, keyword: str) -> Sanity
             bill_no AS "의안번호",
             left(bill_name, 90) AS "법안명",
             propose_dt AS "제안일",
-            committee AS "소관위",
+            cm.committee_name AS "소관위",
             proc_result AS "처리결과"
-        FROM bills
-        WHERE bill_name ILIKE %s
-           OR summary ILIKE %s
+        FROM bills b
+        LEFT JOIN committees cm ON cm.committee_id = b.committee_id
+        WHERE b.bill_name ILIKE %s
+           OR b.summary ILIKE %s
         ORDER BY propose_dt DESC NULLS LAST, bill_no
         LIMIT %s
         """,

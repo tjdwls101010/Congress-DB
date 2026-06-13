@@ -50,10 +50,8 @@ COMMENT ON COLUMN bill_source_aliases.canonical_bill_id IS
 COMMENT ON COLUMN bill_source_aliases.fetched_at IS
   'source alias 해소를 마지막으로 시도·갱신한 시각. 소비 분석 fact가 아니라 운영 감사 메타데이터.';
 
-COMMENT ON COLUMN bills.committee IS
-  '소관 위원회명 원문. committee_id의 표시명 역할도 하므로 committee dimension 없이 삭제하면 이름 정보가 사라진다.';
 COMMENT ON COLUMN bills.committee_id IS
-  '소관 위원회 코드. 법안 쪽 위원회 identity key이며, meetings.comm_name과 직접 FK는 아님.';
+  '소관 위원회 코드. #120 이후 committees.committee_id FK가 되는 bill-side 위원회 identity key이며, meetings.comm_name과 직접 FK는 아님.';
 COMMENT ON COLUMN bills.fetched_at IS
   '법안 row를 마지막으로 수집·갱신한 시각. 소비 분석 fact가 아니라 운영 감사 메타데이터.';
 

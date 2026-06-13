@@ -19,6 +19,7 @@ from ..core.db import execute_many, get_conn
 from ..core.endpoints import ENDPOINTS_BY_SLUG
 from ..core.progress import ProgressReporter, safe_print
 from ..core.throttle import cap_worker_count, cap_worker_levels
+from .committee_refs import ensure_committee_refs, normalize_committee_rows
 from ..ops.benchmark import (
     DEFAULT_WORKER_LEVELS,
     BenchmarkResult,
@@ -110,7 +111,6 @@ _BILL_FIELDS: tuple[str, ...] = (
     "bill_name",
     "propose_dt",
     "proposer",
-    "committee",
     "committee_id",
     "proc_result",
     "proc_dt",
@@ -127,7 +127,6 @@ _API_TO_DB: dict[str, str] = {
     "BILL_NAME": "bill_name",
     "PROPOSE_DT": "propose_dt",
     "PROPOSER": "proposer",
-    "COMMITTEE": "committee",
     "COMMITTEE_ID": "committee_id",
     "PROC_RESULT": "proc_result",
     "PROC_DT": "proc_dt",
@@ -140,12 +139,12 @@ _API_TO_DB: dict[str, str] = {
 _UPSERT_BILLS_SQL = """
     INSERT INTO bills (
         bill_id, bill_no, bill_name, propose_dt,
-        proposer, committee, committee_id, proc_result, proc_dt,
+        proposer, committee_id, proc_result, proc_dt,
         law_proc_dt, committee_dt, cmt_proc_dt, cmt_proc_result, summary
     )
     VALUES (
         %(bill_id)s, %(bill_no)s, %(bill_name)s, %(propose_dt)s,
-        %(proposer)s, %(committee)s, %(committee_id)s, %(proc_result)s, %(proc_dt)s,
+        %(proposer)s, %(committee_id)s, %(proc_result)s, %(proc_dt)s,
         %(law_proc_dt)s, %(committee_dt)s,
         %(cmt_proc_dt)s, %(cmt_proc_result)s, %(summary)s
     )
@@ -154,7 +153,6 @@ _UPSERT_BILLS_SQL = """
         bill_name          = EXCLUDED.bill_name,
         propose_dt         = EXCLUDED.propose_dt,
         proposer           = EXCLUDED.proposer,
-        committee          = EXCLUDED.committee,
         committee_id       = EXCLUDED.committee_id,
         proc_result        = EXCLUDED.proc_result,
         proc_dt            = EXCLUDED.proc_dt,
@@ -231,6 +229,11 @@ def ingest_bills(
         _normalize_bill_row(row, summaries.get(str(row["BILL_NO"])))
         for row in bill_list.rows
     ]
+    committee_rows = normalize_committee_rows(
+        bill_list.rows,
+        id_field="COMMITTEE_ID",
+        name_field="COMMITTEE",
+    )
     lead_proposer_rows = _normalize_lead_proposer_rows(bill_list.rows)
     coproposer_rows = _normalize_coproposer_rows(bill_list.rows)
     member_refs = _normalize_member_refs(bill_list.rows)
@@ -238,6 +241,7 @@ def ingest_bills(
 
     with get_conn() as conn:
         ensured_member_refs = execute_many(conn, _INSERT_MEMBER_STUBS_SQL, member_refs)
+        ensure_committee_refs(conn, committee_rows)
         _validate_member_refs(conn, bill_rows, lead_proposer_rows, coproposer_rows)
         upserted_bills = execute_many(conn, _UPSERT_BILLS_SQL, bill_rows)
         _replace_lead_proposers_for_bills(conn, bill_ids)

@@ -390,7 +390,7 @@ Important columns:
 - `bill_name`
 - `propose_dt` nullable
 - `rst_proposer`, `publ_proposer`, `proposer`
-- `committee`, `committee_id`
+- `committee_id` FK to `committees`
 - `proc_result`, `proc_dt`
 - `law_proc_dt`, `law_proc_result_cd`
 - `committee_dt`, `cmt_proc_dt`, `cmt_proc_result_cd`
@@ -398,6 +398,14 @@ Important columns:
 
 Only `bill_id`, `bill_no`, and `bill_name` are guaranteed core identifiers.
 Treat most other fields as nullable.
+
+### `committees`
+
+Bill-side committee/referral dimension.
+
+- `committee_id` PK
+- `committee_name` UNIQUE
+- Not committee membership/history.
 
 ### `bill_lead_proposers`
 

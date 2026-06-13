@@ -17,6 +17,7 @@ from congress_db.ingest.ingest_bills import backfill_missing_bill_summaries, ing
 TEST_MEMBERS = ("TEST_BILL_MEMBER_1", "TEST_BILL_MEMBER_2", "TEST_BILL_MEMBER_3")
 TEST_MEMBER_STUBS = ("TEST_BILL_MEMBER_4",)
 TEST_BILLS = ("TEST_BILL_1", "TEST_BILL_2", "TEST_BILL_3")
+TEST_COMMITTEES = ("TESTCMT",)
 
 
 @pytest.fixture(autouse=True)
@@ -38,6 +39,10 @@ def _delete_bill_rows() -> None:
             (list(TEST_BILLS),),
         )
         cur.execute("DELETE FROM bills WHERE bill_id = ANY(%s)", (list(TEST_BILLS),))
+        cur.execute(
+            "DELETE FROM committees WHERE committee_id = ANY(%s)",
+            (list(TEST_COMMITTEES),),
+        )
         cur.execute(
             "DELETE FROM members WHERE mona_cd = ANY(%s)",
             (list(TEST_MEMBERS + TEST_MEMBER_STUBS),),
@@ -182,7 +187,7 @@ def test_ingest_bills_upserts_bills_and_coproposers_idempotently(
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             """
-            SELECT bill_id, bill_no, bill_name, cmt_proc_result, proposer, summary
+            SELECT bill_id, bill_no, bill_name, committee_id, cmt_proc_result, proposer, summary
             FROM bills
             WHERE bill_id = ANY(%s)
             ORDER BY bill_id
@@ -210,12 +215,22 @@ def test_ingest_bills_upserts_bills_and_coproposers_idempotently(
             (list(TEST_BILLS),),
         )
         coproposers = cur.fetchall()
+        cur.execute(
+            """
+            SELECT committee_id, committee_name
+            FROM committees
+            WHERE committee_id = ANY(%s)
+            """,
+            (list(TEST_COMMITTEES),),
+        )
+        committees = cur.fetchall()
 
     assert bills == [
         (
             "TEST_BILL_1",
             "9000001",
             "테스트 법안 1",
+            "TESTCMT",
             "수정가결",
             "대표의원 등 3인",
             "요약 9000001",
@@ -224,6 +239,7 @@ def test_ingest_bills_upserts_bills_and_coproposers_idempotently(
             "TEST_BILL_2",
             "9000002",
             "테스트 법안 2",
+            "TESTCMT",
             None,
             "대표의원 등 3인",
             "요약 9000002",
@@ -238,6 +254,7 @@ def test_ingest_bills_upserts_bills_and_coproposers_idempotently(
         ("TEST_BILL_1", "TEST_BILL_MEMBER_2", 1),
         ("TEST_BILL_1", "TEST_BILL_MEMBER_3", 2),
     ]
+    assert committees == [("TESTCMT", "테스트위원회")]
     assert (tmp_path / "PARALLEL-BENCHMARK.md").exists()
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute("SELECT hg_nm FROM members WHERE mona_cd = 'TEST_BILL_MEMBER_4'")

@@ -2,7 +2,7 @@
 -- Source: docs/design/ERD.md
 -- 컬럼·테이블·함수 의미/함정 주석은 COMMENT로 migrations/011_schema_comments.sql에 있다(db-migrate가 적용).
 -- 함정·어휘는 위 COMMENT에 있고(introspect로 보임), cross-table 레시피만 docs/design/DB-QUERY-GUIDE.md.
--- 9 core tables + 1 alias table + 1 outcome table + 3 ingest operational tables = 14 tables.
+-- 9 core tables + 1 dimension table + 1 alias table + 1 outcome table + 3 ingest operational tables = 15 tables.
 -- 자연키 우선, FK는 ON DELETE RESTRICT (참조 무결성 우선).
 -- CREATE TABLE IF NOT EXISTS로 idempotent 적용 (변경은 db-reset 또는 향후 migrations/).
 -- 적용은 psql -1 (single-transaction)으로 wrap — 이 파일에는 BEGIN/COMMIT 없음.
@@ -51,7 +51,15 @@ CREATE INDEX IF NOT EXISTS idx_meetings_comm       ON meetings (comm_name);
 CREATE INDEX IF NOT EXISTS idx_meetings_type_date  ON meetings (meeting_type, conf_date DESC);
 
 -- =========================================================================
--- 3. bills — 법안 (FK → members)
+-- 3. committees — 법안 소관 위원회/기관 차원
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS committees (
+    committee_id          TEXT PRIMARY KEY,
+    committee_name        TEXT NOT NULL UNIQUE
+);
+
+-- =========================================================================
+-- 4. bills — 법안
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS bills (
     bill_id              TEXT PRIMARY KEY,
@@ -59,8 +67,7 @@ CREATE TABLE IF NOT EXISTS bills (
     bill_name            TEXT NOT NULL,
     propose_dt           DATE,
     proposer             TEXT,
-    committee            TEXT,
-    committee_id         TEXT,
+    committee_id         TEXT REFERENCES committees (committee_id) ON DELETE RESTRICT,
     proc_result          TEXT,
     proc_dt              DATE,
     law_proc_dt          DATE,
@@ -75,7 +82,7 @@ CREATE INDEX IF NOT EXISTS idx_bills_propose_dt  ON bills (propose_dt DESC);
 CREATE INDEX IF NOT EXISTS idx_bills_proc_result ON bills (proc_result);
 
 -- =========================================================================
--- 4. bill_relations — 원안→대안/수정안 흡수 관계
+-- 5. bill_relations — 원안→대안/수정안 흡수 관계
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS bill_relations (
     absorbed_bill_id     TEXT PRIMARY KEY REFERENCES bills (bill_id) ON DELETE RESTRICT,
@@ -89,7 +96,7 @@ CREATE INDEX IF NOT EXISTS idx_bill_relations_alternative
     ON bill_relations (alternative_bill_id);
 
 -- =========================================================================
--- 4a. bill_source_aliases — source별 BILL_ID → canonical 법안 연결
+-- 5a. bill_source_aliases — source별 BILL_ID → canonical 법안 연결
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS bill_source_aliases (
     source               TEXT NOT NULL,
@@ -101,7 +108,7 @@ CREATE TABLE IF NOT EXISTS bill_source_aliases (
 );
 
 -- =========================================================================
--- 4b. bill_final_outcomes — 본회의 이후 정부이송·공포 이력
+-- 5b. bill_final_outcomes — 본회의 이후 정부이송·공포 이력
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS bill_final_outcomes (
     bill_no              TEXT PRIMARY KEY REFERENCES bills (bill_no) ON DELETE RESTRICT,
@@ -114,7 +121,7 @@ CREATE TABLE IF NOT EXISTS bill_final_outcomes (
 );
 
 -- =========================================================================
--- 5. bill_lead_proposers — 대표발의 N:M (PK: bill_id + mona_cd)
+-- 6. bill_lead_proposers — 대표발의 N:M (PK: bill_id + mona_cd)
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS bill_lead_proposers (
     bill_id   TEXT NOT NULL REFERENCES bills   (bill_id)   ON DELETE RESTRICT,
@@ -126,7 +133,7 @@ CREATE TABLE IF NOT EXISTS bill_lead_proposers (
 CREATE INDEX IF NOT EXISTS idx_lead_proposers_mona ON bill_lead_proposers (mona_cd);
 
 -- =========================================================================
--- 6. bill_coproposers — 공동발의 N:M (PK: bill_id + mona_cd)
+-- 7. bill_coproposers — 공동발의 N:M (PK: bill_id + mona_cd)
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS bill_coproposers (
     bill_id   TEXT NOT NULL REFERENCES bills (bill_id)   ON DELETE RESTRICT,
@@ -138,7 +145,7 @@ CREATE TABLE IF NOT EXISTS bill_coproposers (
 CREATE INDEX IF NOT EXISTS idx_coproposers_mona ON bill_coproposers (mona_cd);
 
 -- =========================================================================
--- 7. votes — 본회의 표결 (시점 정당 박힘, PK = bill_id + mona_cd)
+-- 8. votes — 본회의 표결 (시점 정당 박힘, PK = bill_id + mona_cd)
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS votes (
     bill_id           TEXT NOT NULL REFERENCES bills (bill_id)   ON DELETE RESTRICT,
@@ -154,7 +161,7 @@ CREATE INDEX IF NOT EXISTS idx_votes_bill ON votes (bill_id);
 CREATE INDEX IF NOT EXISTS idx_votes_date ON votes (vote_date DESC);
 
 -- =========================================================================
--- 8. utterances — 발언 (FK → meetings, members)
+-- 9. utterances — 발언 (FK → meetings, members)
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS utterances (
     id                  BIGSERIAL PRIMARY KEY,
@@ -176,7 +183,7 @@ CREATE INDEX IF NOT EXISTS idx_utterances_meeting       ON utterances (meeting_i
 CREATE INDEX IF NOT EXISTS idx_utterances_speaker       ON utterances (speaker_mona_cd) WHERE speaker_mona_cd IS NOT NULL;
 
 -- =========================================================================
--- 9. meeting_bills — 회의↔법안 N:M junction
+-- 10. meeting_bills — 회의↔법안 N:M junction
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS meeting_bills (
     meeting_id  INT  NOT NULL REFERENCES meetings (mnts_id) ON DELETE RESTRICT,
@@ -187,7 +194,7 @@ CREATE TABLE IF NOT EXISTS meeting_bills (
 CREATE INDEX IF NOT EXISTS idx_mb_bill ON meeting_bills (bill_id);
 
 -- =========================================================================
--- 10. ingest_runs — 수집 실행 기록
+-- 11. ingest_runs — 수집 실행 기록
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS ingest_runs (
     id              BIGSERIAL PRIMARY KEY,
@@ -215,7 +222,7 @@ CREATE INDEX IF NOT EXISTS idx_ingest_runs_status_started
     ON ingest_runs (status, started_at DESC);
 
 -- =========================================================================
--- 11. ingest_cursors — source별 증분 기준점
+-- 12. ingest_cursors — source별 증분 기준점
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS ingest_cursors (
     source          TEXT PRIMARY KEY,
@@ -230,7 +237,7 @@ CREATE INDEX IF NOT EXISTS idx_ingest_cursors_updated_run
     ON ingest_cursors (updated_run_id);
 
 -- =========================================================================
--- 12. dead_letters — 실패 item 보존
+-- 13. dead_letters — 실패 item 보존
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS dead_letters (
     id               BIGSERIAL PRIMARY KEY,

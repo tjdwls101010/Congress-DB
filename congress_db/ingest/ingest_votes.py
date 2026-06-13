@@ -17,6 +17,7 @@ from ..core.db import execute_many, get_conn
 from ..core.endpoints import ENDPOINTS_BY_SLUG
 from ..core.progress import ProgressReporter, safe_print
 from ..core.throttle import cap_worker_count, cap_worker_levels
+from .committee_refs import ensure_committee_refs, normalize_committee_rows
 from ..ops.benchmark import (
     DEFAULT_WORKER_LEVELS,
     measure_workers,
@@ -77,17 +78,16 @@ class _VoteRowsFetchResult:
 
 _UPSERT_BILL_REFS_SQL = """
     INSERT INTO bills (
-        bill_id, bill_no, bill_name, committee, committee_id,
+        bill_id, bill_no, bill_name, committee_id,
         proc_result, proc_dt
     )
     VALUES (
-        %(bill_id)s, %(bill_no)s, %(bill_name)s, %(committee)s, %(committee_id)s,
+        %(bill_id)s, %(bill_no)s, %(bill_name)s, %(committee_id)s,
         %(proc_result)s, %(proc_dt)s
     )
     ON CONFLICT (bill_id) DO UPDATE SET
         bill_no      = EXCLUDED.bill_no,
         bill_name    = EXCLUDED.bill_name,
-        committee    = COALESCE(EXCLUDED.committee, bills.committee),
         committee_id = COALESCE(EXCLUDED.committee_id, bills.committee_id),
         proc_result  = COALESCE(EXCLUDED.proc_result, bills.proc_result),
         proc_dt      = COALESCE(EXCLUDED.proc_dt, bills.proc_dt),
@@ -189,6 +189,11 @@ def ingest_votes(
         )
         for row in vote_bill_list.rows
     ]
+    committee_rows = normalize_committee_rows(
+        vote_bill_list.rows,
+        id_field="CURR_COMMITTEE_ID",
+        name_field="CURR_COMMITTEE",
+    )
     member_refs = _normalize_member_refs(vote_rows_by_bill)
     vote_rows = [
         _normalize_vote_row(row, bill_id=canonical_bill_ids[source_bill_id])
@@ -197,6 +202,7 @@ def ingest_votes(
     ]
 
     with get_conn() as conn:
+        ensure_committee_refs(conn, committee_rows)
         upserted_bill_refs = execute_many(conn, _UPSERT_BILL_REFS_SQL, bill_refs)
         ensured_member_refs = execute_many(conn, _INSERT_MEMBER_REFS_SQL, member_refs)
         upserted_votes = execute_many(conn, _UPSERT_VOTES_SQL, vote_rows)
@@ -336,9 +342,15 @@ def retry_vote_rows(bill_id: str) -> bool:
         return True
     canonical_bill_id = _load_canonical_bill_ids([rows[0]]).get(str(bill_id), str(bill_id))
     bill_refs = [_normalize_bill_ref(rows[0], bill_id=canonical_bill_id)]
+    committee_rows = normalize_committee_rows(
+        rows,
+        id_field="CURR_COMMITTEE_ID",
+        name_field="CURR_COMMITTEE",
+    )
     member_refs = _normalize_member_refs({str(bill_id): rows})
     vote_rows = [_normalize_vote_row(row, bill_id=canonical_bill_id) for row in rows]
     with get_conn() as conn:
+        ensure_committee_refs(conn, committee_rows)
         execute_many(conn, _UPSERT_BILL_REFS_SQL, bill_refs)
         execute_many(conn, _INSERT_MEMBER_REFS_SQL, member_refs)
         execute_many(conn, _UPSERT_VOTES_SQL, vote_rows)
@@ -452,7 +464,6 @@ def _normalize_bill_ref(row: dict[str, Any], *, bill_id: str | None = None) -> d
         "bill_id": bill_id or _required(row, "BILL_ID"),
         "bill_no": _required(row, "BILL_NO"),
         "bill_name": _required(row, "BILL_NAME"),
-        "committee": _blank_to_none(row.get("CURR_COMMITTEE")),
         "committee_id": _blank_to_none(row.get("CURR_COMMITTEE_ID")),
         "proc_result": _blank_to_none(row.get("PROC_RESULT_CD")),
         "proc_dt": _blank_to_none(row.get("PROC_DT")),

@@ -55,8 +55,10 @@ ORDER BY m.conf_date DESC;
 
 ```sql
 -- 법안 기본 + 처리결과
-SELECT bill_no, bill_name, propose_dt, committee, proc_result, proc_dt, summary
-FROM bills WHERE bill_id = ?;
+SELECT b.bill_no, b.bill_name, b.propose_dt, c.committee_name, b.proc_result, b.proc_dt, b.summary
+FROM bills b
+LEFT JOIN committees c ON c.committee_id = b.committee_id
+WHERE b.bill_id = ?;
 
 -- 공동발의자 명단
 SELECT m.hg_nm, m.poly_nm, c.order_no

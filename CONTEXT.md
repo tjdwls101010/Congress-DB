@@ -123,8 +123,8 @@ _Avoid_: 안건 세그먼트(저장된 단위 — agenda_items 제외 결정과 
 **청원 / 공청회 / 입법예고 (Petition / Public Hearing / Legislative Notice)** _(도입 예정 — M3)_:
 국회의 공식 시민수요·전문가증언·의견수렴 source. 청원(`PTT_ID`, 302건)은 시민 요구의 공식 신호이되 '여론' 대표성으로 단정하지 않는다(해석은 [4]). 공청회(59건)는 회의록 universe에 없어 별도 inventory·파싱검증 대상. 입법예고(17,708건)는 notice 메타만, 의견 본문은 범위 밖.
 
-**위원회 차원 (Committee Dimension)** _(도입 예정 — #120)_:
-`bills.committee_id -> committee_name`을 canonical하게 보존하는 bill-side 소관 위원회/기관 dimension. 2026-06-13 Neon main 감사에서 31개 id/name pair가 1:1(충돌 0)로 확인되어, #120에서 `committees`를 만들고 `bills.committee_id` FK를 건 뒤 중복 display field `bills.committee`를 제거한다. `meetings.comm_name`은 meeting-side 원문 위원회명이고, 위원회 **membership**(누가 어느 위원)은 명부 API 검증 후에만 — 별개 개념이다.
+**위원회 차원 (Committee Dimension)**:
+`bills.committee_id -> committee_name`을 canonical하게 보존하는 bill-side 소관 위원회/기관 dimension. 2026-06-13 Neon main 감사에서 31개 id/name pair가 1:1(충돌 0)로 확인되어, #120에서 `committees`를 만들고 `bills.committee_id` FK를 건 뒤 중복 display field `bills.committee`를 제거했다. `meetings.comm_name`은 meeting-side 원문 위원회명이고, 위원회 **membership**(누가 어느 위원)은 명부 API 검증 후에만 — 별개 개념이다.
 _Avoid_: 위원회 history(시점별 membership — 검증 전까지 제외)
 
 **대안 관계 (Alternative Relation)** _(도입 예정 — M2)_:
