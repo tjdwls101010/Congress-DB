@@ -3,6 +3,10 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-06-13 — 위원회는 정규화 후 중복명 삭제, proposer는 raw wording으로 보존
+
+#117 결론: `bills.committee`는 `committee_id -> committee_name` 31개 pair가 현재 1:1이라 `committees(committee_id, committee_name)` dimension을 먼저 만들고 `bills.committee_id` FK를 건 뒤 중복 display column을 삭제한다(#120). 반대로 `bills.proposer`는 `외 N인` 등 join으로 복원되지 않는 원천 문구라 삭제하지 않고 `proposer_raw`로 rename해 정규화 proposer relation과 역할을 분리한다(#121).
+
 ## 2026-06-13 — 삭제 우선 스키마 정리 2차: redundant fields are removed, ops fields are hidden
 
 PM이 Neon 비용과 direct-SQL 스킬 표면을 기준으로 "불필요하면 숨길 게 아니라 삭제"를 재확인했다. 결정: `bill_lead_proposers`가 정본인 `bills.rst_mona_cd`와 현재 자연키 `(bill_id,mona_cd)`로 충분한 `votes.id`는 삭제 대상으로 승격하고, `congress_ro`는 broad grant가 아니라 allowlist로 고정한다. 반대로 `bills.proposer`(raw `외 N인` 정보), `bills.committee`(정본 committee mapping 전까지 표시명 보존), `fetched_at`(운영 감사), `proc_result`/`cmt_proc_result`(서로 다른 처리 단계), `bill_source_aliases`(source key bridge), `utterances.id`(현재 search interface)는 유지한다.
