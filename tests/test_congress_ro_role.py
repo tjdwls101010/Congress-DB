@@ -29,6 +29,7 @@ def test_congress_ro_role_exposes_only_consumer_relations() -> None:
 
     for relation in (
         "members",
+        "committees",
         "bills",
         "bill_lead_proposers",
         "bill_coproposers",

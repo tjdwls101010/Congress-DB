@@ -1,6 +1,6 @@
 # ERD — Congress-DB (Postgres 16)
 
-9개 핵심 테이블 + source alias 테이블 1개 + final outcome 테이블 1개 + 수집 운영 테이블 3개. core schema는 향후 검색 API/SDK에서 검색, 필터, 정렬, 조인, 결과 설명에 쓰이는 필드만 보존한다.
+9개 핵심 테이블 + committee dimension 1개 + source alias 테이블 1개 + final outcome 테이블 1개 + 수집 운영 테이블 3개. core schema는 향후 검색 API/SDK에서 검색, 필터, 정렬, 조인, 결과 설명에 쓰이는 필드만 보존한다.
 
 > **LLM 직접-SQL 소비자용:** 함정·어휘·커버리지 경고는 스키마 `COMMENT`(`migrations/011_schema_comments.sql` 등, `\d+`로 introspect 시 인라인으로 보임)에 있고, introspection이 조립 못 하는 cross-table 레시피만 [DB-QUERY-GUIDE.md](DB-QUERY-GUIDE.md)에 있다.
 
@@ -9,6 +9,7 @@
 ```mermaid
 erDiagram
     members ||--o{ bill_lead_proposers : "mona_cd"
+    committees ||--o{ bills : "committee_id"
     bills ||--o{ bill_lead_proposers : "bill_id"
     members ||--o{ bill_coproposers : "mona_cd"
     bills ||--o{ bill_coproposers : "bill_id"
@@ -45,7 +46,16 @@ erDiagram
 | `is_incumbent` | BOOLEAN NOT NULL DEFAULT FALSE | 최신 의원 인적사항 명부 등장 여부에서 파생한 현직 여부 |
 | `fetched_at` | TIMESTAMPTZ | 마지막 수집 시각 |
 
-### 2. `bills` — 법안
+### 2. `committees` — 법안 소관 위원회/기관
+
+법안 source의 `committee_id -> committee_name` 정본. 위원회 membership/history가 아니라 bill-side 소관/회부 기관명이다.
+
+| 컬럼 | 타입 | 비고 |
+|---|---|---|
+| `committee_id` | TEXT | **PK**. 법안 source의 소관 위원회/기관 코드 |
+| `committee_name` | TEXT UNIQUE NOT NULL | 표시명/원천명 |
+
+### 3. `bills` — 법안
 
 법안과 의안의 검색 축. 자연키는 `BILL_ID`, 보조키는 사람이 읽기 쉬운 `BILL_NO`.
 
@@ -56,8 +66,7 @@ erDiagram
 | `bill_name` | TEXT NOT NULL | 법안명 |
 | `propose_dt` | DATE | 발의일 |
 | `proposer` | TEXT | 제안자 문구 원문 |
-| `committee` | TEXT | 소관 위원회명 |
-| `committee_id` | TEXT | 소관 위원회 코드 |
+| `committee_id` | TEXT REFERENCES committees(committee_id) | 소관 위원회/기관 코드 |
 | `proc_result` | TEXT | 처리결과 |
 | `proc_dt` | DATE | 처리일자 |
 | `law_proc_dt` | DATE | 법사위 처리일자 |
@@ -67,7 +76,7 @@ erDiagram
 | `summary` | TEXT | 주요내용 |
 | `fetched_at` | TIMESTAMPTZ | 마지막 수집 시각 |
 
-### 3. `bill_relations` — 대안 관계
+### 4. `bill_relations` — 대안 관계
 
 대안반영폐기·수정안반영폐기된 원안과 그 내용을 흡수한 대안/수정안 법안을 연결한다. 출처는 의안정보시스템(likms) `billDetail.do`의 hidden `selRefBillId`.
 
@@ -78,7 +87,7 @@ erDiagram
 | `relation_type` | TEXT NOT NULL CHECK (...) | `대안반영` / `수정안반영` |
 | `fetched_at` | TIMESTAMPTZ | 마지막 수집 시각 |
 
-### 3a. `bill_source_aliases` — source별 법안 ID alias
+### 4a. `bill_source_aliases` — source별 법안 ID alias
 
 source마다 갈릴 수 있는 `BILL_ID`를 안정적인 `BILL_NO`를 경유해 canonical `bills` row로 연결한다. `bill_relations.alternative_bill_id`는 source key로 보존하고, 이 테이블이 canonical 연결을 담당한다.
 
@@ -90,7 +99,7 @@ source마다 갈릴 수 있는 `BILL_ID`를 안정적인 `BILL_NO`를 경유해 
 | `canonical_bill_id` | TEXT REFERENCES bills(bill_id) | 기존 `bills` row. 해소 불가 gap은 row를 만들지 않으므로 nullable |
 | `fetched_at` | TIMESTAMPTZ | 마지막 해소 시각 |
 
-### 3b. `bill_final_outcomes` — 최종 처리·공포 이력
+### 4b. `bill_final_outcomes` — 최종 처리·공포 이력
 
 ALLBILL이 제공하는 본회의 의결 이후 정부이송·공포 이력을 `BILL_NO` 기준으로 보존한다. `bills.law_proc_dt`는 법사위 처리일자에 가까우므로 공포일로 사용하지 않는다.
 
@@ -104,7 +113,7 @@ ALLBILL이 제공하는 본회의 의결 이후 정부이송·공포 이력을 `
 | `prom_law_nm` | TEXT | 공포 법률명 (`PROM_LAW_NM`) |
 | `fetched_at` | TIMESTAMPTZ | 마지막 수집 시각 |
 
-### 4. `bill_lead_proposers` — 대표발의 N:M
+### 5. `bill_lead_proposers` — 대표발의 N:M
 
 OpenAPI가 복수 대표발의자를 줄 수 있어 정규화한다.
 
@@ -114,7 +123,7 @@ OpenAPI가 복수 대표발의자를 줄 수 있어 정규화한다.
 | `mona_cd` | TEXT REFERENCES members(mona_cd) | **PK 일부** |
 | `order_no` | SMALLINT | 원문 순서 |
 
-### 5. `bill_coproposers` — 공동발의 N:M
+### 6. `bill_coproposers` — 공동발의 N:M
 
 | 컬럼 | 타입 | 비고 |
 |---|---|---|
@@ -122,7 +131,7 @@ OpenAPI가 복수 대표발의자를 줄 수 있어 정규화한다.
 | `mona_cd` | TEXT REFERENCES members(mona_cd) | **PK 일부** |
 | `order_no` | SMALLINT | 원문 순서 |
 
-### 6. `votes` — 본회의 표결
+### 7. `votes` — 본회의 표결
 
 본회의 표결의 의원별 행. 의안 1건당 의원 수만큼 생성한다.
 
@@ -134,7 +143,7 @@ OpenAPI가 복수 대표발의자를 줄 수 있어 정규화한다.
 | `result_vote_mod` | TEXT NOT NULL | 찬성/반대/기권/불참 |
 | `poly_nm_at_vote` | TEXT | 표결 시점 정당 |
 
-### 7. `meetings` — 회의
+### 8. `meetings` — 회의
 
 HTML 회의록 목록의 한 회의. `total/22.do` 웹 목록이 canonical source이고, OpenAPI는 같은 `mnts_id`가 있을 때 메타데이터 보강에만 사용한다.
 

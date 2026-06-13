@@ -5,7 +5,7 @@ This document records the schema cleanup audit, the implementation contract crea
 Implementation status:
 
 - Implemented: #112, #113, #114, #115, #116.
-- Resolved decision: #117. Follow-up implementation is split into #120 (`committees` dimension + remove `bills.committee`) and #121 (rename `bills.proposer` to `proposer_raw`).
+- Resolved decision: #117. #120 implemented the `committees` dimension and removed `bills.committee`; #121 remains the `bills.proposer` to `proposer_raw` rename follow-up.
 - Verification: `make db-migrate`, full `uv run pytest`, `congress_ro` privilege re-application check, and `git diff --check -- . ':!.agents/*'`.
 
 ## Goal
@@ -192,9 +192,9 @@ Decision from #117: do not delete this field. Rename it to `proposer_raw` so the
 
 ### `bills.committee`
 
-Normalize, then delete the duplicate display column. `committee` and `committee_id` are always populated together in current bills, but deleting the name before creating a canonical committee structure would lose the display name.
+#120 implemented. `bills.committee` is removed after backfilling `committees(committee_id, committee_name)` from the existing 1:1 bill-side id/name pairs and adding `bills.committee_id -> committees.committee_id`.
 
-Decision from #117: physical normalization is the right next step. The correct sequence is:
+The implemented sequence was:
 
 1. Create a canonical `committees` structure or equivalent mapping that preserves `committee_id -> committee_name`.
 2. Backfill it from current `bills.committee_id` and `bills.committee`.
@@ -233,7 +233,7 @@ Keep for now. It costs about 11 MB, but `search_utterances` returns `utterance_i
 These are not deletion tasks, but they improve the DB as an LLM-readable interface.
 
 - Add a foreign key from `bill_final_outcomes.bill_no` to `bills.bill_no`. Current orphan count is 0, so the relationship is real but not enforced.
-- Add missing comments for consumer-visible columns, especially `bill_meeting_contexts` columns, `bill_source_aliases` columns, `bills.committee`, `bills.committee_id`, `votes.bill_id`, `votes.mona_cd`, and `utterances` identity/order fields.
+- Add missing comments for consumer-visible columns, especially `bill_meeting_contexts` columns, `bill_source_aliases` columns, `bills.committee_id`, `votes.bill_id`, `votes.mona_cd`, and `utterances` identity/order fields.
 - Consider an index on `bill_source_aliases.canonical_bill_id` only if query plans or growth justify it. The current table is tiny.
 
 ## Issue Map
@@ -246,5 +246,5 @@ The implementation issues created from this plan were used as the contract for t
 - #115 — `idx_utterances_role_meeting_sequence` verification/removal. Implemented by migration 019 and speaker role backfill cleanup.
 - #116 — relationship/comment legibility follow-up. Implemented by migration 020.
 - #117 — committee/proposer conditional cleanup decision. Resolved: normalize committee, preserve proposer raw wording.
-- #120 — `committees` dimension + remove `bills.committee`. Ready for implementation.
+- #120 — `committees` dimension + remove `bills.committee`. Implemented by migration 021.
 - #121 — rename `bills.proposer` to `proposer_raw`. Ready for implementation.

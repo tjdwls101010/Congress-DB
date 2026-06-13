@@ -17,6 +17,7 @@ TEST_BILLS = (
     "TEST_VOTE_BILL_ALIAS",
 )
 TEST_MEMBERS = ("TEST_VOTE_MEMBER_1", "TEST_VOTE_MEMBER_2", "TEST_VOTE_MEMBER_3")
+TEST_COMMITTEES = ("TESTCMT",)
 
 
 @pytest.fixture(autouse=True)
@@ -30,6 +31,10 @@ def _delete_vote_rows() -> None:
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM votes WHERE bill_id = ANY(%s)", (list(TEST_BILLS),))
         cur.execute("DELETE FROM bills WHERE bill_id = ANY(%s)", (list(TEST_BILLS),))
+        cur.execute(
+            "DELETE FROM committees WHERE committee_id = ANY(%s)",
+            (list(TEST_COMMITTEES),),
+        )
         cur.execute("DELETE FROM members WHERE mona_cd = ANY(%s)", (list(TEST_MEMBERS),))
         conn.commit()
 
@@ -165,8 +170,22 @@ def test_ingest_votes_upserts_vote_rows_idempotently(
         votes = cur.fetchall()
         cur.execute("SELECT hg_nm FROM members WHERE mona_cd = 'TEST_VOTE_MEMBER_3'")
         member_stub = cur.fetchone()
-        cur.execute("SELECT bill_name, proc_result FROM bills WHERE bill_id = 'TEST_VOTE_BILL_1'")
+        cur.execute(
+            """
+            SELECT bill_name, committee_id, proc_result
+            FROM bills
+            WHERE bill_id = 'TEST_VOTE_BILL_1'
+            """
+        )
         bill_stub = cur.fetchone()
+        cur.execute(
+            """
+            SELECT committee_id, committee_name
+            FROM committees
+            WHERE committee_id = 'TESTCMT'
+            """
+        )
+        committee = cur.fetchone()
 
     assert vote_count == (6,)
     assert votes == [
@@ -175,7 +194,8 @@ def test_ingest_votes_upserts_vote_rows_idempotently(
         ("TEST_VOTE_BILL_1", "TEST_VOTE_MEMBER_3", "기권", "테스트정당"),
     ]
     assert member_stub == ("표결삼",)
-    assert bill_stub == ("테스트 표결 법안 1", "원안가결")
+    assert bill_stub == ("테스트 표결 법안 1", "TESTCMT", "원안가결")
+    assert committee == ("TESTCMT", "테스트위원회")
 
 
 def test_ingest_votes_retries_transient_vote_row_failures(

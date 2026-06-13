@@ -39,6 +39,7 @@ def _pk_columns(table: str) -> list[str]:
     "table,expected_pk",
     [
         ("members",          ["mona_cd"]),
+        ("committees",       ["committee_id"]),
         ("bills",            ["bill_id"]),
         ("meetings",         ["mnts_id"]),
         ("bill_relations",   ["absorbed_bill_id"]),
@@ -107,6 +108,40 @@ def test_bill_lead_proposers_fk_rejects_nonexistent_member() -> None:
                 """
                 INSERT INTO bill_lead_proposers (bill_id, mona_cd, order_no)
                 VALUES ('TESTFK', 'NONEXISTENT', 1)
+                """
+            )
+        conn.rollback()
+
+
+# -------------------------------------------------------------------------
+# FK/UNIQUE 제약: bills.committee_id → committees.committee_id
+# -------------------------------------------------------------------------
+
+def test_bills_committee_id_fk_rejects_nonexistent_committee() -> None:
+    with get_conn() as conn, conn.cursor() as cur:
+        with pytest.raises(psycopg.errors.ForeignKeyViolation):
+            cur.execute(
+                """
+                INSERT INTO bills (bill_id, bill_no, bill_name, committee_id)
+                VALUES ('TESTCMTFK', 'B9999994', '위원회 FK 테스트', 'MISSING_CMT')
+                """
+            )
+        conn.rollback()
+
+
+def test_committees_reject_duplicate_names() -> None:
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO committees (committee_id, committee_name)
+            VALUES ('TESTCMT1', '테스트위원회')
+            """
+        )
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            cur.execute(
+                """
+                INSERT INTO committees (committee_id, committee_name)
+                VALUES ('TESTCMT2', '테스트위원회')
                 """
             )
         conn.rollback()

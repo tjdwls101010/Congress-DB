@@ -4,7 +4,7 @@
 -- 컨텍스트라, 중복·도출가능·죽은·직무무관·이름거짓 필드는 추론을 흐리는 노이즈다(skill-creator
 -- 'irrelevant text degrades the model' 원칙을 DB에 적용). 16-테이블 감사 + 반증 검증으로 확정한,
 -- 소비자/회귀/뷰가 *읽지 않는*(ETL 전용) 것만 제거 — 전부 다른 컬럼·테이블·title에서 재도출 가능.
--- 반증으로 살아남은 것(proposer 자유텍스트·committee·cmt_proc_result·canonical_bill_id·
+-- 반증으로 살아남은 것(proposer 자유텍스트·cmt_proc_result·canonical_bill_id·
 -- plenary_dt·speaker_role·order_no·relation_type 등)은 유지하고 COMMENT로 명료화. 멱등.
 
 -- ============================ 1. DROP — 중복/죽은/직무무관/이름거짓 ============================

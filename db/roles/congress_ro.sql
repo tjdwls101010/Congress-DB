@@ -28,6 +28,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM congr
 -- Consumer allowlist: 입법전문가 스킬이 introspect/query해도 되는 표면만 노출한다.
 GRANT SELECT ON
     members,
+    committees,
     bills,
     bill_lead_proposers,
     bill_coproposers,

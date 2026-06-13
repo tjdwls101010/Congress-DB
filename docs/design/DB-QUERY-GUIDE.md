@@ -65,13 +65,13 @@ ORDER BY linked_bill_count DESC;
 ```
 
 ### Q12. 회의 소관위 ↔ 법안 소관위 연결 (comm_name 공백정규화)
-`meetings`엔 committee_id가 없어(`bills.committee_id`는 31종·18,161/18,361 채움) 회의 소관과 법안 소관을 잇으려면 **공백 정규화**가 필요하다(`12.29 여객기…` vs `12.29여객기…` 공백변형 중복). 새 canonical 테이블 없이 JOIN으로 도출(상세는 `meetings.comm_name` COMMENT).
+`bills.committee_id`는 `committees` dimension으로 정규화되어 있지만, `meetings`엔 committee_id가 없어 회의 소관과 법안 소관을 잇으려면 여전히 **공백 정규화**가 필요하다(`12.29 여객기…` vs `12.29여객기…` 공백변형 중복).
 ```sql
-SELECT mt.comm_name, b.committee_id, b.committee AS bills_committee
+SELECT mt.comm_name, c.committee_id, c.committee_name
 FROM (SELECT DISTINCT comm_name FROM meetings WHERE comm_name IS NOT NULL) mt
-LEFT JOIN (SELECT DISTINCT committee, committee_id FROM bills WHERE committee IS NOT NULL) b
-  ON regexp_replace(b.committee, '\s', '', 'g') = regexp_replace(mt.comm_name, '\s', '', 'g')
-ORDER BY b.committee_id NULLS LAST;
+LEFT JOIN committees c
+  ON regexp_replace(c.committee_name, '\s', '', 'g') = regexp_replace(mt.comm_name, '\s', '', 'g')
+ORDER BY c.committee_id NULLS LAST;
 -- 38종 중 30종 매칭. committee_id NULL인 8종은 1회성 인사청문·국정조사·연금개혁 특위로
 -- 법안 회부가 없는 회의-전용 — 누락 아님(이름기반 best-effort, 강제 FK 아님).
 ```
