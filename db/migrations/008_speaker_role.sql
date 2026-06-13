@@ -5,6 +5,3 @@
 
 ALTER TABLE IF EXISTS utterances
     ADD COLUMN IF NOT EXISTS speaker_role TEXT;
-
-CREATE INDEX IF NOT EXISTS idx_utterances_role_meeting_sequence
-    ON utterances (speaker_role, meeting_id, sequence);

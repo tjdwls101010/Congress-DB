@@ -8,7 +8,6 @@
 
 ```mermaid
 erDiagram
-    members ||--o{ bills : "rst_mona_cd"
     members ||--o{ bill_lead_proposers : "mona_cd"
     bills ||--o{ bill_lead_proposers : "bill_id"
     members ||--o{ bill_coproposers : "mona_cd"
@@ -56,7 +55,6 @@ erDiagram
 | `bill_no` | TEXT UNIQUE NOT NULL | 의안번호 |
 | `bill_name` | TEXT NOT NULL | 법안명 |
 | `propose_dt` | DATE | 발의일 |
-| `rst_mona_cd` | TEXT REFERENCES members(mona_cd) | 단일 대표발의 편의 FK |
 | `proposer` | TEXT | 제안자 문구 원문 |
 | `committee` | TEXT | 소관 위원회명 |
 | `committee_id` | TEXT | 소관 위원회 코드 |
@@ -130,13 +128,11 @@ OpenAPI가 복수 대표발의자를 줄 수 있어 정규화한다.
 
 | 컬럼 | 타입 | 비고 |
 |---|---|---|
-| `id` | BIGSERIAL | **PK** |
-| `bill_id` | TEXT REFERENCES bills(bill_id) NOT NULL | |
-| `mona_cd` | TEXT REFERENCES members(mona_cd) NOT NULL | |
+| `bill_id` | TEXT REFERENCES bills(bill_id) NOT NULL | **PK 일부** |
+| `mona_cd` | TEXT REFERENCES members(mona_cd) NOT NULL | **PK 일부** |
 | `vote_date` | TIMESTAMPTZ NOT NULL | 표결 시각 |
 | `result_vote_mod` | TEXT NOT NULL | 찬성/반대/기권/불참 |
 | `poly_nm_at_vote` | TEXT | 표결 시점 정당 |
-| | | **UNIQUE(bill_id, mona_cd)** |
 
 ### 7. `meetings` — 회의
 
@@ -199,7 +195,6 @@ source별 증분 기준점. 회의록은 웹 목록 전체 재대조 후 새 `mn
 
 ```sql
 CREATE INDEX idx_members_hg_nm ON members(hg_nm);
-CREATE INDEX idx_bills_rst ON bills(rst_mona_cd);
 CREATE INDEX idx_bills_propose_dt ON bills(propose_dt DESC);
 CREATE INDEX idx_bill_relations_alternative ON bill_relations(alternative_bill_id);
 CREATE INDEX idx_coproposers_mona ON bill_coproposers(mona_cd);
@@ -213,8 +208,6 @@ CREATE INDEX idx_meetings_type_date ON meetings(meeting_type, conf_date DESC);
 CREATE INDEX idx_mb_bill ON meeting_bills(bill_id);
 CREATE INDEX idx_utterances_meeting ON utterances(meeting_id);
 CREATE INDEX idx_utterances_speaker ON utterances(speaker_mona_cd) WHERE speaker_mona_cd IS NOT NULL;
-CREATE INDEX idx_utterances_role_meeting_sequence ON utterances(speaker_role, meeting_id, sequence);
-
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE INDEX idx_bills_bill_name_trgm ON bills USING gin (bill_name gin_trgm_ops);
 CREATE INDEX idx_bills_summary_trgm ON bills USING gin (summary gin_trgm_ops) WHERE summary IS NOT NULL;

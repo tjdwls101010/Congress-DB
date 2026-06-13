@@ -18,7 +18,7 @@ Neon은 같은 endpoint에 두 호스트를 준다:
 
 ## 권한 적용 / 갱신
 
-`db/roles/congress_ro.sql`을 **owner 연결**로 실행한다(멱등). 새 테이블·함수는 `ALTER DEFAULT PRIVILEGES` 덕에 자동으로 `congress_ro`에 `SELECT`/`EXECUTE`가 붙으므로 보통 재실행 불필요. 비밀번호는 파일에 두지 않고 `ALTER ROLE congress_ro PASSWORD '<random>'`로 별도 설정, 연결 문자열은 `.env.local`에만 둔다.
+`db/roles/congress_ro.sql`을 **owner 연결**로 실행한다(멱등). 이 스크립트는 broad grant를 먼저 회수한 뒤 consumer allowlist만 다시 부여한다. 재실행 후에도 `ingest_runs`·`ingest_cursors`·`dead_letters`는 `congress_ro`에 보이면 안 된다. 비밀번호는 파일에 두지 않고 `ALTER ROLE congress_ro PASSWORD '<random>'`로 별도 설정, 연결 문자열은 `.env.local`에만 둔다.
 
 ```bash
 # owner 연결로 role + 권한 적용 (Neon)

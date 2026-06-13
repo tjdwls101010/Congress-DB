@@ -145,7 +145,6 @@ def normalize_speaker_roles(*, other_threshold: int = 500) -> SpeakerRoleNormali
         updated = _backfill_utterance_roles(conn, role_keys)
         _ensure_no_null_roles(conn)
         _apply_role_constraints(conn)
-        _create_role_index(conn)
         role_distribution = _load_role_distribution(conn)
         high_frequency_other_titles = tuple(
             row
@@ -329,16 +328,6 @@ def _apply_role_constraints(conn: object) -> None:
 def _drop_role_index(conn: object) -> None:
     with conn.cursor() as cur:
         cur.execute("DROP INDEX IF EXISTS idx_utterances_role_meeting_sequence")
-
-
-def _create_role_index(conn: object) -> None:
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_utterances_role_meeting_sequence
-                ON utterances (speaker_role, meeting_id, sequence)
-            """
-        )
 
 
 def _load_role_distribution(conn: object) -> dict[str, int]:

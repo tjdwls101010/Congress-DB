@@ -61,7 +61,6 @@ EXPECTED_BILL_COLUMNS = frozenset(
         "bill_no",
         "bill_name",
         "propose_dt",
-        "rst_mona_cd",
         "proposer",
         "committee",
         "committee_id",
@@ -78,7 +77,6 @@ EXPECTED_BILL_COLUMNS = frozenset(
 
 EXPECTED_VOTE_COLUMNS = frozenset(
     {
-        "id",
         "bill_id",
         "mona_cd",
         "vote_date",
@@ -136,6 +134,57 @@ def _public_columns(table: str) -> set[str]:
             return {row[0] for row in cur.fetchall()}
 
 
+def _fk_columns(table: str, constraint: str) -> tuple[str, str, list[str], list[str]]:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    c.conrelid::regclass::text AS source_table,
+                    c.confrelid::regclass::text AS target_table,
+                    ARRAY(
+                        SELECT a.attname
+                        FROM unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
+                        JOIN pg_attribute a
+                          ON a.attrelid = c.conrelid AND a.attnum = k.attnum
+                        ORDER BY k.ord
+                    ) AS source_columns,
+                    ARRAY(
+                        SELECT a.attname
+                        FROM unnest(c.confkey) WITH ORDINALITY AS k(attnum, ord)
+                        JOIN pg_attribute a
+                          ON a.attrelid = c.confrelid AND a.attnum = k.attnum
+                        ORDER BY k.ord
+                    ) AS target_columns
+                FROM pg_constraint c
+                WHERE c.conrelid = %s::regclass
+                  AND c.conname = %s
+                  AND c.contype = 'f'
+                """,
+                (f"public.{table}", constraint),
+            )
+            row = cur.fetchone()
+            assert row is not None
+            return row
+
+
+def _column_comment(table: str, column: str) -> str | None:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT col_description(%s::regclass, attnum)
+                FROM pg_attribute
+                WHERE attrelid = %s::regclass
+                  AND attname = %s
+                  AND NOT attisdropped
+                """,
+                (f"public.{table}", f"public.{table}", column),
+            )
+            row = cur.fetchone()
+            return row[0] if row else None
+
+
 def test_all_expected_tables_exist() -> None:
     """ERD에 정의된 테이블이 public 스키마에 모두 있다."""
     tables = _public_tables()
@@ -178,6 +227,40 @@ def test_bill_relations_has_only_relationship_columns() -> None:
 def test_bill_final_outcomes_has_only_outcome_columns() -> None:
     """최종 처리 이력은 본회의 이후 날짜와 공포 정보만 보존한다."""
     assert _public_columns("bill_final_outcomes") == EXPECTED_BILL_FINAL_OUTCOME_COLUMNS
+
+
+def test_bill_final_outcomes_bill_no_references_bills_bill_no() -> None:
+    assert _fk_columns(
+        "bill_final_outcomes",
+        "bill_final_outcomes_bill_no_fkey",
+    ) == (
+        "bill_final_outcomes",
+        "bills",
+        ["bill_no"],
+        ["bill_no"],
+    )
+
+
+def test_high_risk_consumer_columns_have_comments() -> None:
+    for table, column in (
+        ("bill_final_outcomes", "bill_no"),
+        ("bill_final_outcomes", "govt_transfer_dt"),
+        ("bill_final_outcomes", "prom_no"),
+        ("bill_source_aliases", "source_bill_id"),
+        ("bill_source_aliases", "canonical_bill_id"),
+        ("bills", "committee"),
+        ("bills", "committee_id"),
+        ("votes", "bill_id"),
+        ("votes", "mona_cd"),
+        ("utterances", "id"),
+        ("utterances", "meeting_id"),
+        ("utterances", "sequence"),
+        ("bill_meeting_contexts", "linked_bill_count"),
+        ("bill_meeting_contexts", "utterance_count"),
+        ("bill_meeting_contexts", "utterances_by_role"),
+        ("bill_meeting_contexts", "evidence_scope"),
+    ):
+        assert _column_comment(table, column), f"{table}.{column} lacks COMMENT"
 
 
 def test_meeting_bills_has_only_junction_columns() -> None:

@@ -327,8 +327,7 @@ effective law.
 
 **Lead Proposer / 대표발의자**:
 Member listed as lead proposer. Multiple lead proposers are possible, so
-`bill_lead_proposers` is the source of truth. `bills.rst_mona_cd` is only a
-convenience FK when there is exactly one lead proposer.
+`bill_lead_proposers` is the source of truth.
 
 **Co-proposer / 공동발의자**:
 N:M relation between members and bills in `bill_coproposers`.
@@ -390,7 +389,6 @@ Important columns:
 - `bill_no` UNIQUE
 - `bill_name`
 - `propose_dt` nullable
-- `rst_mona_cd` nullable convenience FK
 - `rst_proposer`, `publ_proposer`, `proposer`
 - `committee`, `committee_id`
 - `proc_result`, `proc_dt`
@@ -435,7 +433,7 @@ Plenary vote rows.
 - `vote_date`
 - `result_vote_mod`: e.g. `찬성`, `반대`, `기권`, `불참`
 - `poly_nm_at_vote`
-- UNIQUE `(bill_id, mona_cd)`
+- PK `(bill_id, mona_cd)`
 
 Use `poly_nm_at_vote` for vote-time party. Do not substitute it for
 `members.poly_nm`.

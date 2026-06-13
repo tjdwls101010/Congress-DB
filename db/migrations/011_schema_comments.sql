@@ -47,8 +47,6 @@ COMMENT ON COLUMN bills.summary IS
   '주요내용. 233건은 원천 미제공으로 NULL(accepted-gap) — summary 키워드 검색은 이만큼을 조용히 누락함.';
 COMMENT ON COLUMN bills.proposer IS
   '제안자 원문 텍스트. 정확한 대표/공동 발의자는 bill_lead_proposers·bill_coproposers join으로 얻을 것.';
-COMMENT ON COLUMN bills.rst_mona_cd IS
-  '단일 대표발의 편의 FK. 복수 대표발의가 가능하므로 정확히는 bill_lead_proposers를 쓸 것.';
 COMMENT ON COLUMN bills.propose_dt IS '발의일.';
 COMMENT ON COLUMN bills.proc_dt IS '본회의 처리일.';
 COMMENT ON COLUMN bills.committee_dt IS '소관위 회부일.';
