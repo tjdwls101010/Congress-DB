@@ -65,7 +65,7 @@ erDiagram
 | `bill_no` | TEXT UNIQUE NOT NULL | 의안번호 |
 | `bill_name` | TEXT NOT NULL | 법안명 |
 | `propose_dt` | DATE | 발의일 |
-| `proposer` | TEXT | 제안자 문구 원문 |
+| `proposer_raw` | TEXT | 국회 API `PROPOSER` 원천 문구. 대표/공동발의자 identity는 junction 테이블이 정본 |
 | `committee_id` | TEXT REFERENCES committees(committee_id) | 소관 위원회/기관 코드 |
 | `proc_result` | TEXT | 처리결과 |
 | `proc_dt` | DATE | 처리일자 |

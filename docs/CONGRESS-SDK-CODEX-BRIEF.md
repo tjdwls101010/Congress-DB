@@ -375,8 +375,7 @@ Important columns:
 - `hg_nm`
 - `poly_nm`
 - `orig_nm`
-- `cmits`
-- `reele_gbn_nm`
+- `units`
 - `is_incumbent`
 
 ### `bills`
@@ -389,11 +388,13 @@ Important columns:
 - `bill_no` UNIQUE
 - `bill_name`
 - `propose_dt` nullable
-- `rst_proposer`, `publ_proposer`, `proposer`
+- `proposer_raw` preserves the raw source `PROPOSER` wording. Do not parse it
+  for member identity; use `bill_lead_proposers` and `bill_coproposers`.
+- Removed legacy columns: `rst_proposer`, `publ_proposer`, `proposer`
 - `committee_id` FK to `committees`
 - `proc_result`, `proc_dt`
-- `law_proc_dt`, `law_proc_result_cd`
-- `committee_dt`, `cmt_proc_dt`, `cmt_proc_result_cd`
+- `law_proc_dt`
+- `committee_dt`, `cmt_proc_dt`, `cmt_proc_result`
 - `summary` nullable
 
 Only `bill_id`, `bill_no`, and `bill_name` are guaranteed core identifiers.

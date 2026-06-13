@@ -67,8 +67,26 @@ COMMENT ON COLUMN members.units IS
 
 COMMENT ON COLUMN bills.cmt_proc_result IS
   '소관위 처리결과(대안반영폐기·수정가결·회송·철회·심사미료 등 라벨, 코드 아님). 본회의 proc_result와 다른 단계 — 소관위에서 폐기돼 본회의 미상정인 728건은 이 값만 있고 proc_result는 NULL.';
-COMMENT ON COLUMN bills.proposer IS
-  '제안자 원문 텍스트(예: ''홍길동의원 등 17인''). 정확한 대표/공동 발의자는 bill_lead_proposers·bill_coproposers join이 authoritative — 이 컬럼은 raw 문구로, 대규모 공동발의(''외 N인'')의 총 서명자 수처럼 join 테이블이 복원 못 하는 값만 보존한다.';
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'bills' AND column_name = 'proposer_raw'
+    ) THEN
+        EXECUTE format(
+            'COMMENT ON COLUMN bills.proposer_raw IS %L',
+            '국회 API PROPOSER 원천 문구(예: ''홍길동의원 등 17인''). 대표/공동발의자 member identity 정본이 아니며, 정확한 의원 join은 bill_lead_proposers·bill_coproposers를 쓸 것. ''외 N인'' 등 join으로 복원되지 않는 원천 표현·서명자 수 힌트 보존용이므로 members에 파싱 join하지 말 것.'
+        );
+    ELSIF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'bills' AND column_name = 'proposer'
+    ) THEN
+        EXECUTE format(
+            'COMMENT ON COLUMN bills.proposer IS %L',
+            '국회 API PROPOSER 원천 문구(예: ''홍길동의원 등 17인''). 대표/공동발의자 member identity 정본이 아니며, 정확한 의원 join은 bill_lead_proposers·bill_coproposers를 쓸 것. ''외 N인'' 등 join으로 복원되지 않는 원천 표현·서명자 수 힌트 보존용이므로 members에 파싱 join하지 말 것.'
+        );
+    END IF;
+END $$;
 
 COMMENT ON TABLE bill_lead_proposers IS
   '대표발의 N:M(bill_id×mona_cd). 단일·다중 대표발의 모두의 authoritative 소스(다중 대표발의 191건, 최대 3인). 주의: 대표발의자 ~20명은 22대 명부에 없어 members에 이름만(poly_nm·units NULL) — 정당/선수 필터 시 조용히 누락될 수 있음.';
