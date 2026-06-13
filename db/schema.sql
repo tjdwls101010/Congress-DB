@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS bills (
     bill_no              TEXT NOT NULL UNIQUE,
     bill_name            TEXT NOT NULL,
     propose_dt           DATE,
-    proposer             TEXT,
+    proposer_raw         TEXT,
     committee_id         TEXT REFERENCES committees (committee_id) ON DELETE RESTRICT,
     proc_result          TEXT,
     proc_dt              DATE,

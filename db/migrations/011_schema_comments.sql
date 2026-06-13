@@ -18,7 +18,7 @@ COMMENT ON TABLE bill_source_aliases IS
 COMMENT ON TABLE bill_final_outcomes IS
   '본회의 의결 이후 정부이송·공포 이력(ALLBILL, bill_no 기준). 공포일은 여기 promulgation_dt. bills.law_proc_dt(법사위 처리일)를 공포일로 쓰지 말 것.';
 COMMENT ON TABLE bill_lead_proposers IS
-  '대표발의 N:M(bill_id×mona_cd). 발의자 정확 조회는 bills의 free-text(proposer 등) 대신 이 테이블 join.';
+  '대표발의 N:M(bill_id×mona_cd). 발의자 정확 조회는 bills의 raw wording(proposer_raw) 대신 이 테이블 join.';
 COMMENT ON TABLE bill_coproposers IS
   '공동발의 N:M(bill_id×mona_cd).';
 COMMENT ON TABLE votes IS
@@ -45,8 +45,26 @@ COMMENT ON COLUMN bills.law_proc_dt IS
   '법사위(법제사법위) 처리일 — 공포일이 아님(검증: 520/520건이 공포일과 다르며 모두 더 이른 날짜). 공포일이 필요하면 bill_final_outcomes.promulgation_dt.';
 COMMENT ON COLUMN bills.summary IS
   '주요내용. 233건은 원천 미제공으로 NULL(accepted-gap) — summary 키워드 검색은 이만큼을 조용히 누락함.';
-COMMENT ON COLUMN bills.proposer IS
-  '제안자 원문 텍스트. 정확한 대표/공동 발의자는 bill_lead_proposers·bill_coproposers join으로 얻을 것.';
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'bills' AND column_name = 'proposer_raw'
+    ) THEN
+        EXECUTE format(
+            'COMMENT ON COLUMN bills.proposer_raw IS %L',
+            '국회 API PROPOSER 원천 문구. 대표/공동발의자 member identity 정본이 아니며, 정확한 의원 join은 bill_lead_proposers·bill_coproposers를 쓸 것. ''외 N인'' 등 join으로 복원되지 않는 원천 표현 보존용이므로 members에 파싱 join하지 말 것.'
+        );
+    ELSIF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'bills' AND column_name = 'proposer'
+    ) THEN
+        EXECUTE format(
+            'COMMENT ON COLUMN bills.proposer IS %L',
+            '국회 API PROPOSER 원천 문구. 대표/공동발의자 member identity 정본이 아니며, 정확한 의원 join은 bill_lead_proposers·bill_coproposers를 쓸 것. ''외 N인'' 등 join으로 복원되지 않는 원천 표현 보존용이므로 members에 파싱 join하지 말 것.'
+        );
+    END IF;
+END $$;
 COMMENT ON COLUMN bills.propose_dt IS '발의일.';
 COMMENT ON COLUMN bills.proc_dt IS '본회의 처리일.';
 COMMENT ON COLUMN bills.committee_dt IS '소관위 회부일.';

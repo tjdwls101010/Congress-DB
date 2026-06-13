@@ -39,8 +39,8 @@ _Avoid_: 발의자(대표/공동 구분 안 됨)
 **공동발의자 (Co-proposer)**:
 대표발의 외에 이름을 함께 올린 의원들. N:M 관계. `bill_coproposers` 테이블에 정규화.
 
-**원천 제안자 문구 (Raw Proposer Wording)** _(도입 예정 — #121)_:
-국회 법안 목록 원천의 `PROPOSER` 텍스트. 대표/공동발의자 identity는 `bill_lead_proposers`와 `bill_coproposers`가 정본이고, 이 문구는 `외 N인` 같은 서명자 수 힌트와 원천 표현을 보존하는 raw field다. `bills.proposer`는 #121에서 `bills.proposer_raw`로 rename한다.
+**원천 제안자 문구 (Raw Proposer Wording)**:
+국회 법안 목록 원천의 `PROPOSER` 텍스트. 대표/공동발의자 identity는 `bill_lead_proposers`와 `bill_coproposers`가 정본이고, 이 문구는 `외 N인` 같은 서명자 수 힌트와 원천 표현을 보존하는 raw field다. 현재 컬럼명은 `bills.proposer_raw`이며, `bills.proposer`는 #121에서 제거된 과거 이름이다.
 _Avoid_: proposer identity, member join key
 
 **표결 (Vote)**:

@@ -187,7 +187,7 @@ def test_ingest_bills_upserts_bills_and_coproposers_idempotently(
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             """
-            SELECT bill_id, bill_no, bill_name, committee_id, cmt_proc_result, proposer, summary
+            SELECT bill_id, bill_no, bill_name, committee_id, cmt_proc_result, proposer_raw, summary
             FROM bills
             WHERE bill_id = ANY(%s)
             ORDER BY bill_id

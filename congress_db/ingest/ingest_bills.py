@@ -110,7 +110,7 @@ _BILL_FIELDS: tuple[str, ...] = (
     "bill_no",
     "bill_name",
     "propose_dt",
-    "proposer",
+    "proposer_raw",
     "committee_id",
     "proc_result",
     "proc_dt",
@@ -126,7 +126,7 @@ _API_TO_DB: dict[str, str] = {
     "BILL_NO": "bill_no",
     "BILL_NAME": "bill_name",
     "PROPOSE_DT": "propose_dt",
-    "PROPOSER": "proposer",
+    "PROPOSER": "proposer_raw",
     "COMMITTEE_ID": "committee_id",
     "PROC_RESULT": "proc_result",
     "PROC_DT": "proc_dt",
@@ -139,12 +139,12 @@ _API_TO_DB: dict[str, str] = {
 _UPSERT_BILLS_SQL = """
     INSERT INTO bills (
         bill_id, bill_no, bill_name, propose_dt,
-        proposer, committee_id, proc_result, proc_dt,
+        proposer_raw, committee_id, proc_result, proc_dt,
         law_proc_dt, committee_dt, cmt_proc_dt, cmt_proc_result, summary
     )
     VALUES (
         %(bill_id)s, %(bill_no)s, %(bill_name)s, %(propose_dt)s,
-        %(proposer)s, %(committee_id)s, %(proc_result)s, %(proc_dt)s,
+        %(proposer_raw)s, %(committee_id)s, %(proc_result)s, %(proc_dt)s,
         %(law_proc_dt)s, %(committee_dt)s,
         %(cmt_proc_dt)s, %(cmt_proc_result)s, %(summary)s
     )
@@ -152,7 +152,7 @@ _UPSERT_BILLS_SQL = """
         bill_no            = EXCLUDED.bill_no,
         bill_name          = EXCLUDED.bill_name,
         propose_dt         = EXCLUDED.propose_dt,
-        proposer           = EXCLUDED.proposer,
+        proposer_raw       = EXCLUDED.proposer_raw,
         committee_id       = EXCLUDED.committee_id,
         proc_result        = EXCLUDED.proc_result,
         proc_dt            = EXCLUDED.proc_dt,

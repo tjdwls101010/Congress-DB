@@ -5,7 +5,7 @@ This document records the schema cleanup audit, the implementation contract crea
 Implementation status:
 
 - Implemented: #112, #113, #114, #115, #116.
-- Resolved decision: #117. #120 implemented the `committees` dimension and removed `bills.committee`; #121 remains the `bills.proposer` to `proposer_raw` rename follow-up.
+- Resolved decision: #117. #120 implemented the `committees` dimension and removed `bills.committee`; #121 renamed `bills.proposer` to `bills.proposer_raw`.
 - Verification: `make db-migrate`, full `uv run pytest`, `congress_ro` privilege re-application check, and `git diff --check -- . ':!.agents/*'`.
 
 ## Goal
@@ -72,7 +72,7 @@ Implementation notes:
 - Update schema, migrations, tests, comments, docs, and ingest code.
 - Keep `bill_lead_proposers.order_no`.
 - Keep member stubs for lead proposers missing from the current member roster.
-- Keep `bills.proposer`; it is not the same thing as `rst_mona_cd`.
+- Keep the raw proposer wording as `bills.proposer_raw`; it is not the same thing as `rst_mona_cd`.
 
 Verification:
 
@@ -184,11 +184,11 @@ Verification:
 
 ## Do Not Delete in This Round
 
-### `bills.proposer`
+### `bills.proposer_raw`
 
-Keep, but rename. It is a raw source phrase, not just a join cache. The audit found `외 N인` cases where the raw signer count is not fully reconstructable from `bill_coproposers`.
+Kept and renamed from `bills.proposer`. It is a raw source phrase, not just a join cache. The audit found `외 N인` cases where the raw signer count is not fully reconstructable from `bill_coproposers`.
 
-Decision from #117: do not delete this field. Rename it to `proposer_raw` so the direct-SQL consumer understands that proposer identities come from `bill_lead_proposers` / `bill_coproposers`, while this column preserves source wording. Implementation issue: #121.
+Decision from #117: do not delete this field. Rename it to `proposer_raw` so the direct-SQL consumer understands that proposer identities come from `bill_lead_proposers` / `bill_coproposers`, while this column preserves source wording. Implemented by #121 / migration 022.
 
 ### `bills.committee`
 
@@ -247,4 +247,4 @@ The implementation issues created from this plan were used as the contract for t
 - #116 — relationship/comment legibility follow-up. Implemented by migration 020.
 - #117 — committee/proposer conditional cleanup decision. Resolved: normalize committee, preserve proposer raw wording.
 - #120 — `committees` dimension + remove `bills.committee`. Implemented by migration 021.
-- #121 — rename `bills.proposer` to `proposer_raw`. Ready for implementation.
+- #121 — rename `bills.proposer` to `proposer_raw`. Implemented by migration 022.
