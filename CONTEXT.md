@@ -33,11 +33,15 @@ _Avoid_: 활성/active(DB 활성 행과 혼동), 삭제
 _Avoid_: 법률, 법(이미 통과된 법은 별개 개념), 의안(법안 외에 임명동의안·추천안 등을 포함하므로 더 넓음 — 안건과 구분)
 
 **대표발의자 (Lead Proposer)**:
-한 법안의 대표로 이름이 올라가는 의원. 국회 API는 복수 대표발의자를 줄 수 있어 `bill_lead_proposers`에 정규화한다. `bill_lead_proposers`가 정본이며, 기존 `bills.rst_mona_cd` 단일 대표발의 편의 FK는 2026-06-13 cleanup 결정에 따라 제거 대상이다.
+한 법안의 대표로 이름이 올라가는 의원. 국회 API는 복수 대표발의자를 줄 수 있어 `bill_lead_proposers`에 정규화한다. `bill_lead_proposers`가 정본이며, 기존 `bills.rst_mona_cd` 단일 대표발의 편의 FK는 2026-06-13 cleanup에서 제거했다.
 _Avoid_: 발의자(대표/공동 구분 안 됨)
 
 **공동발의자 (Co-proposer)**:
 대표발의 외에 이름을 함께 올린 의원들. N:M 관계. `bill_coproposers` 테이블에 정규화.
+
+**원천 제안자 문구 (Raw Proposer Wording)** _(도입 예정 — #121)_:
+국회 법안 목록 원천의 `PROPOSER` 텍스트. 대표/공동발의자 identity는 `bill_lead_proposers`와 `bill_coproposers`가 정본이고, 이 문구는 `외 N인` 같은 서명자 수 힌트와 원천 표현을 보존하는 raw field다. `bills.proposer`는 #121에서 `bills.proposer_raw`로 rename한다.
+_Avoid_: proposer identity, member join key
 
 **표결 (Vote)**:
 **본회의 표결만** 다룬다. 위원회 단계의 가결·부결은 API가 제공하지 않아 추적하지 않는다. 본회의 표결 1건 = 그 표결에 기록된 의원 수만큼의 row(실측 285~300, 평균 ~297; 출결·의석 변동으로 가변 — 고정 286이 아니다).
@@ -119,8 +123,8 @@ _Avoid_: 안건 세그먼트(저장된 단위 — agenda_items 제외 결정과 
 **청원 / 공청회 / 입법예고 (Petition / Public Hearing / Legislative Notice)** _(도입 예정 — M3)_:
 국회의 공식 시민수요·전문가증언·의견수렴 source. 청원(`PTT_ID`, 302건)은 시민 요구의 공식 신호이되 '여론' 대표성으로 단정하지 않는다(해석은 [4]). 공청회(59건)는 회의록 universe에 없어 별도 inventory·파싱검증 대상. 입법예고(17,708건)는 notice 메타만, 의견 본문은 범위 밖.
 
-**위원회 차원 (Committee Dimension)** _(조건부)_:
-`bills.committee`·`meetings.comm_name` 문자열로 흩어진 위원회를 canonical 이름+별칭으로 정규화한 1급 dimension. 현재 구현은 `bills.committee_id` + COMMENT/JOIN 레시피로 inform하며, `bills.committee` 표시명을 삭제하려면 먼저 `committee_id -> committee name` 정본 구조를 만들어야 한다. 위원회 **membership**(누가 어느 위원)은 명부 API 검증 후에만 — 별개 개념이다.
+**위원회 차원 (Committee Dimension)** _(도입 예정 — #120)_:
+`bills.committee_id -> committee_name`을 canonical하게 보존하는 bill-side 소관 위원회/기관 dimension. 2026-06-13 Neon main 감사에서 31개 id/name pair가 1:1(충돌 0)로 확인되어, #120에서 `committees`를 만들고 `bills.committee_id` FK를 건 뒤 중복 display field `bills.committee`를 제거한다. `meetings.comm_name`은 meeting-side 원문 위원회명이고, 위원회 **membership**(누가 어느 위원)은 명부 API 검증 후에만 — 별개 개념이다.
 _Avoid_: 위원회 history(시점별 membership — 검증 전까지 제외)
 
 **대안 관계 (Alternative Relation)** _(도입 예정 — M2)_:

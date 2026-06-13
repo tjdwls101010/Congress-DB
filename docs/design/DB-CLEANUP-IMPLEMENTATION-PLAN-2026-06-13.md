@@ -5,7 +5,7 @@ This document records the schema cleanup audit, the implementation contract crea
 Implementation status:
 
 - Implemented: #112, #113, #114, #115, #116.
-- Not implemented: #117, because it is a `ready-for-human` design decision and explicitly blocks deletion of `bills.committee` or `bills.proposer` until the PM chooses a replacement/preservation strategy.
+- Resolved decision: #117. Follow-up implementation is split into #120 (`committees` dimension + remove `bills.committee`) and #121 (rename `bills.proposer` to `proposer_raw`).
 - Verification: `make db-migrate`, full `uv run pytest`, `congress_ro` privilege re-application check, and `git diff --check -- . ':!.agents/*'`.
 
 ## Goal
@@ -186,22 +186,22 @@ Verification:
 
 ### `bills.proposer`
 
-Keep. It is a raw source phrase, not just a join cache. The audit found `외 N인` cases where the raw signer count is not fully reconstructable from `bill_coproposers`.
+Keep, but rename. It is a raw source phrase, not just a join cache. The audit found `외 N인` cases where the raw signer count is not fully reconstructable from `bill_coproposers`.
 
-If this is ever deleted, first add a structured replacement for the information that only the raw phrase currently preserves.
+Decision from #117: do not delete this field. Rename it to `proposer_raw` so the direct-SQL consumer understands that proposer identities come from `bill_lead_proposers` / `bill_coproposers`, while this column preserves source wording. Implementation issue: #121.
 
 ### `bills.committee`
 
-Do not delete directly. `committee` and `committee_id` are always populated together in current bills, but deleting the name before creating a canonical committee structure would lose the display name.
+Normalize, then delete the duplicate display column. `committee` and `committee_id` are always populated together in current bills, but deleting the name before creating a canonical committee structure would lose the display name.
 
-If the PM wants physical normalization here, the correct sequence is:
+Decision from #117: physical normalization is the right next step. The correct sequence is:
 
 1. Create a canonical `committees` structure or equivalent mapping that preserves `committee_id -> committee_name`.
 2. Backfill it from current `bills.committee_id` and `bills.committee`.
 3. Add constraints/comments/views that make the mapping visible.
 4. Only then remove `bills.committee`.
 
-Do not remove `bills.committee_id`; it is the bill-side committee key.
+Do not remove `bills.committee_id`; it is the bill-side committee key. Implementation issue: #120.
 
 ### `fetched_at`
 
@@ -245,4 +245,6 @@ The implementation issues created from this plan were used as the contract for t
 - #114 — `congress_ro` allowlist hardening. Implemented in `db/roles/congress_ro.sql`.
 - #115 — `idx_utterances_role_meeting_sequence` verification/removal. Implemented by migration 019 and speaker role backfill cleanup.
 - #116 — relationship/comment legibility follow-up. Implemented by migration 020.
-- #117 — committee/proposer conditional cleanup decision. Still open for PM decision.
+- #117 — committee/proposer conditional cleanup decision. Resolved: normalize committee, preserve proposer raw wording.
+- #120 — `committees` dimension + remove `bills.committee`. Ready for implementation.
+- #121 — rename `bills.proposer` to `proposer_raw`. Ready for implementation.
