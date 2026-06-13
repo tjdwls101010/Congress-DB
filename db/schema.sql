@@ -58,7 +58,6 @@ CREATE TABLE IF NOT EXISTS bills (
     bill_no              TEXT NOT NULL UNIQUE,
     bill_name            TEXT NOT NULL,
     propose_dt           DATE,
-    rst_mona_cd          TEXT REFERENCES members (mona_cd) ON DELETE RESTRICT,
     proposer             TEXT,
     committee            TEXT,
     committee_id         TEXT,
@@ -72,7 +71,6 @@ CREATE TABLE IF NOT EXISTS bills (
     fetched_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_bills_rst         ON bills (rst_mona_cd);
 CREATE INDEX IF NOT EXISTS idx_bills_propose_dt  ON bills (propose_dt DESC);
 CREATE INDEX IF NOT EXISTS idx_bills_proc_result ON bills (proc_result);
 
@@ -106,7 +104,7 @@ CREATE TABLE IF NOT EXISTS bill_source_aliases (
 -- 4b. bill_final_outcomes — 본회의 이후 정부이송·공포 이력
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS bill_final_outcomes (
-    bill_no              TEXT PRIMARY KEY,
+    bill_no              TEXT PRIMARY KEY REFERENCES bills (bill_no) ON DELETE RESTRICT,
     plenary_dt           DATE,
     govt_transfer_dt     DATE,
     promulgation_dt      DATE,
@@ -140,16 +138,15 @@ CREATE TABLE IF NOT EXISTS bill_coproposers (
 CREATE INDEX IF NOT EXISTS idx_coproposers_mona ON bill_coproposers (mona_cd);
 
 -- =========================================================================
--- 7. votes — 본회의 표결 (시점 정당 박힘, UNIQUE(bill_id, mona_cd))
+-- 7. votes — 본회의 표결 (시점 정당 박힘, PK = bill_id + mona_cd)
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS votes (
-    id                BIGSERIAL PRIMARY KEY,
     bill_id           TEXT NOT NULL REFERENCES bills (bill_id)   ON DELETE RESTRICT,
     mona_cd           TEXT NOT NULL REFERENCES members (mona_cd) ON DELETE RESTRICT,
     vote_date         TIMESTAMPTZ NOT NULL,
     result_vote_mod   TEXT NOT NULL,
     poly_nm_at_vote   TEXT,
-    UNIQUE (bill_id, mona_cd)
+    PRIMARY KEY (bill_id, mona_cd)
 );
 
 CREATE INDEX IF NOT EXISTS idx_votes_mona ON votes (mona_cd);

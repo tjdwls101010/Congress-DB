@@ -3,13 +3,17 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-06-13 — 삭제 우선 스키마 정리 2차: redundant fields are removed, ops fields are hidden
+
+PM이 Neon 비용과 direct-SQL 스킬 표면을 기준으로 "불필요하면 숨길 게 아니라 삭제"를 재확인했다. 결정: `bill_lead_proposers`가 정본인 `bills.rst_mona_cd`와 현재 자연키 `(bill_id,mona_cd)`로 충분한 `votes.id`는 삭제 대상으로 승격하고, `congress_ro`는 broad grant가 아니라 allowlist로 고정한다. 반대로 `bills.proposer`(raw `외 N인` 정보), `bills.committee`(정본 committee mapping 전까지 표시명 보존), `fetched_at`(운영 감사), `proc_result`/`cmt_proc_result`(서로 다른 처리 단계), `bill_source_aliases`(source key bridge), `utterances.id`(현재 search interface)는 유지한다.
+
 ## 2026-06-12 — 미사용 ops 테이블 2개 물리 삭제 (api_catalog·speaker_title_role_map)
 
 015에서 REVOKE로 소비자에게 숨긴 5 ops/audit 테이블 중, **파이프라인 의존이 없는 둘만 물리 삭제**(migration 016, PM 결정 — 저장 절감은 수백KB로 미미하나 깔끔함 위해). `api_catalog`(11행, `core/endpoints.py` PIPELINE_ENDPOINTS 상수의 DB 거울일 뿐)는 렌더러가 상수를 직접 읽도록 재지정(`API-CATALOG.md`는 DB 없이 생성 유지)하고 테이블 쓰던 seed/verify 모듈·스크립트·Makefile 타깃 제거. `speaker_title_role_map`(3,124행, utterances GROUP BY로 100% 도출)는 백필이 더는 영속화 안 함(speaker_role 백필 자체는 유지). 나머지 셋(`ingest_runs`·`ingest_cursors`·`dead_letters`)은 **유지** — 22대 진행 중 증분 수집·재시도 안전망이라 파이프라인이 실제 사용. 마이그레이션 모델이 매번 전체 재실행(추적 테이블 없음)이라 008/011/015의 죽은 테이블 참조(CREATE·COMMENT·REVOKE)도 정리; `make db-reset` 전체 체인 클린(14 테이블). 194 passed. ETL/렌더러/test 동기화는 supervised Codex.
 
 ## 2026-06-12 — 소비자 스키마 정리: 중복·죽은·이름거짓 필드 18개 DROP + ops 5테이블 REVOKE
 
-소비자(입법전문가 스킬)가 introspect하는 스키마 표면 자체가 소비자 컨텍스트라, 노이즈 필드가 추론을 흐린다(skill-creator 'irrelevant text degrades the model'를 DB에 적용). 16-테이블 심층 설계 감사 2회(워크플로, 33+30 에이전트, 반증 검증)로 *소비자/회귀/뷰가 읽지 않고 전부 재도출 가능한* 것만 제거(migration 015). DROP: bills(rst_proposer·publ_proposer = join string_agg 정확중복, law_proc_result_cd = 96.9% NULL 죽음), members(tel_no·e_mail·homepage·assem_addr = 연락처 directory, reele_gbn_nm = units 토큰수 도출, cmits = 84.7% NULL '현재 위원회'라 거짓·특위 노이즈, mem_title = HTML 약력 blob), votes(session_cd = meetings.session_no 도출, currents_cd = 불투명 죽은 원천코드), meetings(is_appendix·degree·is_temporary = title 파생 웹목록 잔재), bill_relations·bill_final_outcomes(source = 단일 상수). RENAME bills.cmt_proc_result_cd→cmt_proc_result(_cd인데 라벨 담는 거짓이름 — 728건 소관위-사망 신호라 keeper). REVOKE SELECT(api_catalog·ingest_runs·ingest_cursors·dead_letters·speaker_title_role_map) → 소비자 introspection 17→12. + legibility COMMENT 14개(동명이인·선수도출·서명순서·생존편향·fanout 등). 감사가 drop 권한 **bills.committee·rst_mona_cd·canonical_bill_id는 KEEP** — Q9/Q12 레시피·FK검증에 엮여 drop 시 재작성 비용 > 노이즈 절감이라 COMMENT로 명료화가 옳다. ops 내부 죽은 NULL컬럼·api_catalog 물리삭제는 REVOKE로 소비자에게 안 보이니 별도 ops 위생으로 deferred. ETL/schema/test 동기화는 supervised Codex(로컬 docker 테스트), 201 passed.
+소비자(입법전문가 스킬)가 introspect하는 스키마 표면 자체가 소비자 컨텍스트라, 노이즈 필드가 추론을 흐린다(skill-creator 'irrelevant text degrades the model'를 DB에 적용). 16-테이블 심층 설계 감사 2회(워크플로, 33+30 에이전트, 반증 검증)로 *소비자/회귀/뷰가 읽지 않고 전부 재도출 가능한* 것만 제거(migration 015). DROP: bills(rst_proposer·publ_proposer = join string_agg 정확중복, law_proc_result_cd = 96.9% NULL 죽음), members(tel_no·e_mail·homepage·assem_addr = 연락처 directory, reele_gbn_nm = units 토큰수 도출, cmits = 84.7% NULL '현재 위원회'라 거짓·특위 노이즈, mem_title = HTML 약력 blob), votes(session_cd = meetings.session_no 도출, currents_cd = 불투명 죽은 원천코드), meetings(is_appendix·degree·is_temporary = title 파생 웹목록 잔재), bill_relations·bill_final_outcomes(source = 단일 상수). RENAME bills.cmt_proc_result_cd→cmt_proc_result(_cd인데 라벨 담는 거짓이름 — 728건 소관위-사망 신호라 keeper). REVOKE SELECT(api_catalog·ingest_runs·ingest_cursors·dead_letters·speaker_title_role_map) → 소비자 introspection 17→12. + legibility COMMENT 14개(동명이인·선수도출·서명순서·생존편향·fanout 등). 이때는 drop 권한 **bills.committee·rst_mona_cd·canonical_bill_id는 KEEP**으로 봤지만, 2026-06-13 삭제 우선 재감사에서 `rst_mona_cd`만 제거로 supersede했다. `bills.committee`·`canonical_bill_id`는 여전히 유지. ops 내부 죽은 NULL컬럼·api_catalog 물리삭제는 REVOKE로 소비자에게 안 보이니 별도 ops 위생으로 deferred. ETL/schema/test 동기화는 supervised Codex(로컬 docker 테스트), 201 passed.
 
 ## 2026-06-12 — 소비층을 COMMENT+schema로 일원화, DB-QUERY-GUIDE는 cross-table 레시피만
 
@@ -379,9 +383,10 @@ concurrency. Absorbed from ADR-0003.
 The bill API can put multiple lead proposers in `RST_MONA_CD`, and it can reference
 MONA_CD values not returned by the member-profile API. Dropping those references or
 removing FKs would weaken the core "JOIN by member ID" value, so lead proposers are
-normalized into `bill_lead_proposers`, missing members are preserved as name-only
-`members` stubs, and `bills.rst_mona_cd` remains only a convenience FK for single-lead
-cases. Absorbed from ADR-0002.
+normalized into `bill_lead_proposers`, and missing members are preserved as name-only
+`members` stubs. `bills.rst_mona_cd` was kept then as a single-lead convenience FK,
+but the 2026-06-13 cleanup removes it after `bill_lead_proposers` became the sole
+authoritative lead proposer interface. Absorbed from ADR-0002.
 
 ## 2026-05-26 — api_catalog covers only pipeline OpenAPI endpoints
 

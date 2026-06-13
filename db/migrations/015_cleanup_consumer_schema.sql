@@ -4,7 +4,7 @@
 -- 컨텍스트라, 중복·도출가능·죽은·직무무관·이름거짓 필드는 추론을 흐리는 노이즈다(skill-creator
 -- 'irrelevant text degrades the model' 원칙을 DB에 적용). 16-테이블 감사 + 반증 검증으로 확정한,
 -- 소비자/회귀/뷰가 *읽지 않는*(ETL 전용) 것만 제거 — 전부 다른 컬럼·테이블·title에서 재도출 가능.
--- 반증으로 살아남은 것(proposer 자유텍스트·committee·cmt_proc_result·rst_mona_cd·canonical_bill_id·
+-- 반증으로 살아남은 것(proposer 자유텍스트·committee·cmt_proc_result·canonical_bill_id·
 -- plenary_dt·speaker_role·order_no·relation_type 등)은 유지하고 COMMENT로 명료화. 멱등.
 
 -- ============================ 1. DROP — 중복/죽은/직무무관/이름거짓 ============================
@@ -65,15 +65,13 @@ COMMENT ON COLUMN members.hg_nm IS
 COMMENT ON COLUMN members.units IS
   '역대 당선 대수 콤마구분 원문(예: ''제20대, 제21대, 제22대''). 22대 이전 이력의 유일 출처. 선수(초선/재선/N선)는 콤마 토큰 수로 도출(별도 컬럼 두지 않음).';
 
-COMMENT ON COLUMN bills.rst_mona_cd IS
-  '단일 대표발의 편의 FK. 다중 대표발의(191건)면 NULL이라 불완전 — 정확·완전·다중 대표발의는 bill_lead_proposers를 쓸 것(authoritative).';
 COMMENT ON COLUMN bills.cmt_proc_result IS
   '소관위 처리결과(대안반영폐기·수정가결·회송·철회·심사미료 등 라벨, 코드 아님). 본회의 proc_result와 다른 단계 — 소관위에서 폐기돼 본회의 미상정인 728건은 이 값만 있고 proc_result는 NULL.';
 COMMENT ON COLUMN bills.proposer IS
   '제안자 원문 텍스트(예: ''홍길동의원 등 17인''). 정확한 대표/공동 발의자는 bill_lead_proposers·bill_coproposers join이 authoritative — 이 컬럼은 raw 문구로, 대규모 공동발의(''외 N인'')의 총 서명자 수처럼 join 테이블이 복원 못 하는 값만 보존한다.';
 
 COMMENT ON TABLE bill_lead_proposers IS
-  '대표발의 N:M(bill_id×mona_cd). bills.rst_mona_cd가 못 담는 다중 대표발의(191건, 최대 3인)의 authoritative 소스. 주의: 대표발의자 ~20명은 22대 명부에 없어 members에 이름만(poly_nm·units NULL) — 정당/선수 필터 시 조용히 누락될 수 있음.';
+  '대표발의 N:M(bill_id×mona_cd). 단일·다중 대표발의 모두의 authoritative 소스(다중 대표발의 191건, 최대 3인). 주의: 대표발의자 ~20명은 22대 명부에 없어 members에 이름만(poly_nm·units NULL) — 정당/선수 필터 시 조용히 누락될 수 있음.';
 COMMENT ON COLUMN bill_lead_proposers.order_no IS
   '원천 RST_MONA_CD 콤마 나열(서명) 순서(1부터). 다중 대표발의 시 문서상 서명 순서 보존 — 서열/선임 아님. 단일 대표발의는 항상 1.';
 COMMENT ON TABLE bill_coproposers IS

@@ -46,7 +46,7 @@ def _pk_columns(table: str) -> list[str]:
         ("bill_final_outcomes", ["bill_no"]),
         ("bill_lead_proposers", ["bill_id", "mona_cd"]),
         ("bill_coproposers", ["bill_id", "mona_cd"]),
-        ("votes",            ["id"]),
+        ("votes",            ["bill_id", "mona_cd"]),
         ("meeting_bills",    ["meeting_id", "bill_id"]),
         ("utterances",       ["id"]),
         ("ingest_runs",      ["id"]),
@@ -93,24 +93,28 @@ def test_meeting_type_accepts_each_valid_value(valid_type: str) -> None:
 
 
 # -------------------------------------------------------------------------
-# FK 제약: bills.rst_mona_cd → members.mona_cd (단일 대표발의 편의 FK)
+# FK 제약: bill_lead_proposers.mona_cd → members.mona_cd
 # -------------------------------------------------------------------------
 
-def test_bills_fk_rejects_nonexistent_member() -> None:
+def test_bill_lead_proposers_fk_rejects_nonexistent_member() -> None:
     with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO bills (bill_id, bill_no, bill_name) "
+            "VALUES ('TESTFK', 'B9999991', 'FK 테스트')"
+        )
         with pytest.raises(psycopg.errors.ForeignKeyViolation):
             cur.execute(
                 """
-                INSERT INTO bills (bill_id, bill_no, bill_name, rst_mona_cd)
-                VALUES ('TESTFK', 'B9999991', 'FK 테스트', 'NONEXISTENT')
+                INSERT INTO bill_lead_proposers (bill_id, mona_cd, order_no)
+                VALUES ('TESTFK', 'NONEXISTENT', 1)
                 """
             )
         conn.rollback()
 
 
 # -------------------------------------------------------------------------
-# UNIQUE 제약: votes(bill_id, mona_cd), utterances(meeting_id, sequence),
-#              bills.bill_no
+# UNIQUE/PK 제약: votes(bill_id, mona_cd), utterances(meeting_id, sequence),
+#                bills.bill_no
 # -------------------------------------------------------------------------
 
 def test_votes_unique_bill_mona() -> None:

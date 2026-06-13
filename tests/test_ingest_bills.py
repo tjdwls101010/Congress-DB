@@ -182,8 +182,7 @@ def test_ingest_bills_upserts_bills_and_coproposers_idempotently(
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             """
-            SELECT bill_id, bill_no, bill_name, rst_mona_cd, cmt_proc_result,
-                   proposer, summary
+            SELECT bill_id, bill_no, bill_name, cmt_proc_result, proposer, summary
             FROM bills
             WHERE bill_id = ANY(%s)
             ORDER BY bill_id
@@ -217,7 +216,6 @@ def test_ingest_bills_upserts_bills_and_coproposers_idempotently(
             "TEST_BILL_1",
             "9000001",
             "테스트 법안 1",
-            "TEST_BILL_MEMBER_1",
             "수정가결",
             "대표의원 등 3인",
             "요약 9000001",
@@ -226,7 +224,6 @@ def test_ingest_bills_upserts_bills_and_coproposers_idempotently(
             "TEST_BILL_2",
             "9000002",
             "테스트 법안 2",
-            None,
             None,
             "대표의원 등 3인",
             "요약 9000002",

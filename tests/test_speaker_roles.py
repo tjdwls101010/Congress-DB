@@ -175,6 +175,8 @@ def _assert_speaker_role_transition() -> None:
             """
         )
         check_row = cur.fetchone()
+        cur.execute("SELECT to_regclass('public.idx_utterances_role_meeting_sequence')")
+        role_index = cur.fetchone()[0]
 
     assert rows == [
         (1, "의원"),
@@ -186,6 +188,7 @@ def _assert_speaker_role_transition() -> None:
     assert government_sequences == [2, 3]
     assert is_nullable == "NO"
     assert check_row == (True,)
+    assert role_index is None
 
     with get_conn() as conn, conn.cursor() as cur:
         with pytest.raises(psycopg.errors.CheckViolation):

@@ -109,7 +109,6 @@ _BILL_FIELDS: tuple[str, ...] = (
     "bill_no",
     "bill_name",
     "propose_dt",
-    "rst_mona_cd",
     "proposer",
     "committee",
     "committee_id",
@@ -127,7 +126,6 @@ _API_TO_DB: dict[str, str] = {
     "BILL_NO": "bill_no",
     "BILL_NAME": "bill_name",
     "PROPOSE_DT": "propose_dt",
-    "RST_MONA_CD": "rst_mona_cd",
     "PROPOSER": "proposer",
     "COMMITTEE": "committee",
     "COMMITTEE_ID": "committee_id",
@@ -141,14 +139,13 @@ _API_TO_DB: dict[str, str] = {
 
 _UPSERT_BILLS_SQL = """
     INSERT INTO bills (
-        bill_id, bill_no, bill_name, propose_dt, rst_mona_cd,
+        bill_id, bill_no, bill_name, propose_dt,
         proposer, committee, committee_id, proc_result, proc_dt,
         law_proc_dt, committee_dt, cmt_proc_dt, cmt_proc_result, summary
     )
     VALUES (
         %(bill_id)s, %(bill_no)s, %(bill_name)s, %(propose_dt)s,
-        %(rst_mona_cd)s, %(proposer)s,
-        %(committee)s, %(committee_id)s, %(proc_result)s, %(proc_dt)s,
+        %(proposer)s, %(committee)s, %(committee_id)s, %(proc_result)s, %(proc_dt)s,
         %(law_proc_dt)s, %(committee_dt)s,
         %(cmt_proc_dt)s, %(cmt_proc_result)s, %(summary)s
     )
@@ -156,7 +153,6 @@ _UPSERT_BILLS_SQL = """
         bill_no            = EXCLUDED.bill_no,
         bill_name          = EXCLUDED.bill_name,
         propose_dt         = EXCLUDED.propose_dt,
-        rst_mona_cd        = EXCLUDED.rst_mona_cd,
         proposer           = EXCLUDED.proposer,
         committee          = EXCLUDED.committee,
         committee_id       = EXCLUDED.committee_id,
@@ -540,8 +536,6 @@ def _normalize_bill_row(row: dict[str, Any], summary: str | None) -> dict[str, A
     for api_field, db_field in _API_TO_DB.items():
         normalized[db_field] = _blank_to_none(row.get(api_field))
     normalized["summary"] = summary
-    lead_codes = _split_mona_codes(row.get("RST_MONA_CD"))
-    normalized["rst_mona_cd"] = lead_codes[0] if len(lead_codes) == 1 else None
 
     if not normalized["bill_id"]:
         raise ValueError("bills API row missing BILL_ID")
@@ -622,10 +616,6 @@ def _validate_member_refs(
     coproposer_rows: list[dict[str, Any]],
 ) -> None:
     referenced = {
-        row["rst_mona_cd"]
-        for row in bill_rows
-        if row.get("rst_mona_cd")
-    } | {
         row["mona_cd"]
         for row in lead_proposer_rows
         if row.get("mona_cd")
