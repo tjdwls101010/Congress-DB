@@ -19,7 +19,6 @@ CREATE TABLE IF NOT EXISTS members (
     sex_gbn_nm      TEXT,
     poly_nm         TEXT,
     orig_nm         TEXT,
-    elect_gbn_nm    TEXT,
     units           TEXT,
     is_incumbent    BOOLEAN NOT NULL DEFAULT FALSE,
     fetched_at      TIMESTAMPTZ NOT NULL DEFAULT now()
