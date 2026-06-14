@@ -39,19 +39,6 @@ WHERE b.proc_result IN ('원안가결','수정가결')
 ORDER BY b.proc_dt DESC NULLS LAST;   -- 현재 59건
 ```
 
-### Q9. 폐기된 원안 → 흡수한 대안(canonical) 해소 (3-테이블 alias 경유)
-`bill_relations.alternative_bill_id`를 `bills.bill_id`로 직접 join하면 169/3,715건이 샌다 → `bill_source_aliases` 경유로 canonical 해소(상세는 그 컬럼 COMMENT).
-```sql
-SELECT a0.bill_no AS 원안, r.relation_type,
-       COALESCE(bd.bill_no, bc.bill_no) AS 대안_canonical
-FROM bill_relations r
-JOIN bills a0           ON a0.bill_id = r.absorbed_bill_id
-LEFT JOIN bills bd      ON bd.bill_id = r.alternative_bill_id           -- 직접 match
-LEFT JOIN bill_source_aliases al ON al.source_bill_id = r.alternative_bill_id
-LEFT JOIN bills bc      ON bc.bill_id = al.canonical_bill_id            -- alias 경유
-WHERE r.relation_type = '대안반영';
-```
-
 ### Q11. 회의 evidence 강도 — fanout 주의 (bill_meeting_contexts 뷰)
 한 회의에 수십~수백 법안이 함께 걸리므로(평균 32, p90 75, max 756), "이 회의에서 다뤄짐"을 특정 법안의 직접 발언 증거로 단정하면 과잉주장이다. `bill_meeting_contexts` 뷰가 회의 fanout과 회의-단위 발언 통계를 한 자리에 준다.
 ```sql

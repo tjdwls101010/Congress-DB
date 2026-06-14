@@ -579,28 +579,24 @@ def _load_lineage_rows(
 ) -> tuple[dict[str, object], ...]:
     if not source_bill_nos:
         return ()
+    # bill_lineage 뷰가 direct+alias 해소를 캡슐화 (raw bill_relations/bill_source_aliases는
+    # congress_ro에서 REVOKE됨, #125). 법안명은 소비자 가시 테이블 bills join으로 가져온다.
     cur.execute(
         """
         SELECT
-            src.bill_no AS source_bill_no,
-            left(src.bill_name, 110) AS source_bill_name,
-            r.relation_type,
-            r.alternative_bill_id,
-            COALESCE(direct.bill_no, alias_bill.bill_no) AS target_bill_no,
-            left(COALESCE(direct.bill_name, alias_bill.bill_name), 110) AS target_bill_name,
-            CASE
-                WHEN direct.bill_no IS NOT NULL THEN 'direct_bill_id'
-                WHEN alias_bill.bill_no IS NOT NULL THEN 'bill_source_aliases'
-                ELSE 'unresolved'
-            END AS resolution_path
-        FROM bills src
-        JOIN bill_relations r ON r.absorbed_bill_id = src.bill_id
-        LEFT JOIN bills direct ON direct.bill_id = r.alternative_bill_id
-        LEFT JOIN bill_source_aliases al
-            ON al.source_bill_id = r.alternative_bill_id
-        LEFT JOIN bills alias_bill ON alias_bill.bill_id = al.canonical_bill_id
-        WHERE src.bill_no = ANY(%s)
-        ORDER BY src.bill_no, r.relation_type, target_bill_no
+            bl.absorbed_bill_no AS source_bill_no,
+            left(sb.bill_name, 110) AS source_bill_name,
+            bl.relation_type,
+            bl.alternative_bill_id,
+            bl.alternative_bill_no AS target_bill_no,
+            left(tb.bill_name, 110) AS target_bill_name,
+            CASE WHEN bl.alternative_bill_id IS NULL THEN 'unresolved' ELSE 'resolved' END
+                AS resolution_path
+        FROM bill_lineage bl
+        JOIN bills sb ON sb.bill_id = bl.absorbed_bill_id
+        LEFT JOIN bills tb ON tb.bill_id = bl.alternative_bill_id
+        WHERE bl.absorbed_bill_no = ANY(%s)
+        ORDER BY bl.absorbed_bill_no, bl.relation_type, target_bill_no
         """,
         (list(source_bill_nos),),
     )

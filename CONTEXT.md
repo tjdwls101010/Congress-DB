@@ -128,7 +128,7 @@ _Avoid_: 안건 세그먼트(저장된 단위 — agenda_items 제외 결정과 
 _Avoid_: 위원회 history(시점별 membership — 검증 전까지 제외)
 
 **대안 관계 (Alternative Relation)**:
-위원회 심사에서 여러 법안 내용을 통합해 새 **대안**(또는 **수정안**)을 만들고 원안들을 *대안반영폐기*(또는 *수정안반영폐기*)할 때, 폐기된 원안과 그 내용을 흡수한 대안/수정안 법안 사이의 연결. 국회 OpenAPI엔 이 관계 필드가 없어, 의안정보시스템(likms) 상세페이지의 `selRefBillId` 숨은 필드를 스크래핑해 채운다(DECISIONS 2026-06-06). 이 연결이 없으면 "이 주제가 과거에 어떻게 입법됐고 무엇이 법으로 남았나"를 추적할 수 없다(대안반영폐기 3,676 + 수정안반영폐기 39건). _(소비 표면 변경 예정 — 이슈, DECISIONS 2026-06-14)_: raw `bill_relations`/`bill_source_aliases`는 ETL-internal(ops)로 내리고, 소비자는 direct+alias 해소를 캡슐화한 **`bill_lineage` 뷰**로 폐기원안→해소된 canonical 대안을 읽는다(미해소는 `alternative_bill_id=NULL`로 노출, `relation_type`은 `proc_result`에서 파생).
+위원회 심사에서 여러 법안 내용을 통합해 새 **대안**(또는 **수정안**)을 만들고 원안들을 *대안반영폐기*(또는 *수정안반영폐기*)할 때, 폐기된 원안과 그 내용을 흡수한 대안/수정안 법안 사이의 연결. 국회 OpenAPI엔 이 관계 필드가 없어, 의안정보시스템(likms) 상세페이지의 `selRefBillId` 숨은 필드를 스크래핑해 채운다(DECISIONS 2026-06-06). 이 연결이 없으면 "이 주제가 과거에 어떻게 입법됐고 무엇이 법으로 남았나"를 추적할 수 없다(대안반영폐기 3,676 + 수정안반영폐기 39건). _(소비 표면 — #125, DECISIONS 2026-06-14)_: raw `bill_relations`/`bill_source_aliases`는 ETL-internal(ops)로 내려 `congress_ro`에서 REVOKE했고, 소비자는 direct+alias 해소를 캡슐화한 **`bill_lineage` 뷰**로 폐기원안→해소된 canonical 대안을 읽는다(미해소는 `alternative_bill_id=NULL`로 노출, `relation_type`은 `proc_result`에서 파생; raw `relation_type` 물리 컬럼은 ETL 사용으로 KEEP).
 _Avoid_: 병합(코드 merge와 혼동)
 
 **백필 (Backfill)**:
