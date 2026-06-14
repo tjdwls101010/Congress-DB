@@ -40,8 +40,7 @@ erDiagram
 | `bth_date` | DATE | 생년월일 |
 | `sex_gbn_nm` | TEXT | 성별 |
 | `poly_nm` | TEXT | 현재 정당 |
-| `orig_nm` | TEXT | 현재 선거구 |
-| `elect_gbn_nm` | TEXT | 지역구 / 비례대표 |
+| `orig_nm` | TEXT | 현재 선거구. 선출구분(비례대표/지역구)은 여기서 도출 |
 | `units` | TEXT | 역대 대수 원문 |
 | `is_incumbent` | BOOLEAN NOT NULL DEFAULT FALSE | 최신 의원 인적사항 명부 등장 여부에서 파생한 현직 여부 |
 | `fetched_at` | TIMESTAMPTZ | 마지막 수집 시각 |

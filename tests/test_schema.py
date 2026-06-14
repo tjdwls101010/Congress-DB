@@ -37,7 +37,6 @@ EXPECTED_MEMBER_COLUMNS = frozenset(
         "sex_gbn_nm",
         "poly_nm",
         "orig_nm",
-        "elect_gbn_nm",
         "units",
         "is_incumbent",
         "fetched_at",

@@ -37,7 +37,6 @@ _MEMBER_FIELDS: tuple[str, ...] = (
     "sex_gbn_nm",
     "poly_nm",
     "orig_nm",
-    "elect_gbn_nm",
     "units",
 )
 
@@ -50,18 +49,17 @@ _API_TO_DB: dict[str, str] = {
     "SEX_GBN_NM": "sex_gbn_nm",
     "POLY_NM": "poly_nm",
     "ORIG_NM": "orig_nm",
-    "ELECT_GBN_NM": "elect_gbn_nm",
     "UNITS": "units",
 }
 
 _UPSERT_MEMBERS_SQL = """
     INSERT INTO members (
         mona_cd, hg_nm, hj_nm, eng_nm, bth_date, sex_gbn_nm,
-        poly_nm, orig_nm, elect_gbn_nm, units, is_incumbent
+        poly_nm, orig_nm, units, is_incumbent
     )
     VALUES (
         %(mona_cd)s, %(hg_nm)s, %(hj_nm)s, %(eng_nm)s, %(bth_date)s, %(sex_gbn_nm)s,
-        %(poly_nm)s, %(orig_nm)s, %(elect_gbn_nm)s, %(units)s, TRUE
+        %(poly_nm)s, %(orig_nm)s, %(units)s, TRUE
     )
     ON CONFLICT (mona_cd) DO UPDATE SET
         hg_nm        = EXCLUDED.hg_nm,
@@ -71,7 +69,6 @@ _UPSERT_MEMBERS_SQL = """
         sex_gbn_nm   = EXCLUDED.sex_gbn_nm,
         poly_nm      = EXCLUDED.poly_nm,
         orig_nm      = EXCLUDED.orig_nm,
-        elect_gbn_nm = EXCLUDED.elect_gbn_nm,
         units        = EXCLUDED.units,
         is_incumbent = TRUE,
         fetched_at   = now()
