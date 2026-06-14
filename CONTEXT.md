@@ -127,8 +127,8 @@ _Avoid_: 안건 세그먼트(저장된 단위 — agenda_items 제외 결정과 
 `bills.committee_id -> committee_name`을 canonical하게 보존하는 bill-side 소관 위원회/기관 dimension. 2026-06-13 Neon main 감사에서 31개 id/name pair가 1:1(충돌 0)로 확인되어, #120에서 `committees`를 만들고 `bills.committee_id` FK를 건 뒤 중복 display field `bills.committee`를 제거했다. `meetings.comm_name`은 meeting-side 원문 위원회명이고, 위원회 **membership**(누가 어느 위원)은 명부 API 검증 후에만 — 별개 개념이다.
 _Avoid_: 위원회 history(시점별 membership — 검증 전까지 제외)
 
-**대안 관계 (Alternative Relation)** _(도입 예정 — M2)_:
-위원회 심사에서 여러 법안 내용을 통합해 새 **대안**(또는 **수정안**)을 만들고 원안들을 *대안반영폐기*(또는 *수정안반영폐기*)할 때, 폐기된 원안과 그 내용을 흡수한 대안/수정안 법안 사이의 연결. `bill_relations`(absorbed_bill_id → alternative_bill_id, relation_type)로 보존한다. 국회 OpenAPI엔 이 관계 필드가 없어, 의안정보시스템(likms) 상세페이지의 `selRefBillId` 숨은 필드를 스크래핑해 채운다(DECISIONS 2026-06-06). 이 연결이 없으면 "이 주제가 과거에 어떻게 입법됐고 무엇이 법으로 남았나"를 추적할 수 없다(대안반영폐기 3,676 + 수정안반영폐기 39건, 통과 대안에 연결고리 없음).
+**대안 관계 (Alternative Relation)**:
+위원회 심사에서 여러 법안 내용을 통합해 새 **대안**(또는 **수정안**)을 만들고 원안들을 *대안반영폐기*(또는 *수정안반영폐기*)할 때, 폐기된 원안과 그 내용을 흡수한 대안/수정안 법안 사이의 연결. 국회 OpenAPI엔 이 관계 필드가 없어, 의안정보시스템(likms) 상세페이지의 `selRefBillId` 숨은 필드를 스크래핑해 채운다(DECISIONS 2026-06-06). 이 연결이 없으면 "이 주제가 과거에 어떻게 입법됐고 무엇이 법으로 남았나"를 추적할 수 없다(대안반영폐기 3,676 + 수정안반영폐기 39건). _(소비 표면 — #125, DECISIONS 2026-06-14)_: raw `bill_relations`/`bill_source_aliases`는 ETL-internal(ops)로 내려 `congress_ro`에서 REVOKE했고, 소비자는 direct+alias 해소를 캡슐화한 **`bill_lineage` 뷰**로 폐기원안→해소된 canonical 대안을 읽는다(미해소는 `alternative_bill_id=NULL`로 노출, `relation_type`은 `proc_result`에서 파생; raw `relation_type` 물리 컬럼은 ETL 사용으로 KEEP).
 _Avoid_: 병합(코드 merge와 혼동)
 
 **백필 (Backfill)**:
@@ -208,3 +208,4 @@ _Avoid_: 터미널 로그만 남기기, 실패 item 무시
 - **대수 파라미터 형식 혼재**: `DAE_NUM=22` (정수) vs `AGE=22` (정수) vs `ERACO=제22대` (한글 텍스트). API별로 다르므로 한 군데 wrapper에서 흡수.
 - **회의록 의미 단위**: DB에는 미리 계산한 Q&A/토론/안건 세그먼트를 저장하지 않는다. 향후 SDK나 입법 harness가 필요하면 `utterances`의 `meeting_id + sequence` 주변 발언 창에서 즉석 재구성한다.
 - **백필 vs 증분 동기화**: 별도 코드가 아니라 같은 적재 Module의 실행 mode다. 초기에는 로컬/별도 runner가 hosted Postgres DB에 직접 upsert한다.
+- **검색 recall은 DB가 아니라 스킬 inform 영역** (DECISIONS 2026-06-14): `search_bills`/`search_utterances`는 ILIKE 부분문자열 매칭이라 질의 문자열이 `bill_name`/`summary`/`content`에 그대로 박혀야 잡힌다. tsvector FTS는 한국어 형태소 분석기 부재로 recall이 ILIKE에 strictly dominated(옮기지 말 것). recall 손실의 주범은 별칭(노란봉투법↔노동조합법, 통계적 도달 불가)·동의어(저출생↔저출산) 갭이며, 이는 스킬이 통칭→정식명 치환 + 질의확장으로 보완한다(별칭사전은 스킬 PRD 소관). 광역 토픽은 `result_limit`을 크게(200+) 주어 50-cap 절단을 피한다.

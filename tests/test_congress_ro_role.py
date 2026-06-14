@@ -37,13 +37,15 @@ def test_congress_ro_role_exposes_only_consumer_relations() -> None:
         "meetings",
         "utterances",
         "meeting_bills",
-        "bill_relations",
-        "bill_source_aliases",
         "bill_final_outcomes",
+        "bill_lineage",
         "bill_meeting_contexts",
     ):
         assert relation in sql
 
+    # bill_relations·bill_source_aliases는 ops-internal로 REVOKE (#125): 소비자는 bill_lineage 뷰로 읽음.
+    assert "bill_relations," not in sql
+    assert "bill_source_aliases," not in sql
     assert "ingest_runs," not in sql
     assert "ingest_cursors," not in sql
     assert "dead_letters," not in sql

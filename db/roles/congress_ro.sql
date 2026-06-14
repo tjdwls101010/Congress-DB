@@ -36,9 +36,8 @@ GRANT SELECT ON
     meetings,
     utterances,
     meeting_bills,
-    bill_relations,
-    bill_source_aliases,
     bill_final_outcomes,
+    bill_lineage,
     bill_meeting_contexts
 TO congress_ro;
 

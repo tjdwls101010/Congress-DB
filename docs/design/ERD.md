@@ -80,6 +80,8 @@ erDiagram
 
 대안반영폐기·수정안반영폐기된 원안과 그 내용을 흡수한 대안/수정안 법안을 연결한다. 출처는 의안정보시스템(likms) `billDetail.do`의 hidden `selRefBillId`.
 
+> **소비자 비노출 (ops-internal, `congress_ro` REVOKE #125):** 소비자는 폐기원안→해소된 canonical 대안 계보를 **`bill_lineage` 뷰**로 읽는다(direct+alias 해소를 캡슐화, `relation_type`은 `proc_result`에서 파생 노출, 미해소면 `alternative_bill_id=NULL`). 이 raw 테이블과 `bill_source_aliases`는 ETL 전용이다.
+
 | 컬럼 | 타입 | 비고 |
 |---|---|---|
 | `absorbed_bill_id` | TEXT REFERENCES bills(bill_id) | **PK**. 폐기된 원안 |
@@ -89,7 +91,7 @@ erDiagram
 
 ### 4a. `bill_source_aliases` — source별 법안 ID alias
 
-source마다 갈릴 수 있는 `BILL_ID`를 안정적인 `BILL_NO`를 경유해 canonical `bills` row로 연결한다. `bill_relations.alternative_bill_id`는 source key로 보존하고, 이 테이블이 canonical 연결을 담당한다.
+source마다 갈릴 수 있는 `BILL_ID`를 안정적인 `BILL_NO`를 경유해 canonical `bills` row로 연결한다. `bill_relations.alternative_bill_id`는 source key로 보존하고, 이 테이블이 canonical 연결을 담당한다. (소비자 비노출 — `bill_relations`와 함께 ETL 전용, 소비자는 `bill_lineage` 뷰; #125.)
 
 | 컬럼 | 타입 | 비고 |
 |---|---|---|
