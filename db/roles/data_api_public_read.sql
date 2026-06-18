@@ -11,6 +11,26 @@
 -- (단, no-token 요청이 anonymous로 매핑되려면 Neon Console의 Data API "anonymous access"가 켜져 있어야 함.)
 --
 -- 적용: OWNER(congress_owner) 연결로 실행. 멱등. anonymous/authenticated 역할이 없는 환경(로컬 docker)에서는 자동 skip.
+--
+-- ⚠ Data API/Neon Auth를 (재)구성하면 Neon이 소비자 테이블에 RLS를 자동 재활성화할 수 있다(정책 0개 →
+-- congress_ro·anonymous가 모든 행을 0으로 봄, owner는 테이블 소유자라 우회해 안 보임 = 조용한 빈 결과).
+-- 그래서 이 스크립트는 공개 읽기 표면을 한 번에 복구하도록 RLS-off(027 재확인)도 포함한다. Data API 설정을
+-- 만진 뒤에는 이 파일을 다시 실행하라. 라이브 회귀팩(make regression-pack)이 congress_ro로 행수를 읽어 재발을 잡는다.
+
+-- 0) RLS 재활성화 되돌리기 — 접근 제어는 RLS가 아니라 GRANT allowlist가 담당(DECISIONS 027).
+--    (bills COMMENT는 029가 정본이므로 여기서 건드리지 않는다.)
+ALTER TABLE IF EXISTS members DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS committees DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS bills DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS bill_lead_proposers DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS bill_coproposers DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS votes DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS meetings DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS utterances DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS meeting_bills DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS bill_final_outcomes DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS bill_relations DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS bill_source_aliases DISABLE ROW LEVEL SECURITY;
 
 DO $$
 BEGIN

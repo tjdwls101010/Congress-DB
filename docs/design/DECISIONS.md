@@ -3,9 +3,15 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
-## 2026-06-18 — Neon Data API 공개 읽기전용: 쓰기는 owner만, 읽기는 무인증 공개 (anonymous allowlist)
+## 2026-06-18 — 외부 공개 읽기: congress_ro 연결문자열 공개 채택 + Data API 락다운 + RLS 재활성화 함정 수정
 
-PM이 "쓰기는 나만, 읽기는 누구나 인증 없이"로 DB를 외부 공개하기로 결정(Neon Data API/PostgREST 경유). **핵심 발견:** Data API는 `congress_ro`(읽기전용 allowlist)가 아니라 Neon이 만든 `anonymous`(무인증)·`authenticated`(JWT) 역할로 동작하는데, Neon이 프로비저닝 시 `authenticated`에 **전 테이블 arwd(쓰기 포함) + 미래 테이블 자동부여(default privilege)**를 깔아두고, 이 프로젝트는 RLS를 끈 상태(027)라 — JWT를 얻은 누구나 데이터 수정/삭제·내부 ops/raw 테이블 열람이 가능한 잠재 위험이 있었다(악용은 Neon Auth 가입 개방 시 실현). **결정·조치(`db/roles/data_api_public_read.sql`, Neon 적용·멱등):** (1) `authenticated`/`anonymous`의 위험한 **default privilege 제거**(미래 테이블 자동 grant 차단) + 현재 전 권한 회수, (2) 둘을 `congress_ro`와 **동일한 읽기 allowlist**(12 소비자 객체 SELECT + 검색함수 3개 EXECUTE)로 한정, `anonymous`에 SELECT를 줘 **무인증 공개 읽기** 가능케 함. `SET ROLE anonymous` 실증: bills/검색 읽기 OK, ingest_runs·bill_relations(내부) 차단, INSERT/UPDATE/DELETE 전부 차단. 쓰기는 owner(DATABASE_URL)만, ETL·congress_ro 무영향. **남은 한 걸음(사용자):** no-token 요청이 anonymous로 매핑되려면 Neon Console의 Data API "anonymous/unauthenticated access" 토글을 켜야 함(DB 권한만으론 부족, 현재는 토큰 요구). **보안 모델 메모:** 데이터가 전부 공개 사실이라 RLS-off + grant-scoped 공개 읽기가 정당(027 논리와 일치, members PII는 015에서 이미 DROP). **남은 고려:** 공개 HTTP 엔드포인트라 비용/남용(특히 2글자 검색 9초 쿼리) 모니터링·rate-limit은 후속.
+PM이 "쓰기는 나만, 읽기는 누구나"로 DB를 외부 공개하기로 결정. 세 가지를 처리했다.
+
+**(A) Data API의 anonymous/authenticated 과다권한 락다운** (`db/roles/data_api_public_read.sql`, Neon 적용·멱등): Data API(PostgREST)는 `congress_ro`가 아니라 Neon이 만든 `anonymous`·`authenticated` 역할로 동작하는데, Neon이 프로비저닝 시 `authenticated`에 **전 테이블 arwd(쓰기 포함) + 미래 테이블 자동부여(default privilege)**를 깔아둬 — JWT만 얻으면 데이터 수정/삭제·내부 ops/raw 열람이 가능한 위험이 있었다. 조치: 위험한 default privilege 제거 + 현재 전권 회수 → 둘을 `congress_ro`와 동일 읽기 allowlist(12객체 SELECT + 검색함수 3개)로 한정. `SET ROLE anonymous` 실증: 읽기/검색 OK, 내부테이블·모든 쓰기 차단.
+
+**(B) "무인증 공개"의 실제 = 연결문자열 공개로 채택.** Neon Data API는 **헤더 없는 순수 접근을 지원하지 않는다** — 공식 문서 "Anonymous access still uses a JWT"(로그인 없이 자동발급되는 *익명 JWT*가 필요, 토큰 0은 항상 거부). 또 PostgREST는 자유 SQL이 아니라 REST 필터/정렬/RPC만 된다. 프로젝트 목표가 "직접 SQL 자유 활용"이라 PM은 **읽기전용 `congress_ro` 연결문자열을 공개 read-key로 배포**하는 길을 택했다(no-SDK 목표와 일치, 어떤 Postgres 클라이언트로든 로컬처럼 자유 SQL). 데이터는 전부 공개 사실이고 PII는 015에서 DROP돼 안전. 남용 대비 `congress_ro`에 `statement_timeout=60s` 캡. **저장소가 private이라 연결문자열은 별도 공개 채널로 배포**해야 외부인이 쓴다(`docs/design/DB-ACCESS.md` 공개 읽기 절). HTTP가 필요한 소비자를 위해 Data API도 병행 가능(락다운 완료).
+
+**(C) ⚠ RLS 재활성화 함정 발견·수정 (가장 중요).** Data API/Neon Auth 셋업이 **소비자 10개 테이블에 RLS를 자동 재활성화**(정책 0개)해 027을 되돌려 놨다 — owner는 테이블 소유자라 우회해 멀쩡히 보이지만 **congress_ro·anonymous는 모든 base 테이블을 0행으로** 봤다(뷰는 owner 권한 실행이라 정상 반환 → 더 헷갈림). 즉 연결문자열을 공유했어도 모두가 *조용한 빈 결과*를 받을 뻔했다(PM이 "실제로 읽히나" 물어 발견). 수정: 12개 소비자 테이블 RLS DISABLE(027 재적용, bills COMMENT는 029 보존 위해 미변경), `data_api_public_read.sql`에 RLS-off도 합쳐 "한 스크립트로 공개읽기 복구"로 만듦. 검증: congress_ro bills 18,361·search 정상, anonymous 동일. **교훈: Data API(RLS 기반 보안 모델)와 이 프로젝트의 RLS-off+GRANT 모델은 충돌한다 — Data API 설정을 만질 때마다 RLS가 다시 켜질 수 있다.** 라이브 회귀팩(`make regression-pack`, congress_ro로 floor 체크)이 재발 시 "0 < floor"로 FAIL해 잡으니, Data API 손댄 뒤엔 회귀팩을 돌리고 FAIL이면 `data_api_public_read.sql`을 재실행한다.
 
 ## 2026-06-18 — 직접-SQL 3차 독립 재검증(시뮬레이션 렌즈): 2글자 검색 성능 절벽 + 생애주기/네이밍 COMMENT (migration 029)
 
