@@ -14,7 +14,7 @@
 - **담는 것:** 22대 국회(2024-05-30~)의 **발의된 의안** · **본회의 표결** · **회의록 발언**.
 - **안 담는 것:** 시행 중인 **현행법·시행령 본문**(→ 법제처 단계) · **위원회 단계 표결**(원천이 안 줌) · 정책의제 의미 레이어. → 이런 질문엔 "이 DB 범위 밖"이라고 답할 것.
 - **검색은 DB 내장 함수로**(직접 trigram 짜지 말 것): `search_bills('전세사기', 20)` · `search_utterances('의대정원', 20)` — 시그니처는 함수 COMMENT(`\df+`)에.
-- **법제처/현행법 bridge:** 이 DB는 숫자 법령ID를 제공하지 않는다. `bill_final_outcomes.bill_no -> bills.bill_no`로 공포 이력을 붙이고, `prom_law_nm`, `prom_no`, `promulgation_dt`, `govt_transfer_dt`, `plenary_dt`를 후속 법령 조회의 목적 중립 bridge 후보로 넘긴다. 현행법 본문·시행일자 확정은 법제처/외부 법령 데이터 소스에서 해야 한다.
+- **법제처/현행법 bridge:** 이 DB는 숫자 법령ID를 제공하지 않는다. `bill_final_outcomes.bill_no -> bills.bill_no`로 공포 이력을 붙이고, `prom_no`(공포 1,365건 100% 채움 — 가장 신뢰 가능한 bridge 키)·`promulgation_dt`·`govt_transfer_dt`·`plenary_dt`를 후속 법령 조회의 목적 중립 bridge로 넘긴다. **`prom_law_nm`(공포 법률명)은 단독 키로 쓰지 말 것** — 공포 66건이 이름 NULL이고 이름 있는 것의 절반이 공백 제거형이라 법제처(공백 사용)와 exact-match가 안 된다(누락 분포·권장 매칭은 `prom_law_nm` COMMENT). 현행법 본문·시행일자 확정은 법제처/외부 법령 데이터 소스에서 해야 한다.
 
 ---
 
@@ -120,8 +120,10 @@ WHERE bl.absorbed_bill_no = '2217510';
 
 `alternative_bill_id IS NULL`이면 현재 canonical `bills` row로 해소하지 못한 accepted gap이다. 이 경우에도 원안이 대안/수정안에 흡수됐다는 사실 자체는 authoritative하다.
 
+뷰 결과가 0행이라고 미흡수는 아니다 — 소관위에서 종료돼 `proc_result`가 NULL이고 `cmt_proc_result`만 `'대안반영폐기'`인 원안 487건은 likms `selRefBillId` 미수집으로 뷰에 없다(`bill_lineage` COMMENT의 COVERAGE). 그 경우 `bills.cmt_proc_result`를 함께 확인한다.
+
 ### Q4. 특정 의원의 발의·공동발의·표결·발언
-대표발의와 공동발의는 분리해서 보거나, `role`을 붙여 union한다. 가결 법안 중 위원장 대안·정부제출은 개별 의원 대표발의가 없을 수 있으므로 “의원별 성공률”을 계산할 때는 COMMENT의 발의주체 커버리지 경고를 같이 읽는다.
+대표발의와 공동발의는 분리해서 보거나, `role`을 붙여 union한다. 가결 법안 중 위원장 대안·정부제출은 개별 의원 대표발의가 없을 수 있으므로 “의원별 성공률”을 계산할 때는 COMMENT의 발의주체 커버리지 경고를 같이 읽는다. 이름이 같은 의원이 있으면(예: 박지원 2명, 표결수 0 vs 1595) `hg_nm` 매칭이 2행을 반환해 두 사람 데이터가 합쳐지므로, 한 명을 의도하면 `mona_cd`로 좁힌다(`members.hg_nm` COMMENT).
 
 ```sql
 WITH member_ref AS (
@@ -149,7 +151,7 @@ ORDER BY v.vote_date DESC;
 ```
 
 ### Q5. 위원회·기간별 법안 처리 현황
-법안 소관은 `bills.committee_id -> committees`가 canonical하다. `meetings.comm_name`은 회의 원문명이라 직접 FK가 아니다(Q12 참고).
+법안 소관은 `bills.committee_id -> committees`가 canonical하다. `meetings.comm_name`은 회의 원문명이라 직접 FK가 아니다(Q12 참고). `committee_id`는 불투명·비연속 코드(예: 보건복지위=9700341이고 9700007은 존재하지 않음)라 리터럴로 박지 말고, 안정·UNIQUE한 `committee_name`으로 거른다.
 
 ```sql
 SELECT
@@ -160,7 +162,7 @@ FROM bills b
 JOIN committees c ON c.committee_id = b.committee_id
 WHERE b.proc_dt >= DATE '2026-01-01'
   AND b.proc_dt <  DATE '2026-04-01'
-  AND b.committee_id = '9700007'
+  AND c.committee_name = '보건복지위원회'
 GROUP BY c.committee_name, b.proc_result
 ORDER BY bill_count DESC, b.proc_result;
 ```
@@ -202,7 +204,7 @@ ORDER BY linked_bill_count DESC;
 WITH bill_meetings AS (
     SELECT meeting_id
     FROM bill_meeting_contexts
-    WHERE bill_id = (SELECT bill_id FROM bills WHERE bill_no = '2218526')
+    WHERE bill_id = (SELECT bill_id FROM bills WHERE bill_no = '2200846')
       AND linked_bill_count <= 20
 )
 SELECT u.meeting_id, m.title, m.conf_date,
@@ -216,7 +218,7 @@ LIMIT 100;
 ```
 
 ### Q12. 회의 소관위 ↔ 법안 소관위 연결 (comm_name 공백정규화)
-`bills.committee_id`는 `committees` dimension으로 정규화되어 있지만, `meetings`엔 committee_id가 없어 회의 소관과 법안 소관을 잇으려면 여전히 **공백 정규화**가 필요하다(`12.29 여객기…` vs `12.29여객기…` 공백변형 중복).
+`bills.committee_id`는 `committees` dimension으로 정규화되어 있지만, `meetings`엔 committee_id가 없어 회의 소관과 법안 소관을 잇으려면 여전히 **공백 정규화**가 필요하다(특위 ~6종이 `committees.committee_name`엔 공백 포함 — 예: `12.29 여객기 참사…국정조사특별위원회` — 인데 `meetings.comm_name`은 내부 공백 없음 → 양쪽에서 공백 제거 후 비교).
 ```sql
 SELECT mt.comm_name, c.committee_id, c.committee_name
 FROM (SELECT DISTINCT comm_name FROM meetings WHERE comm_name IS NOT NULL) mt

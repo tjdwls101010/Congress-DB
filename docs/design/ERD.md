@@ -106,7 +106,7 @@ ALLBILL이 제공하는 본회의 의결 이후 정부이송·공포 이력을 `
 
 | 컬럼 | 타입 | 비고 |
 |---|---|---|
-| `bill_no` | TEXT | **PK**. source 간 안정 의안번호 |
+| `bill_no` | TEXT REFERENCES bills(bill_no) | **PK**. source 간 안정 의안번호 |
 | `plenary_dt` | DATE | 본회의 의결일 (`RGS_RSLN_DT`) |
 | `govt_transfer_dt` | DATE | 정부이송일 (`GVRN_TRSF_DT`) |
 | `promulgation_dt` | DATE | 공포일 (`PROM_DT`) |
@@ -160,7 +160,7 @@ HTML 회의록 목록의 한 회의. `total/22.do` 웹 목록이 canonical sourc
 
 제외 필드: PDF/HWP/VOD/요약 링크, `source_api`, `conf_id`, `class_name`, `comm_code`. 이 값들은 직접 SQL 소비자의 core query에 쓰이지 않으므로 coverage report, ingest summary, dead letter에서만 다룬다.
 
-### 8. `meeting_bills` — 회의↔법안 N:M
+### 8a. `meeting_bills` — 회의↔법안 N:M
 
 법안이 어떤 회의에서 다뤄졌는지 찾기 위한 핵심 junction. `VCONFBILLCONFLIST`와 `SUB_NAME` 임시 파싱 결과를 합쳐 만든다.
 
@@ -202,6 +202,8 @@ source별 증분 기준점. 회의록은 웹 목록 전체 재대조 후 새 `mn
 재시도 후에도 실패한 API item 또는 HTML 회의록 대상을 저장한다. 웹 목록에는 있지만 `type=view`가 400인 회의록은 PDF/HWP로 우회하지 않고 여기에서 명시 분류한다.
 
 ## 인덱스 후보
+
+> 아래는 설계 의도를 보여주는 **예시 목록**이고 실제 인덱스와 1:1로 동기화하지 않는다(라이브가 더 많음 — 예: `idx_members_poly_nm`, `idx_bills_proc_result`, `idx_lead_proposers_mona`, `idx_bills_committee_proc_dt`). 실제 인덱스는 `\di` 또는 `pg_indexes`로 introspect한다.
 
 ```sql
 CREATE INDEX idx_members_hg_nm ON members(hg_nm);

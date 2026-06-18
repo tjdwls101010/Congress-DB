@@ -208,6 +208,14 @@ def _column_comment(table: str, column: str) -> str | None:
             return row[0] if row else None
 
 
+def _relation_comment(relation: str) -> str | None:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT obj_description(%s::regclass)", (f"public.{relation}",))
+            row = cur.fetchone()
+            return row[0] if row else None
+
+
 def _unindexed_fk_columns() -> list[tuple[str, str]]:
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -328,10 +336,14 @@ def test_high_risk_consumer_columns_have_comments() -> None:
         ("bill_final_outcomes", "bill_no"),
         ("bill_final_outcomes", "govt_transfer_dt"),
         ("bill_final_outcomes", "prom_no"),
+        ("bill_final_outcomes", "prom_law_nm"),
         ("bill_source_aliases", "source_bill_id"),
         ("bill_source_aliases", "canonical_bill_id"),
         ("bills", "proposer_raw"),
         ("bills", "committee_id"),
+        ("bills", "committee_dt"),
+        ("bills", "cmt_proc_dt"),
+        ("bills", "law_proc_dt"),
         ("votes", "bill_id"),
         ("votes", "mona_cd"),
         ("utterances", "id"),
@@ -343,6 +355,34 @@ def test_high_risk_consumer_columns_have_comments() -> None:
         ("bill_meeting_contexts", "evidence_scope"),
     ):
         assert _column_comment(table, column), f"{table}.{column} lacks COMMENT"
+
+
+def test_critical_gotcha_comments_carry_their_warning() -> None:
+    """함정 COMMENT는 경고 문구 자체를 보존해야 한다.
+
+    COMMENT는 last-write-wins이라 후속 migration이 경고 없는 문구로 덮으면(과거 026이 013을
+    덮은 사례) 소비자가 introspect해도 함정을 못 본다. 핵심 함정은 키워드 존재로 잠근다.
+    """
+    column_markers = {
+        # 공포 이름 bridge: prom_no를 권장 키로 가리켜야 함
+        ("bill_final_outcomes", "prom_law_nm"): "prom_no",
+        # 대안/정부 법안의 체계적 NULL 경고
+        ("bills", "committee_dt"): "대안",
+        ("bills", "law_proc_dt"): "공포일이 아님",
+    }
+    for (table, column), marker in column_markers.items():
+        comment = _column_comment(table, column) or ""
+        assert marker in comment, f"{table}.{column} COMMENT lost its warning ('{marker}')"
+
+    relation_markers = {
+        # 발의자 정당 NULL 함정
+        "bill_coproposers": "poly_nm",
+        # bill_lineage 커버리지(소관위-종료 원안 부재)
+        "bill_lineage": "COVERAGE",
+    }
+    for relation, marker in relation_markers.items():
+        comment = _relation_comment(relation) or ""
+        assert marker in comment, f"{relation} COMMENT lost its warning ('{marker}')"
 
 
 def test_foreign_key_columns_are_indexed_for_direct_sql_joins() -> None:

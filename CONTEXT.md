@@ -24,8 +24,8 @@
 국회의원. 자연키는 `MONA_CD` (대수 구분 없는 의원 고유 코드). 이름이 같은 동명이인이 있을 수 있어 ID로 식별한다.
 _Avoid_: 위원(회의 컨텍스트에서의 호칭만으로 사용), 국회의원(전체 명칭으로 한 번 정도만)
 
-**현직 여부 (Incumbency)** _(도입 예정 — M1)_:
-의원이 *현재 재직 중*인지를 나타내는 `members.is_incumbent`(BOOLEAN). 손으로 관리하지 않고, 매 동기화 때 의원 인적사항 API(현직 명부)에 잡히면 TRUE, 안 잡히면 FALSE로 자동 갱신한다. 사퇴·의원직 상실 등으로 떠난 의원도 행은 그대로 두고(`ON DELETE RESTRICT`) `is_incumbent=FALSE`로만 표시해 행적 추적이 끊기지 않게 한다. 시점 정당(`poly_nm_at_vote`)과 같은 "출처에서 파생" 원칙을 따른다(별도 상태 테이블 없음). 사퇴 등으로 명부 동기화 전에 떠난 의원은 프로필 정당(`poly_nm`)이 NULL일 수 있다 — 시점 정당이 필요하면 `votes.poly_nm_at_vote`를 쓰고, 이를 `members.poly_nm`로 덮지 않는다(DECISIONS 2026-06-10).
+**현직 여부 (Incumbency)**:
+의원이 *현재 재직 중*인지를 나타내는 `members.is_incumbent`(BOOLEAN NOT NULL, 적재 완료 — 현재 현직 300·이탈 20). 손으로 관리하지 않고, 매 동기화 때 의원 인적사항 API(현직 명부)에 잡히면 TRUE, 안 잡히면 FALSE로 자동 갱신한다. 사퇴·의원직 상실 등으로 떠난 의원도 행은 그대로 두고(`ON DELETE RESTRICT`) `is_incumbent=FALSE`로만 표시해 행적 추적이 끊기지 않게 한다. 시점 정당(`poly_nm_at_vote`)과 같은 "출처에서 파생" 원칙을 따른다(별도 상태 테이블 없음). 사퇴 등으로 명부 동기화 전에 떠난 의원은 프로필 정당(`poly_nm`)이 NULL일 수 있다 — 시점 정당이 필요하면 `votes.poly_nm_at_vote`를 쓰고, 이를 `members.poly_nm`로 덮지 않는다(DECISIONS 2026-06-10).
 _Avoid_: 활성/active(DB 활성 행과 혼동), 삭제
 
 **법안 (Bill)**:
@@ -56,7 +56,7 @@ _Avoid_: 세션(회기와 혼동)
 _Avoid_: 세션(한국어 대화에서는 회의와 혼동되기 쉬움)
 
 **차수 (Degree)**:
-한 회기 안에서의 "제3차" 같은 회의 차수. `meetings.degree`에 원문 텍스트로 저장 (예: '제3차', '개회식'). 정렬용 정수 차수가 필요하면 파생 컬럼을 둔다(스키마는 TEXT).
+한 회기 안에서의 "제3차" 같은 회의 차수. **별도 컬럼으로 저장하지 않는다** — `meetings.degree`는 #015 cleanup에서 제거됐다(`title`에서 파싱 가능하고 약 절반이 '개회식' sentinel이라 잉여). 차수가 필요하면 `meetings.title` 원문에서 도출한다. 회기(`session_no`)와는 다른 개념이다.
 
 **회의 안건 (Meeting Agenda Item)**:
 국회 원천의 `SUB_NAME`에 들어 있는 회의 상정 항목. 법안도 있지만 임명동의안·출석요구·연설·동의 등이 섞이며, core DB에는 별도 테이블로 보존하지 않고 법안-회의 연결을 만들 때 임시 입력으로만 사용한다.
@@ -90,7 +90,7 @@ _Avoid_: 직함(raw 텍스트 그대로 — 정규화된 역할과 구분)
 **BILL_ID / BILL_NO**:
 - `BILL_ID`: `PRC_D2C6E...` 형식. `bills` PK이자 한 source 안의 식별자. **단, source마다 같은 의안에 다른 BILL_ID를 줄 수 있다** — likms/ALLBILL의 BILL_ID와 우리 `bills`의 BILL_ID가 갈리는 사례 확인(DECISIONS 2026-06-10). BILL_ID를 cross-source 영구키로 가정하지 말 것.
 - `BILL_NO`: `2218872` 같은 7자리 숫자. **source 간 안정적인 키.** likms·ALLBILL이 BILL_NO로 조회된다. 의안 동일성 판단·alias 해소의 기준은 BILL_NO다.
-- `bill_source_aliases` _(도입 예정 — 이슈)_: source별 BILL_ID를 canonical `bills` row(BILL_NO 기준)에 잇는 정규화.
+- `bill_source_aliases`: source별 BILL_ID를 canonical `bills` row(BILL_NO 기준)에 잇는 정규화. **적재 완료**이나 ETL-internal이라 `congress_ro`에서 REVOKE된다(소비자는 `bill_lineage` 뷰로 계보를 읽음, #125).
 
 **mnts_id / confer_num / CONF_ID**:
 회의록을 가리키는 식별자가 API마다 형식이 다르다.
@@ -113,8 +113,8 @@ _Avoid_: 법안종류(법안=법률안에 한정되어 좁음)
 발언자의 부처·기관. `speaker_role`이 7종 역할까지만 주므로, '기타'에 묻힌 정부측 actor(부처 실장·청장·○○위원장·정책관)를 `speaker_title` 기반 보조조회로 회수한다. role enum을 늘리지 않고 raw 직함을 authoritative로 둔다.
 _Avoid_: 역할(speaker_role enum과 구분 — 소속/기관은 별개 축)
 
-**증거 강도 (Evidence Strength)** _(도입 예정 — M3)_:
-`meeting_bills`는 회의-level 연결이라 한 회의에 수십~수백 법안이 걸린다(시나리오 p50 47~66, max 756). "같은 회의에서 다뤄짐"을 특정 법안의 발언 증거로 단정하지 않도록 `linked_bill_count`와 강도 힌트를 소비 표면에 노출한다.
+**증거 강도 (Evidence Strength)**:
+`meeting_bills`는 회의-level 연결이라 한 회의에 수십~수백 법안이 걸린다(평균 32, p90 75, max 756). "같은 회의에서 다뤄짐"을 특정 법안의 발언 증거로 단정하지 않도록 **`bill_meeting_contexts` 뷰**(적재 완료, 소비자 노출)가 `linked_bill_count`(raw count)와 회의-단위 발언 통계를 소비 표면에 노출한다. 강도 버킷 라벨은 의도적으로 두지 않고 raw count로 소비자가 판단한다(DECISIONS 2026-06-11).
 _Avoid_: 안건 세그먼트(저장된 단위 — agenda_items 제외 결정과 충돌)
 
 **법안 문서 (Bill Document)** _(prototype-gated — 미적재)_:
