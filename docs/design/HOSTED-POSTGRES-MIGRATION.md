@@ -1,5 +1,13 @@
 # Hosted Postgres Migration Runbook
 
+> **Historical note (2026-06-10 pivot):** This runbook predates the no-SDK
+> decision (see `docs/design/DECISIONS.md`). Mentions below of a "separate SDK
+> repository" / "SDK-facing data" / "future SDK/app read traffic" are stale
+> framing — there is no SDK; consumers (skills, AI agents, developers) read the
+> hosted DB via **direct read-only SQL** as the `congress_ro` role (see
+> `docs/design/DB-QUERY-GUIDE.md`). The migration facts in this file remain
+> accurate; only the downstream-consumer framing changed.
+
 This document records issue #63, the first Neon hosted Postgres migration.
 
 As of 2026-06-06, the Neon restore and hosted smoke test are complete. The

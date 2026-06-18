@@ -14,7 +14,7 @@
 - **담는 것:** 22대 국회(2024-05-30~)의 **발의된 의안** · **본회의 표결** · **회의록 발언**.
 - **안 담는 것:** 시행 중인 **현행법·시행령 본문**(→ 법제처 단계) · **위원회 단계 표결**(원천이 안 줌) · 정책의제 의미 레이어. → 이런 질문엔 "이 DB 범위 밖"이라고 답할 것.
 - **검색은 DB 내장 함수로**(직접 trigram 짜지 말 것): `search_bills('전세사기', 20)` · `search_utterances('의대정원', 20)` — 시그니처는 함수 COMMENT(`\df+`)에.
-- **법제처/현행법 bridge:** 이 DB는 숫자 법령ID를 제공하지 않는다. `bill_final_outcomes.bill_no -> bills.bill_no`로 공포 이력을 붙이고, `prom_no`(공포 1,365건 100% 채움 — 가장 신뢰 가능한 bridge 키)·`promulgation_dt`·`govt_transfer_dt`·`plenary_dt`를 후속 법령 조회의 목적 중립 bridge로 넘긴다. **`prom_law_nm`(공포 법률명)은 단독 키로 쓰지 말 것** — 공포 66건이 이름 NULL이고 이름 있는 것의 절반이 공백 제거형이라 법제처(공백 사용)와 exact-match가 안 된다(누락 분포·권장 매칭은 `prom_law_nm` COMMENT). 현행법 본문·시행일자 확정은 법제처/외부 법령 데이터 소스에서 해야 한다.
+- **법제처/현행법 bridge:** 이 DB는 숫자 법령ID를 제공하지 않는다. `bill_final_outcomes.bill_no -> bills.bill_no`로 공포 이력을 붙이고, `prom_no`(공포 1,365건 100% 채움 — 가장 신뢰 가능한 bridge 키)·`promulgation_dt`·`govt_transfer_dt`·`plenary_dt`를 후속 법령 조회의 목적 중립 bridge로 넘긴다. **`prom_law_nm`(공포 법률명)은 단독 키로 쓰지 말 것** — 공포 66건이 이름 NULL이고 이름 있는 것의 절반이 공백 제거형이라 법제처(공백 사용)와 exact-match가 안 된다(누락 분포·권장 매칭은 `prom_law_nm` COMMENT). 이름으로 매칭해야 하면 양쪽에서 공백을 지우고(`replace(x,' ','')`) **중점도 통일하라** — 가운뎃점이 U+00B7(`·`, 95건)과 U+318D(`ㆍ`, 16건)로 혼재해 공백만 지워선 코드포인트가 달라 exact-match가 깨진다(`translate(x, chr(12685), chr(183))`로 U+318D→U+00B7 통일). 현행법 본문·시행일자 확정은 법제처/외부 법령 데이터 소스에서 해야 한다.
 
 ---
 
@@ -87,12 +87,15 @@ JOIN bill_final_outcomes o ON o.bill_no = b.bill_no   -- ★ bill_no로 join
 WHERE b.bill_no = '2213457';
 
 -- 통과한 '법률안'인데 공포 outcome 없음 = pending 또는 진짜 갭 (비-법률 의안 제외)
-SELECT b.bill_no, b.bill_name, b.proc_dt
+-- 거부권후보 = 본회의 의결일이 처리일보다 늦음(재의결) → 단순 계류와 구분 (현재 미공포 59건 = 거부권후보 26 + 계류 33)
+SELECT b.bill_no, b.bill_name, b.proc_dt,
+       (o.plenary_dt > b.proc_dt) AS 거부권후보
 FROM bills b
+LEFT JOIN bill_final_outcomes o ON o.bill_no = b.bill_no
 WHERE b.proc_result IN ('원안가결','수정가결')
   AND b.bill_name ~ '법(률)?안'
-  AND NOT EXISTS (SELECT 1 FROM bill_final_outcomes o
-                  WHERE o.bill_no = b.bill_no AND o.promulgation_dt IS NOT NULL)
+  AND NOT EXISTS (SELECT 1 FROM bill_final_outcomes o2
+                  WHERE o2.bill_no = b.bill_no AND o2.promulgation_dt IS NOT NULL)
 ORDER BY b.proc_dt DESC NULLS LAST;   -- 현재 59건
 ```
 
@@ -166,6 +169,8 @@ WHERE b.proc_dt >= DATE '2026-01-01'
 GROUP BY c.committee_name, b.proc_result
 ORDER BY bill_count DESC, b.proc_result;
 ```
+
+**위원회 ↔ 회의 두 경로(의미가 다름):** "위원회 *자체* 회의"는 `meetings.comm_name`으로(공백정규화는 Q12), "위원회 *소관 법안이 다뤄진* 모든 회의(본회의·법사위 체계자구심사 포함)"는 `bills.committee_id → meeting_bills → meetings` junction으로 잡는다 — `comm_name` 필터는 본회의(`comm_name` NULL)·타위 회의를 놓친다. junction을 집계할 땐 한 회의에 수십 법안이 걸려(fanout) `count(*)`가 법안 수를 부풀리므로 **`count(DISTINCT mb.meeting_id)`/`count(DISTINCT b.bill_id)`** 로 세야 한다.
 
 ### Q6. 표결 결과와 정당별 표결
 `votes`는 본회의 표결만 담고, row grain은 `bill_id × mona_cd`다. `count(*)`는 표결 event 수가 아니라 의원-표 수다.

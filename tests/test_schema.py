@@ -216,6 +216,17 @@ def _relation_comment(relation: str) -> str | None:
             return row[0] if row else None
 
 
+def _function_comment(name: str) -> str | None:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT obj_description(oid) FROM pg_proc WHERE proname = %s",
+                (name,),
+            )
+            row = cur.fetchone()
+            return row[0] if row else None
+
+
 def _unindexed_fk_columns() -> list[tuple[str, str]]:
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -353,6 +364,9 @@ def test_high_risk_consumer_columns_have_comments() -> None:
         ("bill_meeting_contexts", "utterance_count"),
         ("bill_meeting_contexts", "utterances_by_role"),
         ("bill_meeting_contexts", "evidence_scope"),
+        # raw 원천명 노출 컬럼 — GROUP BY 시 조용한 NULL 버킷/값목록을 introspect로 알려야 함
+        ("members", "sex_gbn_nm"),
+        ("meetings", "meeting_type"),
     ):
         assert _column_comment(table, column), f"{table}.{column} lacks COMMENT"
 
@@ -369,6 +383,10 @@ def test_critical_gotcha_comments_carry_their_warning() -> None:
         # 대안/정부 법안의 체계적 NULL 경고
         ("bills", "committee_dt"): "대안",
         ("bills", "law_proc_dt"): "공포일이 아님",
+        # 거부권 후 재의결 추론(가결-미공포 구분)
+        ("bill_final_outcomes", "promulgation_dt"): "거부권",
+        # 성별 GROUP BY 시 NULL 버킷 stub 경고
+        ("members", "sex_gbn_nm"): "NULL",
     }
     for (table, column), marker in column_markers.items():
         comment = _column_comment(table, column) or ""
@@ -379,10 +397,19 @@ def test_critical_gotcha_comments_carry_their_warning() -> None:
         "bill_coproposers": "poly_nm",
         # bill_lineage 커버리지(소관위-종료 원안 부재)
         "bill_lineage": "COVERAGE",
+        # bills 테이블에 생애주기 단계 시간순 개요(introspect-only 자립)
+        "bills": "생애주기 단계",
+        # bill_meeting_contexts fanout 단위(회의당) 명시
+        "bill_meeting_contexts": "회의당",
     }
     for relation, marker in relation_markers.items():
         comment = _relation_comment(relation) or ""
         assert marker in comment, f"{relation} COMMENT lost its warning ('{marker}')"
+
+    # 검색 함수 성능 절벽(2글자 trigram 미사용) 경고 — recall만 남고 성능이 덮이는 회귀 방지
+    for func in ("search_bills", "search_utterances"):
+        comment = _function_comment(func) or ""
+        assert "3-gram" in comment, f"{func} COMMENT lost its 2-char performance warning"
 
 
 def test_foreign_key_columns_are_indexed_for_direct_sql_joins() -> None:
