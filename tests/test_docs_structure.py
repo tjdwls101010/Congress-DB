@@ -46,3 +46,19 @@ def test_per_file_adrs_absorbed_into_decisions_log() -> None:
 
     for adr_id in range(1, 10):
         assert f"ADR-{adr_id:04d}" in decisions
+
+
+def test_current_design_docs_are_direct_sql_centered_not_sdk_centered() -> None:
+    assert not (Path("docs") / "CONGRESS-SDK-CODEX-BRIEF.md").exists()
+
+    for path in (
+        Path("CONTEXT.md"),
+        Path("docs/design/PRD.md"),
+        Path("docs/design/IA.md"),
+        Path("docs/design/ERD.md"),
+        Path("docs/design/DB-QUERY-GUIDE.md"),
+    ):
+        text = path.read_text(encoding="utf-8")
+        assert "검색 API/SDK" not in text
+        assert "congress-sdk" not in text
+        assert "Congress-SDK" not in text

@@ -112,6 +112,23 @@ EXPECTED_BILL_FINAL_OUTCOME_COLUMNS = frozenset(
     }
 )
 
+DIRECT_SQL_BASE_TABLES = frozenset(
+    {
+        "members",
+        "committees",
+        "bills",
+        "bill_lead_proposers",
+        "bill_coproposers",
+        "votes",
+        "meetings",
+        "utterances",
+        "meeting_bills",
+        "bill_final_outcomes",
+        "bill_relations",
+        "bill_source_aliases",
+    }
+)
+
 
 def _public_tables() -> set[str]:
     with get_conn() as conn:
@@ -189,6 +206,46 @@ def _column_comment(table: str, column: str) -> str | None:
             )
             row = cur.fetchone()
             return row[0] if row else None
+
+
+def _unindexed_fk_columns() -> list[tuple[str, str]]:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT c.conrelid::regclass::text AS table_name,
+                       a.attname AS fk_column
+                FROM pg_constraint c
+                JOIN pg_attribute a
+                  ON a.attrelid = c.conrelid
+                 AND a.attnum = ANY(c.conkey)
+                WHERE c.contype = 'f'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM pg_index i
+                      WHERE i.indrelid = c.conrelid
+                        AND a.attnum = ANY(i.indkey)
+                  )
+                ORDER BY table_name, fk_column
+                """
+            )
+            return [(row[0], row[1]) for row in cur.fetchall()]
+
+
+def _rls_enabled_tables() -> set[str]:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT c.relname
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname = 'public'
+                  AND c.relkind = 'r'
+                  AND c.relrowsecurity
+                """
+            )
+            return {row[0] for row in cur.fetchall()}
 
 
 def test_all_expected_tables_exist() -> None:
@@ -286,6 +343,16 @@ def test_high_risk_consumer_columns_have_comments() -> None:
         ("bill_meeting_contexts", "evidence_scope"),
     ):
         assert _column_comment(table, column), f"{table}.{column} lacks COMMENT"
+
+
+def test_foreign_key_columns_are_indexed_for_direct_sql_joins() -> None:
+    """FK columns stay indexed because direct-SQL consumers join through the DB itself."""
+    assert _unindexed_fk_columns() == []
+
+
+def test_direct_sql_base_tables_do_not_hide_rows_behind_rls() -> None:
+    """congress_ro is controlled by GRANT allowlist; RLS without policies returns 0 rows."""
+    assert not (DIRECT_SQL_BASE_TABLES & _rls_enabled_tables())
 
 
 def test_meeting_bills_has_only_junction_columns() -> None:

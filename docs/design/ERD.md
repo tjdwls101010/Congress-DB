@@ -1,6 +1,6 @@
 # ERD — Congress-DB (Postgres 16)
 
-9개 핵심 테이블 + committee dimension 1개 + source alias 테이블 1개 + final outcome 테이블 1개 + 수집 운영 테이블 3개. core schema는 향후 검색 API/SDK에서 검색, 필터, 정렬, 조인, 결과 설명에 쓰이는 필드만 보존한다.
+9개 핵심 테이블 + committee dimension 1개 + source alias 테이블 1개 + final outcome 테이블 1개 + 수집 운영 테이블 3개. core schema는 직접 SQL 소비자가 검색, 필터, 정렬, 조인, 결과 설명에 쓰는 필드만 보존한다.
 
 > **LLM 직접-SQL 소비자용:** 함정·어휘·커버리지 경고는 스키마 `COMMENT`(`migrations/011_schema_comments.sql` 등, `\d+`로 introspect 시 인라인으로 보임)에 있고, introspection이 조립 못 하는 cross-table 레시피만 [DB-QUERY-GUIDE.md](DB-QUERY-GUIDE.md)에 있다.
 
@@ -102,7 +102,7 @@ source마다 갈릴 수 있는 `BILL_ID`를 안정적인 `BILL_NO`를 경유해 
 
 ### 4b. `bill_final_outcomes` — 최종 처리·공포 이력
 
-ALLBILL이 제공하는 본회의 의결 이후 정부이송·공포 이력을 `BILL_NO` 기준으로 보존한다. `bills.law_proc_dt`는 법사위 처리일자에 가까우므로 공포일로 사용하지 않는다.
+ALLBILL이 제공하는 본회의 의결 이후 정부이송·공포 이력을 `BILL_NO` 기준으로 보존한다. `bills.law_proc_dt`는 법사위 처리일자에 가까우므로 공포일로 사용하지 않는다. 시행일자와 현행법 본문은 이 DB에 없고 법제처/외부 법령 데이터 소스에서 확정한다.
 
 | 컬럼 | 타입 | 비고 |
 |---|---|---|
@@ -158,7 +158,7 @@ HTML 회의록 목록의 한 회의. `total/22.do` 웹 목록이 canonical sourc
 | `session_no` | INT | 회기 번호 |
 | `fetched_at` | TIMESTAMPTZ | 마지막 수집 시각 |
 
-제외 필드: PDF/HWP/VOD/요약 링크, `source_api`, `conf_id`, `class_name`, `comm_code`. 이 값들은 검색 API/SDK의 core query에 쓰이지 않으므로 coverage report, ingest summary, dead letter에서만 다룬다.
+제외 필드: PDF/HWP/VOD/요약 링크, `source_api`, `conf_id`, `class_name`, `comm_code`. 이 값들은 직접 SQL 소비자의 core query에 쓰이지 않으므로 coverage report, ingest summary, dead letter에서만 다룬다.
 
 ### 8. `meeting_bills` — 회의↔법안 N:M
 
@@ -206,7 +206,9 @@ source별 증분 기준점. 회의록은 웹 목록 전체 재대조 후 새 `mn
 ```sql
 CREATE INDEX idx_members_hg_nm ON members(hg_nm);
 CREATE INDEX idx_bills_propose_dt ON bills(propose_dt DESC);
+CREATE INDEX idx_bills_committee_proc_dt ON bills(committee_id, proc_dt DESC) WHERE committee_id IS NOT NULL;
 CREATE INDEX idx_bill_relations_alternative ON bill_relations(alternative_bill_id);
+CREATE INDEX idx_bill_source_aliases_canonical_bill_id ON bill_source_aliases(canonical_bill_id) WHERE canonical_bill_id IS NOT NULL;
 CREATE INDEX idx_coproposers_mona ON bill_coproposers(mona_cd);
 CREATE INDEX idx_votes_mona ON votes(mona_cd);
 CREATE INDEX idx_votes_bill ON votes(bill_id);
@@ -234,4 +236,4 @@ search_utterances(query_text TEXT, result_limit INT DEFAULT 50)
   RETURNS TABLE (utterance_id, meeting_id, sequence, speaker_name, speaker_title, snippet, similarity_score);
 ```
 
-첫 검색 랭킹은 Postgres `pg_trgm`의 `similarity()` 내림차순이다. 검색 API/SDK는 이 DB 함수 위에서 얇게 시작하고, 벡터/PGroonga는 측정된 recall 실패가 생길 때만 추가한다.
+첫 검색 랭킹은 Postgres `pg_trgm`의 `similarity()` 내림차순이다. 직접 SQL 소비자는 이 DB 함수를 우선 사용하고, 벡터/PGroonga는 측정된 recall 실패가 생길 때만 추가한다.

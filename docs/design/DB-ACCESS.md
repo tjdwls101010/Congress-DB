@@ -7,6 +7,8 @@ Congress-DB는 Neon Postgres(`congress` DB)에 호스팅된다. 권한을 두 ro
 - **`congress_owner`** (소유자) — 적재·마이그레이션·관리 전용. 모든 쓰기 권한. 적재 파이프라인(`scripts/*`, `make ingest` 등)이 사용. 연결 문자열은 `.env.local`의 `DATABASE_URL`.
 - **`congress_ro`** (읽기전용) — 향후 **입법전문가 스킬/런타임**이 ad-hoc SQL을 돌릴 때 쓰는 계정. `SELECT` + 함수 `EXECUTE`만 가능, `INSERT/UPDATE/DELETE/DDL`은 거부된다. no-SDK 결정([DECISIONS](DECISIONS.md) 2026-06-10)의 **안전조건 #1** — LLM이 소유자 권한으로 SQL을 돌리다 환각 하나로 데이터를 손상시키는 것을 구조적으로 차단한다. 연결 문자열은 `.env.local`의 `CONGRESS_RO_URL`(gitignore, 평문 커밋 금지).
 
+RLS(Row Level Security)는 이 DB의 소비자 접근 제어로 쓰지 않는다. 국회 사실 데이터는 row별 tenant/사용자 분리가 없고, Neon에서 RLS가 켜진 채 정책이 없으면 `congress_ro`가 모든 테이블을 0행으로 보게 된다. 접근 제어는 `db/roles/congress_ro.sql`의 명시적 GRANT allowlist로 한다.
+
 ## pooled vs direct
 
 Neon은 같은 endpoint에 두 호스트를 준다:

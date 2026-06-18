@@ -1,6 +1,6 @@
 # Information Architecture — Congress-DB
 
-DB의 모든 설계는 "한 자연키 ID로 그 의원/법안/회의의 모든 정보를 SQL JOIN 한 줄로 조회"를 목표로 한다. 향후 검색 API/SDK는 이 쿼리 패턴 위에 얹는다.
+DB의 모든 설계는 "한 자연키 ID로 그 의원/법안/회의의 모든 정보를 SQL JOIN 한 줄로 조회"를 목표로 한다. 향후 스킬, AI agent, 개발자는 이 구조를 introspect하고 read-only SQL로 직접 조회한다.
 
 ## 핵심 엔터티 (Top-level)
 
@@ -104,20 +104,19 @@ SELECT sequence, speaker_name, speaker_title, content,
 FROM utterances u WHERE meeting_id = ? ORDER BY sequence;
 ```
 
-### S4. 본문 키워드 검색 (pg_trgm)
+### S4. 본문 키워드 검색
 
 > "전세사기 관련 발언 / 법안"
 
 ```sql
--- 법안 검색
-SELECT bill_no, bill_name, propose_dt FROM bills
-WHERE bill_name ILIKE '%전세사기%' OR summary ILIKE '%전세사기%'
-ORDER BY propose_dt DESC;
+-- 법안 검색: 직접 trigram/ILIKE를 조립하지 말고 DB 함수 사용
+SELECT bill_id, bill_no, bill_name, propose_dt, snippet, similarity_score
+FROM search_bills('전세사기', 50);
 
--- 발언 검색
-SELECT m.title, m.conf_date, u.speaker_name, u.content
-FROM utterances u JOIN meetings m ON u.meeting_id = m.mnts_id
-WHERE u.content ILIKE '%전세사기%'
+-- 발언 검색 + 회의 메타
+SELECT m.title, m.conf_date, s.sequence, s.speaker_name, s.speaker_title, s.snippet
+FROM search_utterances('전세사기', 50) s
+JOIN meetings m ON m.mnts_id = s.meeting_id
 ORDER BY m.conf_date DESC LIMIT 50;
 ```
 
@@ -184,7 +183,7 @@ ORDER BY m.conf_date DESC, u.meeting_id, u.sequence
 LIMIT 50;
 ```
 
-SDK/API는 `utterances` hit를 반환할 때, 같은 `meeting_id`의 `sequence` 앞뒤 window를 함께 읽어 지역 문맥을 복원한다. 별도 Q&A candidate 레이어는 현재 계획에 넣지 않고, 검색 품질 검증에서 중요한 누락이 반복될 때 재검토한다.
+직접 SQL 소비자는 `utterances` hit를 anchor로 잡고, 같은 `meeting_id`의 `sequence` 앞뒤 window를 함께 읽어 지역 문맥을 복원한다. 별도 Q&A candidate 레이어는 현재 계획에 넣지 않고, 검색 품질 검증에서 중요한 누락이 반복될 때 재검토한다.
 
 ### S7. 정당별/시점별 표결 패턴
 
@@ -217,36 +216,30 @@ ORDER BY b.bill_name;
 의원 이름 텍스트     →     members.mona_cd        →     S1 카드
 법안 키워드        →     bills pg_trgm 검색     →     S2 카드
 회의 ID/제목       →     meetings.mnts_id       →     S3 카드
-키워드 (다목적)     →     bills + utterances pg_trgm 검색 → S4 결과
+키워드 (다목적)     →     search_bills/search_utterances → S4 결과
 위원회 이름        →     meetings.comm_name     →     S5 집계
 화자 직함 패턴      →     utterances.speaker_title + sequence window → S6/S4 결과
 정당 + 날짜        →     votes + members        →     S7 집계
 ```
 
-## 향후 SDK 설계 시 고려사항
+## 직접 SQL 소비자 설계 고려사항
 
-(SDK는 별도 세션이지만, IA는 SDK 설계에 직접 영향)
-
-- **공개 API 형태**: GraphQL이 N:M 그래프 탐색에 자연스러움. RESTful도 가능.
-- **자연키 우선 노출**: `mona_cd`, `bill_id`, `mnts_id`는 외부 API에서도 그대로 노출 (URL-friendly).
-- **JSON 응답 표준**: 자주 쓰는 시나리오(S1~S3)는 "한 호출에 패널 전체"가 자연스러움. nested response.
-- **Rate limit / 캐시**: utterances는 한 회의당 수천 row. 페이지네이션 필수.
-- **검색 결과 highlight**: pg_trgm은 후보 row를 빠르게 좁히고, 앱/API 계층에서 검색어 주변 발췌를 만든다.
+- **자연키 우선:** `mona_cd`, `bill_id`, `bill_no`, `mnts_id`, `utterance_id`, `sequence`를 결과에 보존해야 후속 SQL을 안정적으로 이어갈 수 있다.
+- **큰 결과 제한:** `utterances`는 한 회의당 수천 row일 수 있으므로 `LIMIT`, 날짜/회의/화자 필터, sequence window를 명시한다.
+- **검색 결과 발췌:** `search_bills`/`search_utterances`가 snippet과 similarity를 제공한다. recall 한계는 COMMENT와 CONTEXT의 검색 경고를 따른다.
 - **Utterance-first 검색**: Q&A/토론/안건 문맥은 `utterances` pg_trgm keyword search + `sequence` window로 복원한다.
-- **차원별 facet**: 의원 검색에서 정당·위원회·재선 횟수 등 facet.
+- **차원별 facet**: 의원 검색에서 정당·현직 여부·표결 시점 정당 등은 가능하지만, 위원회 membership은 현재 DB 범위 밖이다.
 - **정책 의제 레이어**: 전세사기·의대정원 같은 정책 주제는 회의 안건이 아니라 향후 `policy_topics` / `topic_mentions` / `member_topic_positions` 같은 evidence-backed 레이어에서 다룬다.
 
 ## 데이터 외 정보(메타) 흐름
 
 ```
-api_catalog ────────→ (사람이 docs/ops/API-CATALOG.md 자동 생성으로 본다)
-                ↑
-       277개 1회성 검증 결과 + 우리가 쓰기로 한 이유 메모
-                ↓
-       파이프라인이 실제 사용하는 API ~10개에 used_in_pipeline=TRUE
+congress_db/core/endpoints.py ────────→ docs/ops/API-CATALOG.md
+                                ↑
+                    파이프라인이 실제 사용하는 endpoint 상수
 ```
 
-운영 모니터링은 카탈로그 매일 검증 스크립트가 아니라, **실제 사용 중인 API와 회의록 웹 목록/HTML viewer 로드 실패 알림**으로 대체한다.
+`api_catalog` 테이블은 삭제됐다. 운영 모니터링은 카탈로그 매일 검증 스크립트가 아니라, **실제 사용 중인 API와 회의록 웹 목록/HTML viewer 로드 실패 알림**으로 대체한다.
 
 ## 수집 운영 흐름
 
@@ -322,7 +315,7 @@ LIMIT 100;
 | 데이터 | 시점성 표현 |
 |---|---|
 | 의원 정당·선거구 | members.poly_nm은 **현재**. 시점은 표결/발언 row의 박힘 필드(`votes.poly_nm_at_vote`)에서 추론 |
-| 의원 위원회 | meetings.comm_name이 회의별 시점 위원회. members.cmits는 현재 |
+| 의원 위원회 | 회의/발언 문맥의 위원회는 meetings.comm_name. 의원별 위원회 membership/history는 현재 DB 범위 밖 |
 | 법안 처리결과 | bills.proc_result는 현재 상태. 매일 업데이트 |
 | 회의록 | meetings.fetched_at 으로 마지막 수집 시각 |
 
