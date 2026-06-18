@@ -4,7 +4,7 @@
 
 ## 조용한 오답을 만드는 함정 Top 8
 
-1. **공포는 `bill_no`로 join** — `bill_final_outcomes`를 `bill_id`로 join하면 0행. 반드시 `o.bill_no = b.bill_no`.
+1. **공포는 `bill_no`로 join** — `bill_final_outcomes`엔 `bill_id` 컬럼이 없어 `bill_id`로 join하면 에러(또는 `bill_no↔bill_id` 혼동 시 조용히 0행). 반드시 `o.bill_no = b.bill_no`.
 
 2. **`prom_law_nm` 단독으로 법제처 매칭 금지** — 66건 NULL + 절반이 공백 제거형이라 exact-match 실패. bridge 키는 **`prom_no`**(공포 100% 채움). 이름 매칭 시 공백 제거 + 중점(`ㆍ`U+318D→`·`U+00B7) 정규화.
 
@@ -23,7 +23,7 @@
 ## 검색의 한계
 
 - `search_bills`/`search_utterances`는 **부분문자열(ILIKE)** 검색입니다 — 질의 문자열이 그대로 박혀야 잡힙니다.
-  - 별칭·동의어 못 잡음: "노란봉투법"→0건(정식명 "노동조합 및 노동관계조정법"). 통칭은 직접 치환·확장하세요.
+  - `search_bills`는 `bill_name`+`summary`, `search_utterances`는 `content`를 검색합니다(반환에 `snippet`·`similarity_score` 포함). 본문에 그대로 없는 별칭·동의어는 못 잡습니다(예: `김영란법`→0건). 단 통칭이 본문에 적혀 있으면 잡힙니다(예: `노란봉투법`→1건, 노조법 summary에 등장). 통칭은 정식명으로 치환·확장하세요.
   - **2글자 이하는 느립니다**(trigram 인덱스 미사용, utterances 138만행에선 수 초). 3글자+ 정식명으로.
   - 광역 토픽은 `limit`을 크게(200+). 결과가 limit과 정확히 같으면 절단됐을 수 있으니 키워 재질의.
 

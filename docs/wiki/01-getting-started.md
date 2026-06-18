@@ -1,6 +1,6 @@
 # 01 — 시작하기: Neon 접속
 
-Congress-DB는 [Neon](https://neon.tech)에 호스팅된 Postgres 16 데이터베이스입니다. 공개 **읽기전용** 계정 `congress_ro`로 누구나 접속할 수 있습니다.
+Congress-DB는 [Neon](https://neon.tech)에 호스팅된 Postgres 17 데이터베이스입니다. 공개 **읽기전용** 계정 `congress_ro`로 누구나 접속할 수 있습니다.
 
 ## 연결 문자열 (공개 read-only)
 
@@ -72,11 +72,11 @@ SELECT count(*) FROM congress.bills;
 ## 권한과 제약
 
 - **읽기전용**: `INSERT/UPDATE/DELETE/DDL`은 `permission denied`로 거부됩니다.
-- **노출 범위**: 소비자용 12개 객체(아래)만 보입니다. 내부 적재/운영 테이블(`ingest_runs` 등)과 raw 테이블은 권한으로 차단됩니다.
+- **노출 범위**: 소비자용 객체(테이블 10 · 뷰 2 · 함수 3, 아래)만 보입니다. 내부 적재/운영 테이블(`ingest_runs` 등)과 raw 테이블은 권한으로 차단됩니다.
 - **쿼리 시간 제한**: 한 쿼리당 `statement_timeout = 60초`. 무거운 쿼리는 잘립니다 — 보통 분석 쿼리는 1초 미만입니다.
 - **pooled 연결**: 짧은 질의 여러 번에 최적화돼 있습니다. psycopg는 `prepare_threshold=None`을 주세요.
 
-## 노출된 객체 (12개)
+## 노출된 객체 (테이블 10 · 뷰 2 · 함수 3)
 
 **테이블 (10)**: `bills` · `members` · `committees` · `bill_lead_proposers` · `bill_coproposers` · `votes` · `meetings` · `utterances` · `meeting_bills` · `bill_final_outcomes`
 

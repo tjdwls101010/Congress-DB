@@ -21,7 +21,7 @@ LEFT JOIN bill_final_outcomes o ON o.bill_no = b.bill_no;   -- ★ 공포는 bil
 ```sql
 SELECT bill_no, bill_name, propose_dt FROM search_bills('전세사기', 50);
 ```
-- 부분문자열(ILIKE) 검색입니다. 별칭·동의어는 못 잡으니(예: "노란봉투법"→0건) 정식명으로 치환해 재질의하세요.
+- `bill_name`+`summary`를 부분문자열(ILIKE)로 검색하고, 반환 컬럼은 6개입니다(`bill_id, bill_no, bill_name, propose_dt, snippet, similarity_score`). 질의 문자열이 **본문에 그대로 박혀야** 잡힙니다 — 본문에 없는 별칭은 못 잡습니다(예: `김영란법`→0건). 단 통칭이 summary에 적혀 있으면 잡힙니다(예: `노란봉투법`→1건, 노조법 summary에 등장). 통칭은 정식명으로 치환해 재질의하세요.
 - ⚠️ **2글자 이하 질의는 느립니다**(trigram 인덱스 미사용 → 최대 수 초). 3글자 이상 정식명으로 확장하세요(예: 연금→연금법).
 
 ## 3. 의제 추적 — 경쟁 법안의 통합 → 처리 (대표 사례)
