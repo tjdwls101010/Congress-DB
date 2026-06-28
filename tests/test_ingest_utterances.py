@@ -357,3 +357,40 @@ def test_scrape_benchmark_stops_after_higher_worker_retry_storm(
     assert measured_workers == [2, 5]
     assert [run.worker_count for run in result.runs] == [2, 5]
     assert result.selected_worker_count == 2
+
+
+def test_ingest_utterances_keeps_existing_when_rescrape_collapses(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """재스크랩 결과가 기존 발언 수보다 급감하면(열화 스크래핑) 교체하지 않고 보존한다."""
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.executemany(
+            "INSERT INTO utterances (meeting_id, sequence, speaker_name, speaker_title, "
+            "speaker_role, content) VALUES (920101, %s, '기존화자', '위원', '기타', '기존 발언')",
+            [(i,) for i in range(1, 121)],
+        )
+        conn.commit()
+
+    def fake_get(url: str, **kwargs: Any) -> MagicMock:
+        mnts_id = int(kwargs["params"]["id"])
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.apparent_encoding = "utf-8"
+        response.text = _html(mnts_id)  # 920101 -> 발언 2개
+        return response
+
+    monkeypatch.setattr("congress_db.ingest.scrape_minutes.requests.get", fake_get)
+
+    result = ingest_utterances(
+        calibration_limit=1,
+        benchmark_sample_size=1,
+        meeting_ids=(920101,),
+        worker_levels=(1,),
+        benchmark_output_path=tmp_path / "PARALLEL-BENCHMARK.md",
+    )
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM utterances WHERE meeting_id = 920101")
+        remaining = cur.fetchone()[0]
+    assert remaining == 120, f"degraded re-scrape replaced existing utterances: {remaining}"
+    assert 920101 in result.degraded_rescrape_meeting_ids

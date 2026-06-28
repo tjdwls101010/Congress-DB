@@ -365,9 +365,10 @@ def test_prune_stale_meetings_removes_non_web_meeting_state() -> None:
         assert cur.fetchone()[0] == 0
 
 
-def test_full_meeting_bills_reconciliation_replaces_stale_links(
+def test_full_meeting_bills_reconciliation_adds_links_without_removing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """추가 전용 정책: 재조정은 새 링크를 더할 뿐 기존 회의-법안 링크를 지우지 않는다."""
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
             """
@@ -438,7 +439,8 @@ def test_full_meeting_bills_reconciliation_replaces_stale_links(
         meeting_bill_ids = [row[0] for row in cur.fetchall()]
 
     assert result.vconfbill_target_bill_count == 1
-    assert meeting_bill_ids == ["TEST_MEETING_BILL_1"]
+    # 기존 링크(TEST_MEETING_BILL_2)는 보존되고 새 링크(TEST_MEETING_BILL_1)가 더해진다.
+    assert meeting_bill_ids == ["TEST_MEETING_BILL_1", "TEST_MEETING_BILL_2"]
 
 
 def test_select_vconfbill_bill_ids_keeps_missing_and_touched_bills() -> None:
@@ -623,3 +625,33 @@ def _insert_stale_meeting_state() -> None:
             (run_id, str(TEST_STALE_MEETING)),
         )
         conn.commit()
+
+
+def test_prune_skips_bulk_deletion_from_incomplete_crawl() -> None:
+    """부분/빈 크롤로 정상 회의가 대량 누락되면 prune을 건너뛰고 보존한다(삭제 상한 가드)."""
+    from congress_db.ingest.ingest_meetings import _prune_stale_meetings
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM meetings WHERE mnts_id BETWEEN 930000 AND 930200")
+        cur.execute(
+            """
+            INSERT INTO meetings (mnts_id, title, meeting_type, conf_date)
+            SELECT g, '대량회의 ' || g, '상임위', DATE '2026-05-01'
+            FROM generate_series(930001, 930110) g
+            """
+        )
+        conn.commit()
+    try:
+        # canonical = 처음 100개만 (부분 크롤: 10개+@ 누락 > 상한)
+        canonical = set(range(930001, 930101))
+        with get_conn() as conn:
+            stale = _prune_stale_meetings(conn, canonical)
+            conn.commit()
+        assert stale == (), f"bulk prune not skipped: {len(stale)} deleted"
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM meetings WHERE mnts_id BETWEEN 930001 AND 930110")
+            assert cur.fetchone()[0] == 110
+    finally:
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM meetings WHERE mnts_id BETWEEN 930000 AND 930200")
+            conn.commit()

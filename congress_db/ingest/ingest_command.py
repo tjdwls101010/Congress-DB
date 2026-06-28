@@ -415,7 +415,20 @@ def build_incremental_stages(
             )
             for failure in result.scrape_failures
         )
-        return _stage_from_result(result, exclude=("scrape_failures",), dead_letters=failures)
+        # floor 가드로 교체 보류한 회의는 기존 발언을 보존했음을 dead-letter로 남겨 검토 가능케 한다.
+        degraded = tuple(
+            DeadLetterDraft(
+                source="minutes.html",
+                stage="rescrape_floor",
+                item_key=str(mnts_id),
+                payload={"mnts_id": mnts_id},
+                error="degraded re-scrape skipped (kept existing utterances)",
+            )
+            for mnts_id in result.degraded_rescrape_meeting_ids
+        )
+        return _stage_from_result(
+            result, exclude=("scrape_failures",), dead_letters=failures + degraded
+        )
 
     return (
         BackfillStage("retry_dead_letters", _run_dead_letter_retry),

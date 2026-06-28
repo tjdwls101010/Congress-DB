@@ -83,6 +83,7 @@ def test_incremental_stages_scope_utterances_to_touched_meetings(
             member_mapped_count=5,
             sample_errors=(),
             scrape_failures=(),
+            degraded_rescrape_meeting_ids=(),
         )
 
     monkeypatch.setattr(ingest_command, "ingest_utterances", fake_utterances)
@@ -160,6 +161,7 @@ def test_incremental_stages_cap_explicit_worker_counts(
             member_mapped_count=5,
             sample_errors=(),
             scrape_failures=(),
+            degraded_rescrape_meeting_ids=(),
         ),
     )
     monkeypatch.setattr(ingest_command, "run_sanity_check", lambda: {"stage": "sanity"})

@@ -3,6 +3,23 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-06-28 — 무손상 증분 수집: 엔진 비파괴 수정 5종 + 백업-브랜치 안전망(make safe-update)
+
+PM이 "앞으로 종종 수동으로 Neon을 업데이트할 텐데 **어떤 상황에서도 기존 데이터를 손상하지 않고** 추가만 잘 되도록 dynamic-workflow로 확실히 검증해 달라"고 요청. Neon 브랜치(main의 copy-on-write 격리 사본)에서 실제 증분 수집을 돌리고, 다차원 정적 감사(23 에이전트)+적대적 반증+실증을 결합한 결과 **정상 소스 실행에서도 기존 데이터를 조용히 깎는 경로 3종이 실재**함을 라이브로 재현했다(구버전 코드 1회 실행: `bills.cmt_proc_*` 60건 NULL화, 부록 회의 발언 재스크랩 급감 2113→258 등, 주간 재조정의 meeting_bills 358건 제거). 트랜잭션 원자성·votes append·members 로스터·미변경 회의 발언은 안전 확인.
+
+**결정 — 2겹 방어로 "어떤 상황에서도 무손상" 보장:**
+
+**(1) 수집 엔진 자체를 비파괴로 수정(TDD, `congress_db/ingest/`):**
+- **bills upsert COALESCE** — 누적 필드(`cmt_proc_dt/result`·`proc_result/dt`·`law_proc_dt`·`committee_dt`·`committee_id`·`propose_dt`·`proposer_raw`)를 `COALESCE(EXCLUDED.x, bills.x)`로 보존(기존엔 summary만 보호). 목록 API가 빈 값을 줘도 채워진 값을 NULL로 덮지 않는다(votes 경로의 기존 COALESCE 패턴을 일치시킴).
+- **발의자 DELETE scope 한정** — 대표/공동발의자 delete-재삽입 범위를 "이번 응답이 실제로 발의자 코드를 실어 온 법안"으로만 한정(기존: 전체 fetched bills). 빈 `RST_MONA_CD` 한 건이 발의자를 전멸시키지 못한다.
+- **meeting_bills 추가 전용** — `_replace_meeting_bills_for_meetings` DELETE 제거, ON CONFLICT DO NOTHING 추가만. PM 결정(과거 '안건 상정' 링크는 역사적 사실이라 보존; 소스가 줄어도 안 지움). 주간 재조정은 새 링크를 더할 뿐. `_meeting_bill_replace_scope`·`_replace_meeting_bills_for_meetings` 제거.
+- **utterances 재스크랩 floor 가드** — 재스크랩 결과가 기존의 `RESCRAPE_FLOOR_RATIO`(0.5) 미만이면(열화 스크래핑 의심, 기존≥20행) 교체 보류·기존 보존·dead-letter 기록. 0건은 기존 가드가 막지만 부분 파싱(부록 급감)은 이 가드가 막는다.
+- **회의 prune 삭제 상한** — 한 run 삭제 후보가 `max(5, existing//100)` 초과면(부분/빈/일시실패 크롤이 정상 회의를 대량 누락시키는 신호) prune 자체를 건너뜀(80% floor를 대체). 정상 소수 제거는 통과.
+
+**(2) 운영 안전망 `make safe-update`(`congress_db/ops/safe_update.py`):** ① main을 백업 브랜치로 즉시 스냅샷(복원 시 endpoint host 불변→공개 연결문자열 안깨짐, 라이브 검증) → ② 수집 전 read-only fingerprint → ③ 증분 수집 → ④ 수집 후 diff(기존 PK 삭제·append 감소·non-null→null·자식 전멸·회의 발언 전멸) → ⑤ 손상 감지 시 **main을 백업으로 자동 복원**(손상 미잔존, 그 run 추가만 보류), 무손상 시 백업 삭제. 엔진 수정이 1차 방어, 이 탐지+복원이 우회 경로까지 막는 2차 보험. `NEON_API_KEY`·`CONGRESS_MAIN_URL`은 `.env.local`(git 제외)에 저장. 런북: `docs/design/SAFE-UPDATE-RUNBOOK.md`.
+
+**검증:** 222 passed(신규 TDD: bills 보존/발의자 보존·meeting_bills 추가전용·utterance floor·prune cap·safe_update diff). 수정 엔진을 fresh Neon 브랜치에 재실행한 실증 결과는 PR 본문 참조. **교훈:** 성숙한 수집 파이프라인의 "조용한 손상"은 코드 읽기로 안 보이고, main 격리 사본(Neon 브랜치)에 실제로 돌려 before/after를 anti-join해야 드러난다. delete-재삽입의 위험은 항상 "DELETE 범위와 재삽입 가능분의 비상관"에 있다.
+
 ## 2026-06-18 — 외부 공개 읽기: congress_ro 연결문자열 공개 채택 + Data API 락다운 + RLS 재활성화 함정 수정
 
 PM이 "쓰기는 나만, 읽기는 누구나"로 DB를 외부 공개하기로 결정. 세 가지를 처리했다.

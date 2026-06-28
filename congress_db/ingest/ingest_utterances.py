@@ -49,6 +49,7 @@ class IngestUtterancesResult:
     member_mapped_count: int
     sample_errors: tuple[str, ...]
     scrape_failures: tuple["ScrapeFailure", ...]
+    degraded_rescrape_meeting_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -162,25 +163,34 @@ def ingest_utterances(
     scraped_meeting_ids = sorted(scraped)
 
     with get_conn() as conn:
-        _replace_utterances_for_meetings(conn, scraped_meeting_ids)
-        upserted_utterances = execute_many(conn, _UPSERT_UTTERANCES_SQL, utterance_rows)
+        # 발언 무손상 floor 가드: 재스크랩 결과가 기존 발언 수보다 급감하면(열화 스크래핑
+        # 의심) 그 회의는 교체하지 않고 기존 발언을 보존한다. 0건은 _scrape_one이 막지만,
+        # 부분 파싱(예: 부록 2113→258)은 0건이 아니라 여기서 막는다. 보류분은 dead-letter로 검토.
+        existing_counts = _existing_utterance_counts(conn, scraped_meeting_ids)
+        degraded_meeting_ids = _degraded_rescrape_meetings(scraped, existing_counts)
+        safe_meeting_ids = [m for m in scraped_meeting_ids if m not in degraded_meeting_ids]
+        safe_rows = [r for r in utterance_rows if r["meeting_id"] not in degraded_meeting_ids]
+        _replace_utterances_for_meetings(conn, safe_meeting_ids)
+        upserted_utterances = execute_many(conn, _UPSERT_UTTERANCES_SQL, safe_rows)
         conn.commit()
+    scraped_meeting_ids = safe_meeting_ids
 
     result = IngestUtterancesResult(
         meeting_count=len(target_meeting_ids),
-        scraped_meeting_count=len(scraped),
-        scraped_meeting_ids=tuple(scraped_meeting_ids),
+        scraped_meeting_count=len(safe_meeting_ids),
+        scraped_meeting_ids=tuple(safe_meeting_ids),
         utterance_count=upserted_utterances,
         selected_worker_count=selected_worker_count,
         retry_count=retry_count,
         retried_meeting_count=len(retried_meeting_ids),
         scrape_error_count=len(errors),
-        member_mapped_count=sum(1 for row in utterance_rows if row["speaker_mona_cd"]),
+        member_mapped_count=sum(1 for row in safe_rows if row["speaker_mona_cd"]),
         sample_errors=tuple(
             f"{error.mnts_id}: attempts={error.attempts} {error.error}"
             for error in errors[:5]
         ),
         scrape_failures=tuple(errors),
+        degraded_rescrape_meeting_ids=tuple(sorted(degraded_meeting_ids)),
     )
     if errors and not allow_partial:
         sample = "; ".join(
@@ -547,6 +557,35 @@ def _replace_utterances_for_meetings(conn: object, meeting_ids: list[int]) -> No
         return
     with conn.cursor() as cur:
         cur.execute("DELETE FROM utterances WHERE meeting_id = ANY(%s)", (meeting_ids,))
+
+
+# 재스크랩이 기존의 이 비율 미만으로 줄면 열화 스크래핑으로 보고 교체를 보류한다.
+RESCRAPE_FLOOR_RATIO = 0.5
+# 기존 발언이 이 수 미만인 작은 회의는 정상 변동 폭이 커서 floor 가드를 적용하지 않는다.
+RESCRAPE_FLOOR_MIN_EXISTING = 20
+
+
+def _existing_utterance_counts(conn: object, meeting_ids: list[int]) -> dict[int, int]:
+    if not meeting_ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT meeting_id, count(*) FROM utterances WHERE meeting_id = ANY(%s) GROUP BY meeting_id",
+            (list(meeting_ids),),
+        )
+        return {row[0]: row[1] for row in cur.fetchall()}
+
+
+def _degraded_rescrape_meetings(
+    scraped: dict[int, list[Any]], existing_counts: dict[int, int]
+) -> set[int]:
+    """재스크랩이 기존 대비 급감한(열화 의심) 회의 집합. 이들은 교체하지 않고 보존한다."""
+    degraded: set[int] = set()
+    for meeting_id, utterances in scraped.items():
+        existing = existing_counts.get(meeting_id, 0)
+        if existing >= RESCRAPE_FLOOR_MIN_EXISTING and len(utterances) < RESCRAPE_FLOOR_RATIO * existing:
+            degraded.add(meeting_id)
+    return degraded
 
 
 def _write_scrape_benchmark(result: BenchmarkResult, output_path: Path) -> None:

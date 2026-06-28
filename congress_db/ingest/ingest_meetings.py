@@ -149,12 +149,6 @@ def ingest_meetings(
     web_meeting_ids = set(meeting_rows)
     agenda_drafts = [row for row in agenda_drafts if row["meeting_id"] in web_meeting_ids]
     new_meeting_ids, changed_meeting_ids = _reconcile_meeting_rows(meeting_rows)
-    meeting_bill_replace_scope_ids = _meeting_bill_replace_scope(
-        calibration_limit=calibration_limit,
-        fetch_mode=vconfbill_fetch_mode,
-        web_meeting_ids=web_meeting_ids,
-        agenda_drafts=agenda_drafts,
-    )
     agenda_rows = _attach_agenda_bill_ids(agenda_drafts)
     vconfbill_bill_ids, skipped_vconfbill_bill_ids = _select_vconfbill_bill_ids(
         agenda_rows,
@@ -184,7 +178,10 @@ def ingest_meetings(
             else ()
         )
         upserted_meetings = execute_many(conn, _UPSERT_MEETINGS_SQL, meeting_rows.values())
-        _replace_meeting_bills_for_meetings(conn, sorted(meeting_bill_replace_scope_ids))
+        # meeting_bills 무손상: 추가 전용(ON CONFLICT DO NOTHING). 한 번 기록된
+        # 회의-법안 링크("이 회의에서 이 법안이 안건으로 다뤄짐")는 과거 사실이므로
+        # 지우지 않는다. 주간 재조정은 새로 나타난 링크를 더할 뿐 기존을 제거하지 않는다.
+        # (이전의 DELETE-재삽입 replace는 소스 목록이 줄면 과거 안건 기록을 소실시켰다.)
         inserted_meeting_bills = execute_many(conn, _INSERT_MEETING_BILLS_SQL, meeting_bill_rows)
         conn.commit()
 
@@ -575,22 +572,6 @@ def _meeting_bill_pairs_from_agenda(rows: list[dict[str, Any]]) -> set[tuple[int
     }
 
 
-def _meeting_bill_replace_scope(
-    *,
-    calibration_limit: int | None,
-    fetch_mode: VconfBillFetchMode,
-    web_meeting_ids: set[int],
-    agenda_drafts: list[dict[str, Any]],
-) -> set[int]:
-    if fetch_mode == "missing":
-        return set()
-    if fetch_mode != "all":
-        raise ValueError("vconfbill_fetch_mode must be one of: all, missing")
-    if calibration_limit is None:
-        return set(web_meeting_ids)
-    return {row["meeting_id"] for row in agenda_drafts}
-
-
 def _select_vconfbill_bill_ids(
     agenda_rows: list[dict[str, Any]],
     *,
@@ -853,13 +834,6 @@ def _merge_meeting_bill_pairs(
     return rows
 
 
-def _replace_meeting_bills_for_meetings(conn: Any, meeting_ids: list[int]) -> None:
-    if not meeting_ids:
-        return
-    with conn.cursor() as cur:
-        cur.execute("DELETE FROM meeting_bills WHERE meeting_id = ANY(%s)", (meeting_ids,))
-
-
 def _prune_stale_meetings(conn: Any, canonical_meeting_ids: set[int]) -> tuple[int, ...]:
     if not canonical_meeting_ids:
         raise RuntimeError("refusing to prune stale meetings without canonical web meeting ids")
@@ -868,11 +842,6 @@ def _prune_stale_meetings(conn: Any, canonical_meeting_ids: set[int]) -> tuple[i
     with conn.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM meetings")
         existing_count = cur.fetchone()[0]
-        if existing_count >= 100 and len(canonical_ids) < existing_count * 0.8:
-            raise RuntimeError(
-                "refusing to prune stale meetings because the canonical web list is "
-                f"unexpectedly small: existing={existing_count} canonical={len(canonical_ids)}"
-            )
 
         cur.execute(
             """
@@ -885,6 +854,22 @@ def _prune_stale_meetings(conn: Any, canonical_meeting_ids: set[int]) -> tuple[i
         )
         stale_ids = tuple(row[0] for row in cur.fetchall())
         if not stale_ids:
+            return ()
+
+        # 회의 무손상 — 삭제 건수 상한 가드:
+        # 정상 웹 크롤은 사라진 회의가 거의 없다(0~소수). 부분/빈/일시실패 크롤은(HTTP 200이라도
+        # DOM 행 누락·한 회의종류 탭 통째 0건) 정상 회의를 대량으로 canonical에서 빠뜨려 대량
+        # prune을 유발한다. 한 run의 삭제 후보가 상한을 넘으면 크롤 불완전 신호로 보고 이번 run은
+        # prune 자체를 건너뛴다(데이터 보존 우선; 진짜 사라진 회의면 다음 정상 run에서 처리).
+        prune_cap = max(5, existing_count // 100)
+        if existing_count >= 100 and len(stale_ids) > prune_cap:
+            safe_print(
+                "[ingest-meetings] stale-meeting prune SKIPPED: "
+                f"{len(stale_ids)} prune candidates exceed cap {prune_cap} "
+                f"(existing={existing_count}, canonical={len(canonical_ids)}) "
+                "— likely an incomplete web crawl; preserving existing meetings.",
+                flush=True,
+            )
             return ()
 
         stale_id_list = list(stale_ids)

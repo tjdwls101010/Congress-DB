@@ -151,15 +151,15 @@ _UPSERT_BILLS_SQL = """
     ON CONFLICT (bill_id) DO UPDATE SET
         bill_no            = EXCLUDED.bill_no,
         bill_name          = EXCLUDED.bill_name,
-        propose_dt         = EXCLUDED.propose_dt,
-        proposer_raw       = EXCLUDED.proposer_raw,
-        committee_id       = EXCLUDED.committee_id,
-        proc_result        = EXCLUDED.proc_result,
-        proc_dt            = EXCLUDED.proc_dt,
-        law_proc_dt        = EXCLUDED.law_proc_dt,
-        committee_dt       = EXCLUDED.committee_dt,
-        cmt_proc_dt        = EXCLUDED.cmt_proc_dt,
-        cmt_proc_result    = EXCLUDED.cmt_proc_result,
+        propose_dt         = COALESCE(EXCLUDED.propose_dt, bills.propose_dt),
+        proposer_raw       = COALESCE(EXCLUDED.proposer_raw, bills.proposer_raw),
+        committee_id       = COALESCE(EXCLUDED.committee_id, bills.committee_id),
+        proc_result        = COALESCE(EXCLUDED.proc_result, bills.proc_result),
+        proc_dt            = COALESCE(EXCLUDED.proc_dt, bills.proc_dt),
+        law_proc_dt        = COALESCE(EXCLUDED.law_proc_dt, bills.law_proc_dt),
+        committee_dt       = COALESCE(EXCLUDED.committee_dt, bills.committee_dt),
+        cmt_proc_dt        = COALESCE(EXCLUDED.cmt_proc_dt, bills.cmt_proc_dt),
+        cmt_proc_result    = COALESCE(EXCLUDED.cmt_proc_result, bills.cmt_proc_result),
         summary            = COALESCE(EXCLUDED.summary, bills.summary),
         fetched_at         = now()
 """
@@ -237,20 +237,25 @@ def ingest_bills(
     lead_proposer_rows = _normalize_lead_proposer_rows(bill_list.rows)
     coproposer_rows = _normalize_coproposer_rows(bill_list.rows)
     member_refs = _normalize_member_refs(bill_list.rows)
-    bill_ids = [row["bill_id"] for row in bill_rows]
+    # 발의자 무손상: 대표/공동발의자 DELETE-재삽입 범위를 "이번 응답이 실제로
+    # 발의자 코드를 실어 온 법안"으로만 한정한다. 목록 API가 어떤 법안의
+    # RST/PUBL_MONA_CD를 빈값으로 돌려줘도(부분/열화 응답) 그 법안의 기존 발의자를
+    # 지우지 않는다 — 전체 bill_ids로 지우면 빈 응답 한 건이 발의자를 전멸시킨다.
+    lead_proposer_bill_ids = sorted({row["bill_id"] for row in lead_proposer_rows})
+    coproposer_bill_ids = sorted({row["bill_id"] for row in coproposer_rows})
 
     with get_conn() as conn:
         ensured_member_refs = execute_many(conn, _INSERT_MEMBER_STUBS_SQL, member_refs)
         ensure_committee_refs(conn, committee_rows)
         _validate_member_refs(conn, bill_rows, lead_proposer_rows, coproposer_rows)
         upserted_bills = execute_many(conn, _UPSERT_BILLS_SQL, bill_rows)
-        _replace_lead_proposers_for_bills(conn, bill_ids)
+        _replace_lead_proposers_for_bills(conn, lead_proposer_bill_ids)
         upserted_lead_proposers = execute_many(
             conn,
             _INSERT_LEAD_PROPOSERS_SQL,
             lead_proposer_rows,
         )
-        _replace_coproposers_for_bills(conn, bill_ids)
+        _replace_coproposers_for_bills(conn, coproposer_bill_ids)
         upserted_coproposers = execute_many(conn, _INSERT_COPROPOSERS_SQL, coproposer_rows)
         conn.commit()
 

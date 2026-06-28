@@ -1,4 +1,4 @@
-.PHONY: db-up db-down db-migrate db-shell db-reset test ingest \
+.PHONY: db-up db-down db-migrate db-shell db-reset test ingest safe-update \
         render-catalog ingest-members ingest-bills \
         ingest-bill-relations ingest-bill-summaries ingest-votes ingest-meetings validate-minutes-dom ingest-utterances \
         backfill-speaker-roles backfill-bill-source-aliases backfill-bill-final-outcomes ingest-backfill sanity-check data-completeness migration-readiness regression-pack
@@ -54,6 +54,11 @@ test:
 # 공식 단일 수집 명령 (auto: 첫 baseline 전에는 backfill, 이후에는 incremental)
 ingest:
 	uv run python -m scripts.ingest
+
+# 안전 Neon 업데이트: 백업 브랜치 → 증분 수집 → 무손상 검증 → 손상 시 자동 복원
+# (CONGRESS_MAIN_URL·NEON_API_KEY 는 .env.local 에서 읽는다)
+safe-update:
+	uv run python -m scripts.safe_update
 
 # docs/ops/API-CATALOG.md 자동 생성
 render-catalog:
