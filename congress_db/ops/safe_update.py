@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import psycopg
+from dotenv import load_dotenv
 
 from ..core.progress import safe_print
 
@@ -221,6 +222,10 @@ def run_safe_update(
     keep_backup: bool = False,
     now: datetime | None = None,
 ) -> SafeUpdateResult:
+    # CONGRESS_MAIN_URL·NEON_API_KEY 는 .env.local 에 있다(Makefile은 .env만 로드).
+    # 명시 경로로 로드(repo root 기준; find_dotenv 스택 워크 회피).
+    load_dotenv(".env", override=False)
+    load_dotenv(".env.local", override=False)
     main_url = main_url or os.environ.get("CONGRESS_MAIN_URL") or os.environ["DATABASE_URL"]
     neon_key = neon_key or os.environ.get("NEON_API_KEY")
     if project is None and Path(".neon").exists():
