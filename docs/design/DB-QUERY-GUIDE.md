@@ -168,7 +168,18 @@ ORDER BY bill_count DESC, b.proc_result;
 ```
 
 ### Q6. 표결 결과와 정당별 표결
-`votes`는 본회의 표결만 담고, row grain은 `bill_id × mona_cd`다. `count(*)`는 표결 event 수가 아니라 의원-표 수다.
+`votes`는 본회의 표결만 담고, row grain은 `bill_id × mona_cd`다. `count(*)`는 표결 event 수가 아니라 의원-표 수다. **두 함정:** (1) `불참`은 빠진 행이 아니라 *저장된 값*이고 전체의 약 1/4라, 출석률·찬성률의 분모는 `count(*) FILTER (WHERE result_vote_mod <> '불참')`(출석)로 잡는다 — 전체로 나누면 수 %p 조용히 낮다. (2) 표결의 한국 날짜·`bills.proc_dt`/`plenary_dt`(DATE)와의 같은-날 매칭은 생성컬럼 `vote_date_kst`를 쓴다 — `vote_date::date`는 GMT 세션이라 늦은 UTC 표결을 하루 어긋나게 뽑고, `vote_date`(TIMESTAMPTZ)를 DATE와 직접 등치 비교하면 조용히 0행이다.
+
+```sql
+-- 한 법안의 출석 기준 찬성률(불참 제외 분모)
+SELECT
+    count(*) FILTER (WHERE result_vote_mod = '찬성')                  AS 찬성,
+    count(*) FILTER (WHERE result_vote_mod <> '불참')                 AS 출석,
+    round(100.0 * count(*) FILTER (WHERE result_vote_mod = '찬성')
+                 / nullif(count(*) FILTER (WHERE result_vote_mod <> '불참'), 0), 1) AS 출석대비_찬성률
+FROM votes
+WHERE bill_id = (SELECT bill_id FROM bills WHERE bill_no = '2218526');
+```
 
 ```sql
 -- 한 법안의 표결 집계

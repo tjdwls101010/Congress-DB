@@ -138,8 +138,9 @@ OpenAPI가 복수 대표발의자를 줄 수 있어 정규화한다.
 |---|---|---|
 | `bill_id` | TEXT REFERENCES bills(bill_id) NOT NULL | **PK 일부** |
 | `mona_cd` | TEXT REFERENCES members(mona_cd) NOT NULL | **PK 일부** |
-| `vote_date` | TIMESTAMPTZ NOT NULL | 표결 시각 |
-| `result_vote_mod` | TEXT NOT NULL | 찬성/반대/기권/불참 |
+| `vote_date` | TIMESTAMPTZ NOT NULL | 표결 시각(GMT 세션 — 일 단위 비교엔 `vote_date_kst` 사용) |
+| `vote_date_kst` | DATE GENERATED ALWAYS … STORED | 한국(KST) 달력일(`migrations/032`). 일 단위 비교·DATE 컬럼 조인용 |
+| `result_vote_mod` | TEXT NOT NULL | 찬성/반대/기권/불참 — **불참은 저장값 약 1/4**(빠진 행 아님; 출석 분모는 불참 제외) |
 | `poly_nm_at_vote` | TEXT | 표결 시점 정당 |
 
 > **회의·발언 도메인(`meetings`·`meeting_bills`·`utterances`)은 2026-06-28 `migrations/031_drop_meeting_minutes.sql`에서 제거됐다.** 이 ERD에는 더 이상 포함하지 않는다.

@@ -71,6 +71,8 @@ EXPECTED_VOTE_COLUMNS = frozenset(
         "bill_id",
         "mona_cd",
         "vote_date",
+        # 032: 한국(KST) 달력일 생성컬럼 — vote_date::date의 GMT-세션 하루-어긋남 함정 교정.
+        "vote_date_kst",
         "result_vote_mod",
         "poly_nm_at_vote",
     }

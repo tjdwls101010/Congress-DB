@@ -3,6 +3,12 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-06-28 — 직접-SQL 소비자 함정 감사: COMMENT 교정 + vote_date_kst 생성컬럼 (migration 032)
+
+이 DB를 직접 SQL로 쓰는 입법전문가 harness(LLM) 관점에서 "에러 없이 조용히 틀리는 함정"을 5렌즈 dynamic-workflow로 라이브 실증 감사했다(join-key·NULL/상태·이름/타입·검색·소비자 가시성; 27건 중 19건 재현 확인). **적대적 검증의 결론:** 함정을 파생 뷰·생성 boolean·CHECK·alias 테이블로 "구조적 제거"하려는 제안 대부분은 *문서화된 함정 > drift 위험 있는 파생물*이라 기각됐다 — 특히 상태분류 뷰는 authored 라벨을 LLM이 *추론을 멈추고 맹신*하게 만들어, 라벨 하나가 틀리면 NULL보다 위험한 조용한 확신이 된다. 즉 현 COMMENT 중심(자기문서화) 설계가 대체로 정당함을 확인했다.
+
+**결정 — A안(문서·교정 중심) + 안전한 생성컬럼 1개.** (1) 라이브에서 재현된 함정을 COMMENT 교정/강화로 막는다: `votes.result_vote_mod` 불참은 *빠진 행이 아니라 저장된 값 약 1/4*(출석 분모는 `FILTER (WHERE result_vote_mod <> '불참')`, 안 그러면 찬성률이 수 %p 조용히 낮음); "가결-미공포"의 약 2/3는 비-법률 의안(결의안·감사요구안 등)이라 계류/거부권 과대(법률안 `bill_name ~ '법(률)?안'`으로 좁힐 것); `proc_result` NULL=미처리(votes 0행으로 교차확인); 검색의 가운뎃점(·U+00B7/ㆍU+318D)·정식명 정밀도·summary-only 절단 경고를 함수 COMMENT에 추가; 031로 사라진 객체를 가리키던 stale COMMENT 2건(`search_utterances`·`meetings.comm_name`)과 소비자 비노출(ETL) 테이블(`bill_relations`·`bill_source_aliases`)의 유혹성 COMMENT 교정. 휘발성 절대수치(가결 1,593→1,625 등)는 상대표현+"count로 재산출"로(quote 시 '확인된 거짓' 방지). (2) 유일한 구조 변경 — `votes.vote_date_kst`(한국 달력일) 생성컬럼: 서버 세션이 GMT라 `vote_date::date`가 늦은 UTC 표결 5,058행을 하루 어긋나게 뽑고 DATE 컬럼과 직접 등치 조인이 조용히 0행이 되는 문제를, 고정 +9h 오프셋(`AT TIME ZONE INTERVAL '9 hours'`, IMMUTABLE이라 PG16/17 생성컬럼 허용)으로 환산한 STORED 컬럼이 막는다(엔진 계산이라 base와 drift 불가; `Asia/Seoul`과 라이브 전 구간 불일치 0). 기존 votes GRANT가 자동 포함, 적재 INSERT는 명시적 컬럼 목록이라 무영향. base 스키마·과거 마이그레이션은 보존하고 032를 델타로(멱등). **교훈:** 읽기전용 감사 에이전트는 DDL을 실제 실행해 보지 못하므로 `'Asia/Seoul'` 생성컬럼이 STABLE이라 거부될 수 있음을 못 잡는다 — owner 권한 TEMP 테이블로 표현식 수용 여부를 먼저 검증하고 이식성 있는 불변식을 택했다.
+
 ## 2026-06-28 — 회의록(회의·발언) 도메인 전면 제거 (migration 031)
 
 이 DB를 직접 쓰는 입법전문가 harness 소비 관점에서 회의록의 가치를 재검토했다. **사실:** `utterances`(발언 본문)는 라이브 main 1,780MB로 논리 데이터(2,122MB)의 **~84%**(138만 행)를 차지하는데, 정작 "논의 진척/처리상태"는 회의록이 아니라 구조화 테이블(`bills.proc_result`·`bill_lineage`·`bill_final_outcomes`)이 답하고, 발언↔법안 직접 귀속은 회의 fanout(회의당 평균 32 법안)으로 신뢰도가 낮다. 즉 회의록을 빼도 *진척 추적 능력은 손실이 없다* — 회의록이 websearch로 대체 불가능한 유일한 지점은 "누가 무엇을 발언했나"(정부·참고인 발언 등 심층 토론)뿐이고, 그 심층 분석은 websearch로 넘긴다.

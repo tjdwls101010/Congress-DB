@@ -165,6 +165,8 @@ CREATE TABLE IF NOT EXISTS votes (
 CREATE INDEX IF NOT EXISTS idx_votes_mona ON votes (mona_cd);
 CREATE INDEX IF NOT EXISTS idx_votes_bill ON votes (bill_id);
 CREATE INDEX IF NOT EXISTS idx_votes_date ON votes (vote_date DESC);
+-- migrations/032_*: 생성컬럼 vote_date_kst(한국 KST 달력일, 고정 +9h STORED)가 추가된다 —
+--   vote_date::date는 GMT 세션이라 일 단위 비교가 어긋나고 DATE 컬럼과 직접 등치 조인이 0행이 되는 함정 교정.
 
 -- =========================================================================
 -- 9. utterances — 발언 (FK → meetings, members)
