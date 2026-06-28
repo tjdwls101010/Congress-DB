@@ -35,7 +35,12 @@ permissions:
 
 jobs:
   safe-update:
-    runs-on: ubuntu-latest
+    # ⚠ 국회 OpenAPI(open.assembly.go.kr)는 해외 클라우드 IP를 차단한다 — GitHub-호스트 러너
+    #   (ubuntu-latest, Azure 미국/유럽)는 ConnectTimeout으로 닿지 못한다(2026-06-28 3회 실측 확인).
+    #   그래서 한국에서 닿는 self-hosted 러너에서 실행한다(레포 Settings → Actions → Runners 등록).
+    #   secret은 그대로 주입되고 .env.local 불필요. 항상 켜진 머신 권장 — 머신이 자면 스케줄 run은
+    #   러너가 깨어날 때까지 큐에서 대기한다.
+    runs-on: self-hosted
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
