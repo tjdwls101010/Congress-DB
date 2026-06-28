@@ -102,7 +102,6 @@ def test_render_regression_outputs_include_status_thresholds_and_quality_gaps(tm
         key="ai_basic_act",
         title="AI 기본법",
         bill_keyword="인공지능",
-        utterance_keyword="인공지능",
         expected_zero_keyword=None,
         checks=(
             CheckResult(
@@ -116,7 +115,7 @@ def test_render_regression_outputs_include_status_thresholds_and_quality_gaps(tm
                 detail="floor check",
             ),
         ),
-        keyword_counts={"bill_hits": 12, "utterance_hits": 34},
+        keyword_counts={"bill_hits": 12},
         bill_metrics={"canonical_keyword_hits": 2},
         canonical_bills=(
             {
@@ -125,8 +124,6 @@ def test_render_regression_outputs_include_status_thresholds_and_quality_gaps(tm
             },
         ),
         lineage_rows=(),
-        speaker_roles=({"speaker_role": "의원", "utterances": 20},),
-        meeting_fanout=({"bill_no": "2206772", "linked_meetings": 3},),
         promulgation_signals=(gap,),
         quality_gaps=(gap,),
         boundary_notes=(

@@ -4,7 +4,6 @@ from congress_db.ops.sanity_check import (
     FtsDecision,
     SanityCheckResult,
     SanitySection,
-    _S3_MEETING_STREAMS_SQL,
     render_sanity_report,
 )
 
@@ -12,13 +11,13 @@ from congress_db.ops.sanity_check import (
 def test_render_sanity_report_shows_all_scenarios_and_fts_decision(tmp_path) -> None:
     output = tmp_path / "SANITY-CHECK.md"
     result = SanityCheckResult(
-        row_counts={"members": 298, "utterances": 586766},
+        row_counts={"members": 298, "bills": 17286},
         sections=(
             SanitySection(
                 key="S1",
                 title="의원 통합 조회",
                 query_goal="임의 의원 5명",
-                rows=({"의원": "홍길동", "발언수": 10},),
+                rows=({"의원": "홍길동", "대표발의": 10},),
             ),
             SanitySection(
                 key="S7",
@@ -42,7 +41,7 @@ def test_render_sanity_report_shows_all_scenarios_and_fts_decision(tmp_path) -> 
     assert "# Integrated Sanity Check" in text
     assert "- members: 298" in text
     assert "## S1. 의원 통합 조회" in text
-    assert "| 의원 | 발언수 |" in text
+    assert "| 의원 | 대표발의 |" in text
     assert "## S7. 정당별 표결 패턴" in text
     assert "No rows returned." in text
     assert "- Selected: `pg_trgm`" in text
@@ -72,11 +71,3 @@ def test_render_sanity_report_escapes_markdown_table_cells(tmp_path) -> None:
     render_sanity_report(result, output)
 
     assert "A \\| B C" in output.read_text()
-
-
-def test_s3_meeting_streams_query_preaggregates_relation_counts() -> None:
-    assert "COUNT(DISTINCT" not in _S3_MEETING_STREAMS_SQL
-    assert "agenda_items" not in _S3_MEETING_STREAMS_SQL
-    assert "bill_counts AS" in _S3_MEETING_STREAMS_SQL
-    assert "utterance_counts AS" in _S3_MEETING_STREAMS_SQL
-    assert "group_counts AS" not in _S3_MEETING_STREAMS_SQL

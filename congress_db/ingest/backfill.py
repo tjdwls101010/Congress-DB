@@ -14,7 +14,6 @@ from ..core.progress import safe_print
 from ..ops.data_completeness import generate_data_completeness_report
 from ..ops.sanity_check import run_sanity_check
 from .ingest_bills import ingest_bills
-from .ingest_meetings import ingest_meetings
 from .ingest_members import ingest_members
 from .ingest_state import (
     finish_run,
@@ -22,11 +21,9 @@ from .ingest_state import (
     start_run,
     update_run_summary,
 )
-from .ingest_utterances import KNOWN_HTML_UNAVAILABLE_MNTS_IDS, ingest_utterances
 from .ingest_votes import ingest_votes
 
 OFFICIAL_API_BENCHMARK_SAMPLE_SIZE = 1000
-OFFICIAL_SCRAPE_BENCHMARK_SAMPLE_SIZE = 300
 
 
 @dataclass(frozen=True)
@@ -147,14 +144,10 @@ def build_default_backfill_stages(
     ingest_members_fn: Callable[..., object] = ingest_members,
     ingest_bills_fn: Callable[..., object] = ingest_bills,
     ingest_votes_fn: Callable[..., object] = ingest_votes,
-    ingest_meetings_fn: Callable[..., object] = ingest_meetings,
-    ingest_utterances_fn: Callable[..., object] = ingest_utterances,
     run_sanity_check_fn: Callable[..., object] = run_sanity_check,
     generate_data_completeness_report_fn: Callable[..., object] = generate_data_completeness_report,
-    load_meeting_ids_fn: Callable[[], Sequence[int]] | None = None,
 ) -> tuple[BackfillStage, ...]:
     """기존 ingest Module을 full-load 파라미터로 묶은 기본 stage 목록."""
-    load_utterance_ids = load_meeting_ids_fn or load_utterance_target_meeting_ids
 
     def run_members() -> StageResult:
         return _stage_from_result(ingest_members_fn())
@@ -196,51 +189,6 @@ def build_default_backfill_stages(
         )
         return _stage_from_result(result, exclude=("vote_row_failures",), dead_letters=dead_letters)
 
-    def run_meetings() -> StageResult:
-        return _stage_from_result(
-            ingest_meetings_fn(
-                calibration_limit=None,
-                benchmark_sample_size=OFFICIAL_API_BENCHMARK_SAMPLE_SIZE,
-            )
-        )
-
-    def run_utterances() -> StageResult:
-        meeting_ids = tuple(load_utterance_ids())
-        if not meeting_ids:
-            return StageResult(
-                summary={
-                    "meeting_count": 0,
-                    "scraped_meeting_count": 0,
-                    "scraped_meeting_ids": (),
-                    "utterance_count": 0,
-                    "selected_worker_count": None,
-                    "retry_count": 0,
-                    "retried_meeting_count": 0,
-                    "scrape_error_count": 0,
-                    "member_mapped_count": 0,
-                    "sample_errors": (),
-                    "skipped_reason": "no missing or explicitly targeted meetings",
-                }
-            )
-        result = ingest_utterances_fn(
-            calibration_limit=max(len(meeting_ids), 1),
-            meeting_ids=meeting_ids,
-            benchmark_sample_size=OFFICIAL_SCRAPE_BENCHMARK_SAMPLE_SIZE,
-            allow_partial=True,
-        )
-        failures = getattr(result, "scrape_failures", ())
-        dead_letters = tuple(
-            DeadLetterDraft(
-                source="minutes.html",
-                stage="fetch",
-                item_key=str(failure.mnts_id),
-                payload={"mnts_id": failure.mnts_id},
-                error=failure.error,
-            )
-            for failure in failures
-        )
-        return _stage_from_result(result, exclude=("scrape_failures",), dead_letters=dead_letters)
-
     def run_sanity() -> StageResult:
         result = run_sanity_check_fn()
         return _stage_from_result(result)
@@ -253,46 +201,9 @@ def build_default_backfill_stages(
         BackfillStage("members", run_members),
         BackfillStage("bills", run_bills),
         BackfillStage("votes", run_votes),
-        BackfillStage("meetings", run_meetings),
-        BackfillStage("utterances", run_utterances),
         BackfillStage("sanity_check", run_sanity),
         BackfillStage("data_completeness", run_data_completeness),
     )
-
-
-def load_all_meeting_ids() -> tuple[int, ...]:
-    """현재 DB에 적재된 모든 meeting id를 안정적인 순서로 반환한다."""
-    excluded_ids = sorted(KNOWN_HTML_UNAVAILABLE_MNTS_IDS)
-    with get_conn() as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT mnts_id
-            FROM meetings
-            WHERE NOT (mnts_id = ANY(%s))
-            ORDER BY conf_date DESC, mnts_id DESC
-            """,
-            (excluded_ids,),
-        )
-        return tuple(row[0] for row in cur.fetchall())
-
-
-def load_utterance_target_meeting_ids() -> tuple[int, ...]:
-    """HTML 발언이 비어 있어 실제 스크래핑이 필요한 meeting id만 반환한다."""
-    excluded_ids = sorted(KNOWN_HTML_UNAVAILABLE_MNTS_IDS)
-    with get_conn() as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT m.mnts_id
-            FROM meetings m
-            LEFT JOIN utterances u ON u.meeting_id = m.mnts_id
-            WHERE NOT (m.mnts_id = ANY(%s))
-            GROUP BY m.mnts_id, m.conf_date
-            HAVING COUNT(u.id) = 0
-            ORDER BY m.conf_date DESC, m.mnts_id DESC
-            """,
-            (excluded_ids,),
-        )
-        return tuple(row[0] for row in cur.fetchall())
 
 
 def _stage_from_result(

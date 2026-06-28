@@ -2,6 +2,8 @@
 
 Neon `main`(production) DB에 새 국회 데이터를 **기존 데이터를 절대 손상하지 않으면서** 추가하는 운영 절차.
 
+> **참고(2026-06-28, migration 031):** 회의·발언 도메인(`meetings`·`meeting_bills`·`utterances`)이 제거되어, 아래 무손상 검증 중 *회의별 발언 수·발언 재스크랩 floor·meeting_bills 추가전용* 항목은 더 이상 해당하지 않는다. 현행 보호 대상은 `bills`·`votes`·`members`·발의자·공포·계보이며, 절차의 골격(백업 브랜치 → 수집 → diff → 손상 시 자동 복원)은 그대로다.
+
 ## 한 줄 요약
 
 ```bash

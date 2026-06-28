@@ -1,6 +1,6 @@
 """외부 HTTP 호출 동시성 상한.
 
-외부 국회 API와 회의록 HTML fetch는 source별 worker 수가 달라도 같은 전역
+외부 국회 API 호출은 source별 worker 수가 달라도 같은 전역
 상한을 공유한다. 호출자는 worker를 몇 개 만들지보다 이 상한을 넘지 않는다는
 사실만 알면 된다.
 """

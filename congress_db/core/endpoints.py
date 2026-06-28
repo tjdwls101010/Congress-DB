@@ -1,26 +1,17 @@
-"""PRD 확정 사용 OpenAPI 11개 정의.
+"""PRD 확정 사용 OpenAPI 정의.
 
 이 모듈은 single source of truth다. 새 endpoint를 쓰기 시작하면 여기 추가하고
 ADR 또는 PRD 업데이트. docs/ops/API-CATALOG.md도 이 상수에서 직접 생성한다.
-
-회의록 본문 HTML(`record.assembly.go.kr/.../xml.do`)은 OpenAPI가 아니라
-스크래핑이라 별도 — 여기 포함하지 않는다.
 
 ## 적재 시 알아두어야 할 운영 디테일
 
 이번 카탈로그 검증(Slice 2)에서 발견한 사실들. 적재 슬라이스(#4 이후)에서
 다시 디버그하지 않도록 spec 옆 코멘트로 박아둔다.
 
-- **`CONF_DATE`는 YYYY (연도) 형식**. YYYYMMDD가 아님. 연-월(YYYY-MM)도 허용.
-  본회의/위원회 회의록은 `DAE_NUM=22 + CONF_DATE` 둘 다 필수.
-- **본회의 표결(`nojepdqqaweusdfbi`)과 의안별 회의록(`VCONFBILLCONFLIST`)은
-  본회의 통과 법안의 BILL_ID에만 row 존재**. 발의만 된 법안은 no_data.
+- **본회의 표결(`nojepdqqaweusdfbi`)은 본회의 통과 법안의 BILL_ID에만 row 존재**.
+  발의만 된 법안은 no_data.
 - **`BPMBILLSUMMARY`는 BILL_NO 단위 1:1 호출**. 과거 legacy SQLite에 endpoint
   컬럼이 비어 있는 데이터 결함이 있어 endpoint slug는 코드에서 직접 박음.
-- **국정감사/국정조사/인사청문회는 ERACO='제22대'** (다른 endpoint와 형식 다름).
-- **본회의/위원회 회의록의 `list_total_count`는 고유 회의 수가 아니라 `SUB_NAME`
-  안건 row 수에 가깝다.** 캘리브레이션 적재는 raw row 수가 아니라 고유 `mnts_id`
-  수를 기준으로 멈춘다.
 """
 
 from __future__ import annotations
@@ -81,43 +72,6 @@ PIPELINE_ENDPOINTS: tuple[EndpointSpec, ...] = (
         verify_sample={"BILL_NO": "2219057"},
     ),
     EndpointSpec(
-        inf_id="OO1X9P001017YF13038",
-        endpoint="nzbyfwhwaoanttzje",
-        name="본회의 회의록",
-        # ⚠️ CONF_DATE는 YYYY 형식. YYYYMMDD 아님 — legacy fetch_meetings.py::_date_range 확인.
-        usage_note="meetings 적재 — DAE_NUM=22 + CONF_DATE(YYYY 또는 YYYY-MM) 둘 다 필수",
-        verify_sample={"CONF_DATE": "2024"},
-    ),
-    EndpointSpec(
-        inf_id="OR137O001023MZ19321",
-        endpoint="ncwgseseafwbuheph",
-        name="위원회 회의록",
-        # ⚠️ 본회의 회의록과 동일한 패턴.
-        usage_note="meetings 적재 — DAE_NUM=22 + CONF_DATE(YYYY 또는 YYYY-MM) 둘 다 필수",
-        verify_sample={"CONF_DATE": "2024"},
-    ),
-    EndpointSpec(
-        inf_id="OOWY4R001216HX11507",
-        endpoint="VCONFAPIGCONFLIST",
-        name="국정감사 회의록",
-        usage_note="meetings 적재 (ERACO=제22대, 22대 317건)",
-        verify_sample=None,
-    ),
-    EndpointSpec(
-        inf_id="OOWY4R001216HX11508",
-        endpoint="VCONFPIPCONFLIST",
-        name="국정조사 회의록",
-        usage_note="meetings 적재 (ERACO=제22대, 22대 29건)",
-        verify_sample=None,
-    ),
-    EndpointSpec(
-        inf_id="OOWY4R001216HX11509",
-        endpoint="VCONFCFRMCONFLIST",
-        name="인사청문회 회의록",
-        usage_note="meetings 적재 (ERACO=제22대, 22대 64건)",
-        verify_sample=None,
-    ),
-    EndpointSpec(
         inf_id="OND1KZ0009677M13515",
         endpoint="ncocpgfiaoituanbr",
         name="의안별 표결현황",
@@ -130,14 +84,6 @@ PIPELINE_ENDPOINTS: tuple[EndpointSpec, ...] = (
         name="국회의원 본회의 표결정보",
         # ⚠️ 발의만 된 법안은 row 없음. 본회의 통과 법안(proc_result='원안가결' 등)만.
         usage_note="votes 적재 (AGE=22 + BILL_ID 단위, 본회의 통과 법안만 row 존재)",
-        verify_sample={"BILL_ID": "PRC_O2C5J0H9H1H0P1O0M1N9M3G4G6M5N6"},
-    ),
-    EndpointSpec(
-        inf_id="OOWY4R001216HX11526",
-        endpoint="VCONFBILLCONFLIST",
-        name="의안별 회의록 목록",
-        # ⚠️ 본회의 표결과 동일 — 본회의 통과 법안만 row 존재.
-        usage_note="meeting_bills junction 적재 (BILL_ID 단위, 본회의 통과 법안만)",
         verify_sample={"BILL_ID": "PRC_O2C5J0H9H1H0P1O0M1N9M3G4G6M5N6"},
     ),
 )

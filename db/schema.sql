@@ -6,6 +6,13 @@
 -- 자연키 우선, FK는 ON DELETE RESTRICT (참조 무결성 우선).
 -- CREATE TABLE IF NOT EXISTS로 idempotent 적용 (변경은 db-reset 또는 향후 migrations/).
 -- 적용은 psql -1 (single-transaction)으로 wrap — 이 파일에는 BEGIN/COMMIT 없음.
+--
+-- ⚠ 이 파일은 *초기* 스키마다 — 변경은 migrations/가 정본이다(이 base + 과거 migration 들이 서로
+--   의존하므로 base 자체는 편집하지 않는다). 현재 스키마는 base + migrations/*.sql 전체 적용 결과다.
+--   회의·발언 도메인(아래 meetings · meeting_bills · utterances 3개 테이블, 그리고 migration 들이 만든
+--   뷰 bill_meeting_contexts · 함수 search_utterances)은 migrations/031_drop_meeting_minutes.sql에서
+--   **제거됐다** — fresh db-reset 시 base가 만들고 031이 다시 드롭한다(빈 테이블이라 비용 없음).
+--   현행 소비 스키마는 의원·법안·표결·발의·공포·계보뿐이다(회의/발언은 더 이상 없음).
 
 -- =========================================================================
 -- 1. members — 의원 (자연키 PK)

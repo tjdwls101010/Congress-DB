@@ -13,7 +13,6 @@ def main() -> None:
         f"sections={len(result.sections)} "
         f"members={result.row_counts.get('members', 0)} "
         f"bills={result.row_counts.get('bills', 0)} "
-        f"utterances={result.row_counts.get('utterances', 0)} "
         f"fts={result.fts_decision.selected}"
     )
 

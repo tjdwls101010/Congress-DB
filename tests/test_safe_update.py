@@ -21,7 +21,7 @@ from congress_db.ops.safe_update import (
 
 def _baseline() -> dict:
     """무손상(자기 자신 비교 시 FAIL 없음) 최소 fingerprint."""
-    fp: dict = {"counts": {}, "pk": {}, "nullmap": {}, "child_parents": {}, "utt_by_meeting": {}}
+    fp: dict = {"counts": {}, "pk": {}, "nullmap": {}, "child_parents": {}}
     for t in _ALL_COUNT_TABLES:
         fp["counts"][t] = 10
     for t in _PK_TABLES:
@@ -30,7 +30,6 @@ def _baseline() -> dict:
         fp["nullmap"][t] = {"cols": ["proc_result"], "rows": {(1,): (True,), (2,): (True,)}}
     for child, _pcol, _parent in _CHILD_PARENTS:
         fp["child_parents"][child] = {100: 2, 200: 3}
-    fp["utt_by_meeting"] = {500: 40, 501: 60}
     return fp
 
 
@@ -77,14 +76,6 @@ def test_diff_detects_append_only_decrease() -> None:
     assert any("votes" in f and "append-only" in f for f in rep["FAIL"]), rep["FAIL"]
 
 
-def test_diff_detects_emptied_meeting() -> None:
-    before = _baseline()
-    after = copy.deepcopy(before)
-    after["utt_by_meeting"] = {500: 0, 501: 60}  # 회의 500 발언 전멸
-    rep = diff(before, after)
-    assert any("emptied" in f for f in rep["FAIL"]), rep["FAIL"]
-
-
 def test_fingerprint_runs_readonly_against_db() -> None:
     with get_conn() as conn:
         conn.autocommit = True
@@ -92,4 +83,4 @@ def test_fingerprint_runs_readonly_against_db() -> None:
     assert "bills" in fp["counts"]
     assert "bills" in fp["pk"]
     assert "votes" in fp["counts"]
-    assert isinstance(fp["utt_by_meeting"], dict)
+    assert "child_parents" in fp

@@ -7,12 +7,11 @@ from types import SimpleNamespace
 from scripts import ingest as ingest_cli
 
 
-def test_ingest_cli_accepts_repeated_force_meeting_ids(monkeypatch) -> None:
+def test_ingest_cli_passes_mode_to_run_ingest(monkeypatch) -> None:
     calls: dict[str, object] = {}
 
-    def fake_run_ingest(*, mode: str, force_meeting_ids: tuple[int, ...]):
+    def fake_run_ingest(*, mode: str):
         calls["mode"] = mode
-        calls["force_meeting_ids"] = force_meeting_ids
         return SimpleNamespace(
             mode=mode,
             run_id=123,
@@ -27,10 +26,6 @@ def test_ingest_cli_accepts_repeated_force_meeting_ids(monkeypatch) -> None:
             "ingest.py",
             "--mode",
             "incremental",
-            "--force-meeting-id",
-            "56738",
-            "--force-meeting-id",
-            "56737",
         ],
     )
     monkeypatch.setattr(ingest_cli, "run_ingest", fake_run_ingest)
@@ -38,7 +33,4 @@ def test_ingest_cli_accepts_repeated_force_meeting_ids(monkeypatch) -> None:
 
     ingest_cli.main()
 
-    assert calls == {
-        "mode": "incremental",
-        "force_meeting_ids": (56738, 56737),
-    }
+    assert calls == {"mode": "incremental"}

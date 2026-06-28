@@ -34,12 +34,8 @@ def test_congress_ro_role_exposes_only_consumer_relations() -> None:
         "bill_lead_proposers",
         "bill_coproposers",
         "votes",
-        "meetings",
-        "utterances",
-        "meeting_bills",
         "bill_final_outcomes",
         "bill_lineage",
-        "bill_meeting_contexts",
     ):
         assert relation in sql
 
@@ -56,4 +52,3 @@ def test_congress_ro_role_grants_only_search_functions() -> None:
 
     assert "GRANT EXECUTE ON FUNCTION search_snippet(text, text, integer)" in sql
     assert "GRANT EXECUTE ON FUNCTION search_bills(text, integer)" in sql
-    assert "GRANT EXECUTE ON FUNCTION search_utterances(text, integer)" in sql

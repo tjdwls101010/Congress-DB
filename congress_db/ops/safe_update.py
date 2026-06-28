@@ -6,7 +6,7 @@
 2. 수집 전 **read-only fingerprint**를 뜬다.
 3. 증분 수집(`run_ingest` auto→incremental)을 main에 실행한다.
 4. 수집 후 fingerprint를 다시 뜨고 **무손상 diff**를 계산한다:
-   기존 PK 삭제 / 자식 전멸 / non-null→null 회귀 / append 테이블 행 감소 / 회의 발언 전멸.
+   기존 PK 삭제 / 자식 전멸 / non-null→null 회귀 / append 테이블 행 감소.
 5. 손상 감지 시 → main을 백업 브랜치로 **자동 복원**(endpoint host 불변, 연결문자열 안깨짐).
    무손상 시 → 추가량 리포트 + 백업 브랜치 정리.
 
@@ -34,22 +34,21 @@ NEON_API = "https://console.neon.tech/api/v2"
 
 # 정확 PK 집합으로 삭제를 탐지할 소형 테이블 (대형 테이블은 count/부모 체크로 egress 절약)
 _PK_TABLES = [
-    "bills", "meetings", "members", "committees", "bill_final_outcomes",
+    "bills", "members", "committees", "bill_final_outcomes",
     "bill_relations", "bill_source_aliases", "bill_lead_proposers",
 ]
 # 순수 append 테이블: 행 수가 줄면 손상 (votes는 DELETE 경로가 없다)
 _APPEND_ONLY = ["votes"]
 # non-null → null 회귀를 볼 소형 소비자 테이블 (대형 본문은 IS NOT NULL bool만)
-_NULL_TABLES = ["bills", "members", "meetings", "committees", "bill_final_outcomes"]
+_NULL_TABLES = ["bills", "members", "committees", "bill_final_outcomes"]
 _NULL_EXCLUDE = {"members": {"poly_nm", "is_incumbent"}}  # 정당한 생애주기 변동 (CONTEXT)
 # 자식 전멸/감소를 볼 (자식, 부모컬럼, 부모테이블)
 _CHILD_PARENTS = [
     ("bill_lead_proposers", "bill_id", "bills"),
     ("bill_coproposers", "bill_id", "bills"),
-    ("meeting_bills", "meeting_id", "meetings"),
 ]
 _ALL_COUNT_TABLES = _PK_TABLES + _APPEND_ONLY + [
-    "bill_coproposers", "meeting_bills", "utterances",
+    "bill_coproposers",
 ]
 
 
@@ -114,7 +113,7 @@ def _columns(cur: Any, table: str) -> list[str]:
 def fingerprint(conn: psycopg.Connection) -> dict[str, Any]:
     """읽기 전용. 수집 전/후 각각 호출해 diff로 비교한다."""
     cur = conn.cursor()
-    fp: dict[str, Any] = {"counts": {}, "pk": {}, "nullmap": {}, "child_parents": {}, "utt_by_meeting": {}}
+    fp: dict[str, Any] = {"counts": {}, "pk": {}, "nullmap": {}, "child_parents": {}}
     for t in _ALL_COUNT_TABLES:
         cur.execute(f"SELECT count(*) FROM {t}")
         fp["counts"][t] = cur.fetchone()[0]
@@ -132,8 +131,6 @@ def fingerprint(conn: psycopg.Connection) -> dict[str, Any]:
     for child, pcol, _parent in _CHILD_PARENTS:
         cur.execute(f"SELECT {pcol}, count(*) FROM {child} GROUP BY {pcol}")
         fp["child_parents"][child] = {r[0]: r[1] for r in cur.fetchall()}
-    cur.execute("SELECT meeting_id, count(*) FROM utterances GROUP BY meeting_id")
-    fp["utt_by_meeting"] = {r[0]: r[1] for r in cur.fetchall()}
     return fp
 
 
@@ -173,18 +170,6 @@ def diff(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
             rep["FAIL"].append(f"{child}: {len(wiped)} parents lost ALL children (sample={wiped[:3]})")
         if fewer:
             rep["NOTE"].append(f"{child}: {len(fewer)} parents have fewer children (소스 변경/추가전용 정상 가능)")
-    # 5) 살아남은 회의 발언 전멸(FAIL) / 감소(NOTE)
-    emptied = decreased = 0
-    for mid, bn in before["utt_by_meeting"].items():
-        an = after["utt_by_meeting"].get(mid, 0)
-        if an == 0:
-            emptied += 1
-        elif an < bn:
-            decreased += 1
-    if emptied:
-        rep["FAIL"].append(f"utterances: {emptied} surviving meetings emptied")
-    if decreased:
-        rep["NOTE"].append(f"utterances: {decreased} meetings have fewer (재스크랩 정상 가능; floor 가드가 급감은 차단)")
     return rep
 
 

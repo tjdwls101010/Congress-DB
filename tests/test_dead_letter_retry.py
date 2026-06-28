@@ -13,7 +13,7 @@ from congress_db.ingest.dead_letter_retry import (
 from congress_db.ingest.ingest_state import record_dead_letter, start_run
 
 
-TEST_SOURCE = "test.retry.minutes"
+TEST_SOURCE = "test.retry.bills"
 
 
 @pytest.fixture(autouse=True)
@@ -41,7 +41,7 @@ def test_retry_dead_letters_resolves_successful_handler() -> None:
             source=TEST_SOURCE,
             stage="fetch",
             item_key="920101",
-            payload={"mnts_id": 920101},
+            payload={"bill_no": "920101"},
             error="temporary failure",
         )
         conn.commit()
@@ -82,7 +82,7 @@ def test_retry_dead_letters_leaves_unhandled_items_pending() -> None:
             source=TEST_SOURCE,
             stage="fetch",
             item_key="920102",
-            payload={"mnts_id": 920102},
+            payload={"bill_no": "920102"},
             error="temporary failure",
         )
         conn.commit()
@@ -102,8 +102,6 @@ def test_retry_dead_letters_leaves_unhandled_items_pending() -> None:
 
 def test_default_retry_handlers_cover_all_ingest_dead_letter_sources() -> None:
     assert set(default_retry_handlers()) == {
-        ("minutes.html", "fetch"),
         ("bills.summary", "fetch"),
         ("votes.rows", "fetch"),
-        ("meeting_bills.vconfbill", "fetch"),
     }

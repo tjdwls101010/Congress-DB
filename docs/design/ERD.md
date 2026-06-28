@@ -1,6 +1,8 @@
 # ERD — Congress-DB (Postgres 16)
 
-9개 핵심 테이블 + committee dimension 1개 + source alias 테이블 1개 + final outcome 테이블 1개 + 수집 운영 테이블 3개. core schema는 직접 SQL 소비자가 검색, 필터, 정렬, 조인, 결과 설명에 쓰는 필드만 보존한다.
+7개 핵심 테이블 + committee dimension 1개 + source alias 테이블 1개 + final outcome 테이블 1개 + 수집 운영 테이블 3개. core schema는 직접 SQL 소비자가 검색, 필터, 정렬, 조인, 결과 설명에 쓰는 필드만 보존한다.
+
+> **회의·발언 도메인 제거 (2026-06-28, `migrations/031_drop_meeting_minutes.sql`):** `meetings`·`meeting_bills`·`utterances` 테이블, `bill_meeting_contexts` 뷰, `search_utterances` 함수는 삭제됐다. "누가 무엇을 말했나" 심층 분석은 websearch 영역으로 옮겼고, 심의 *진행·상태*는 구조화 테이블(`bills.proc_result`·`bill_lineage`·`bill_final_outcomes`)이 답한다. 배경은 [DECISIONS.md](DECISIONS.md) 2026-06-28 참조.
 
 > **LLM 직접-SQL 소비자용:** 함정·어휘·커버리지 경고는 스키마 `COMMENT`(`migrations/011_schema_comments.sql` 등, `\d+`로 introspect 시 인라인으로 보임)에 있고, introspection이 조립 못 하는 cross-table 레시피만 [DB-QUERY-GUIDE.md](DB-QUERY-GUIDE.md)에 있다.
 
@@ -17,10 +19,6 @@ erDiagram
     bills ||--o{ votes : "bill_id"
     bills ||--o{ bill_relations : "absorbed_bill_id"
     bills ||--o{ bill_source_aliases : "canonical_bill_id"
-    meetings ||--o{ utterances : "meeting_id"
-    meetings ||--o{ meeting_bills : "meeting_id"
-    bills ||--o{ meeting_bills : "bill_id"
-    members ||--o{ utterances : "speaker_mona_cd"
     ingest_runs ||--o{ dead_letters : "run_id"
     ingest_runs ||--o{ ingest_cursors : "updated_run_id"
 ```
@@ -144,48 +142,7 @@ OpenAPI가 복수 대표발의자를 줄 수 있어 정규화한다.
 | `result_vote_mod` | TEXT NOT NULL | 찬성/반대/기권/불참 |
 | `poly_nm_at_vote` | TEXT | 표결 시점 정당 |
 
-### 8. `meetings` — 회의
-
-HTML 회의록 목록의 한 회의. `total/22.do` 웹 목록이 canonical source이고, OpenAPI는 같은 `mnts_id`가 있을 때 메타데이터 보강에만 사용한다.
-
-| 컬럼 | 타입 | 비고 |
-|---|---|---|
-| `mnts_id` | INT | **PK**. HTML viewer URL의 `id` |
-| `title` | TEXT NOT NULL | 회의명/목록 표시명 |
-| `meeting_type` | TEXT NOT NULL CHECK (...) | 본회의/상임위/특별위/국정감사/국정조사/인사청문회/소위원회. 예산결산특별위원회·인사청문특별위원회 등은 `meeting_type='특별위'`이고 `comm_name`으로 구분(별도 type 아님) |
-| `conf_date` | DATE NOT NULL | 회의일 |
-| `comm_name` | TEXT | 위원회명. 본회의는 NULL 가능 |
-| `session_no` | INT | 회기 번호 |
-| `fetched_at` | TIMESTAMPTZ | 마지막 수집 시각 |
-
-제외 필드: PDF/HWP/VOD/요약 링크, `source_api`, `conf_id`, `class_name`, `comm_code`. 이 값들은 직접 SQL 소비자의 core query에 쓰이지 않으므로 coverage report, ingest summary, dead letter에서만 다룬다.
-
-### 8a. `meeting_bills` — 회의↔법안 N:M
-
-법안이 어떤 회의에서 다뤄졌는지 찾기 위한 핵심 junction. `VCONFBILLCONFLIST`와 `SUB_NAME` 임시 파싱 결과를 합쳐 만든다.
-
-| 컬럼 | 타입 | 비고 |
-|---|---|---|
-| `meeting_id` | INT REFERENCES meetings(mnts_id) | **PK 일부** |
-| `bill_id` | TEXT REFERENCES bills(bill_id) | **PK 일부** |
-
-공식 회의 안건 원문은 별도 core 테이블로 보존하지 않는다. 법안이 아닌 안건은 정책 의제 검색과 직접 대응하지 않고, 필요한 경우 향후 의미 레이어에서 evidence 기반으로 모델링한다.
-
-### 9. `utterances` — 발언
-
-HTML viewer DOM에서 파싱한 발언 stream.
-
-| 컬럼 | 타입 | 비고 |
-|---|---|---|
-| `id` | BIGSERIAL | **PK** |
-| `meeting_id` | INT REFERENCES meetings(mnts_id) NOT NULL | |
-| `sequence` | INT NOT NULL | 회의 내 발언 순번 |
-| `speaker_name` | TEXT NOT NULL | 화자 이름 |
-| `speaker_title` | TEXT NOT NULL | 화자 직함 |
-| `speaker_mona_cd` | TEXT REFERENCES members(mona_cd) | 의원 매핑 nullable |
-| `speaker_role` | TEXT NOT NULL CHECK (...) | 의원/국무위원(장관)/차관/증인/참고인/전문위원/기타 |
-| `content` | TEXT NOT NULL | 발언 내용 |
-| | | **UNIQUE(meeting_id, sequence)** |
+> **회의·발언 도메인(`meetings`·`meeting_bills`·`utterances`)은 2026-06-28 `migrations/031_drop_meeting_minutes.sql`에서 제거됐다.** 이 ERD에는 더 이상 포함하지 않는다.
 
 ## Operational Tables
 
@@ -195,11 +152,11 @@ HTML viewer DOM에서 파싱한 발언 stream.
 
 ### `ingest_cursors`
 
-source별 증분 기준점. 회의록은 웹 목록 전체 재대조 후 새 `mnts_id`와 임시/부록/title 변화가 있는 touched meeting을 계산한다.
+source별 증분 기준점. 각 source가 마지막으로 성공 처리한 시점을 관찰·감사용으로 보존한다.
 
 ### `dead_letters`
 
-재시도 후에도 실패한 API item 또는 HTML 회의록 대상을 저장한다. 웹 목록에는 있지만 `type=view`가 400인 회의록은 PDF/HWP로 우회하지 않고 여기에서 명시 분류한다.
+재시도 후에도 실패한 API item을 저장한다.
 
 ## 인덱스 후보
 
@@ -215,17 +172,9 @@ CREATE INDEX idx_coproposers_mona ON bill_coproposers(mona_cd);
 CREATE INDEX idx_votes_mona ON votes(mona_cd);
 CREATE INDEX idx_votes_bill ON votes(bill_id);
 CREATE INDEX idx_votes_date ON votes(vote_date DESC);
-CREATE INDEX idx_meetings_date ON meetings(conf_date DESC);
-CREATE INDEX idx_meetings_type ON meetings(meeting_type);
-CREATE INDEX idx_meetings_comm ON meetings(comm_name);
-CREATE INDEX idx_meetings_type_date ON meetings(meeting_type, conf_date DESC);
-CREATE INDEX idx_mb_bill ON meeting_bills(bill_id);
-CREATE INDEX idx_utterances_meeting ON utterances(meeting_id);
-CREATE INDEX idx_utterances_speaker ON utterances(speaker_mona_cd) WHERE speaker_mona_cd IS NOT NULL;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE INDEX idx_bills_bill_name_trgm ON bills USING gin (bill_name gin_trgm_ops);
 CREATE INDEX idx_bills_summary_trgm ON bills USING gin (summary gin_trgm_ops) WHERE summary IS NOT NULL;
-CREATE INDEX idx_utterances_content_trgm ON utterances USING gin (content gin_trgm_ops);
 ```
 
 ## 검색 지원 함수
@@ -234,8 +183,6 @@ CREATE INDEX idx_utterances_content_trgm ON utterances USING gin (content gin_tr
 search_snippet(source_text TEXT, query_text TEXT, radius INT DEFAULT 80) RETURNS TEXT;
 search_bills(query_text TEXT, result_limit INT DEFAULT 50)
   RETURNS TABLE (bill_id, bill_no, bill_name, propose_dt, snippet, similarity_score);
-search_utterances(query_text TEXT, result_limit INT DEFAULT 50)
-  RETURNS TABLE (utterance_id, meeting_id, sequence, speaker_name, speaker_title, snippet, similarity_score);
 ```
 
 첫 검색 랭킹은 Postgres `pg_trgm`의 `similarity()` 내림차순이다. 직접 SQL 소비자는 이 DB 함수를 우선 사용하고, 벡터/PGroonga는 측정된 recall 실패가 생길 때만 추가한다.

@@ -3,6 +3,14 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-06-28 — 회의록(회의·발언) 도메인 전면 제거 (migration 031)
+
+이 DB를 직접 쓰는 입법전문가 harness 소비 관점에서 회의록의 가치를 재검토했다. **사실:** `utterances`(발언 본문)는 라이브 main 1,780MB로 논리 데이터(2,122MB)의 **~84%**(138만 행)를 차지하는데, 정작 "논의 진척/처리상태"는 회의록이 아니라 구조화 테이블(`bills.proc_result`·`bill_lineage`·`bill_final_outcomes`)이 답하고, 발언↔법안 직접 귀속은 회의 fanout(회의당 평균 32 법안)으로 신뢰도가 낮다. 즉 회의록을 빼도 *진척 추적 능력은 손실이 없다* — 회의록이 websearch로 대체 불가능한 유일한 지점은 "누가 무엇을 발언했나"(정부·참고인 발언 등 심층 토론)뿐이고, 그 심층 분석은 websearch로 넘긴다.
+
+**결정 — C안(회의 도메인 전면 드롭).** 회의 메타(`meetings`·`meeting_bills`)도 함께 제거한다: 그 본업이 *발언 본문↔법안*을 잇는 다리였는데 본문이 사라지면 다리가 놀고, 발언 통계를 노출하던 `bill_meeting_contexts` 뷰가 빈 껍데기가 되기 때문이다(메타만 남기는 B안은 어중간한 잔해를 남긴다). 제거 객체: 테이블 `utterances`·`meeting_bills`·`meetings`, 뷰 `bill_meeting_contexts`, 함수 `search_utterances`. 유지: `search_bills`·`search_snippet`(제네릭, search_bills가 사용)·`bill_lineage`. 라이브 main에 적용 전 **Neon 스냅샷 브랜치**(`pre-utterances-drop-20260628`, 만료 2026-07-19)로 복원망을 깔았다 — 드롭을 되돌릴 수 있는 작업으로 만든 뒤 single-transaction으로 실행(논리 데이터 2.1GB→298MB). 과금 스토리지는 스냅샷 브랜치 삭제 + history 보존창 경과 후 회수된다.
+
+**구현 — base 스키마/과거 마이그레이션은 보존, 031을 델타로.** `db/schema.sql`과 001~030은 서로 의존하므로(예: 001이 `utterances`에 인덱스 생성) 편집하지 않고, `031_drop_meeting_minutes.sql`이 base+history 적용 *뒤* 회의 도메인을 드롭한다(fresh db-reset은 빈 테이블을 만들었다 드롭 — 비용 0). 소비자 read-allowlist는 12객체→**8 relation(members·committees·bills·bill_lead_proposers·bill_coproposers·votes·bill_final_outcomes·bill_lineage)+2 함수(search_bills·search_snippet)**로 축소(`db/roles/*.sql`). 회의/발언 적재 코드(`ingest_meetings`·`ingest_utterances`·`scrape_minutes`·`minutes_web_list`·`speaker_roles`·`agenda_parser`·`meeting_id`·`utterance_mapping_quality`·`validate_minutes_dom`)와 오케스트레이션 스테이지·dead-letter 핸들러·전용 테스트를 전부 제거했고, ops 진단(sanity·data_completeness·migration_readiness·regression_pack·safe_update)에서 회의/발언 경로를 들어냈다. **되돌리기 비용 비대칭:** 회의 목록·안건 적재는 파이프라인의 싸고 안 깨지는 부분이라 나중에 재추가가 쉽지만, 발언 본문(138만 행) 재스크래핑만 비싸다 — 그건 A·B·C 어느 안이든 "본문을 버린다"는 동일 선택이다. **교훈:** 회의록을 '진척 파악이 어렵다'는 이유로 빼려는 충동은 진단을 오귀속한 것이다 — 진척은 애초에 구조화 테이블의 일이고, 회의록의 진짜 효용/비용은 "발언 본문을 심층 분석하느냐 vs ~84% 스토리지+가장 깨지기 쉬운 스크래핑 파이프라인"의 트레이드오프에서 갈린다.
+
 ## 2026-06-28 — 무손상 증분 수집: 엔진 비파괴 수정 5종 + 백업-브랜치 안전망(make safe-update)
 
 PM이 "앞으로 종종 수동으로 Neon을 업데이트할 텐데 **어떤 상황에서도 기존 데이터를 손상하지 않고** 추가만 잘 되도록 dynamic-workflow로 확실히 검증해 달라"고 요청. Neon 브랜치(main의 copy-on-write 격리 사본)에서 실제 증분 수집을 돌리고, 다차원 정적 감사(23 에이전트)+적대적 반증+실증을 결합한 결과 **정상 소스 실행에서도 기존 데이터를 조용히 깎는 경로 3종이 실재**함을 라이브로 재현했다(구버전 코드 1회 실행: `bills.cmt_proc_*` 60건 NULL화, 부록 회의 발언 재스크랩 급감 2113→258 등, 주간 재조정의 meeting_bills 358건 제거). 트랜잭션 원자성·votes append·members 로스터·미변경 회의 발언은 안전 확인.

@@ -25,9 +25,6 @@ ALTER TABLE IF EXISTS bills DISABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS bill_lead_proposers DISABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS bill_coproposers DISABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS votes DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS meetings DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS utterances DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS meeting_bills DISABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS bill_final_outcomes DISABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS bill_relations DISABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS bill_source_aliases DISABLE ROW LEVEL SECURITY;
@@ -54,16 +51,15 @@ BEGIN
     -- 3) 스키마 USAGE(읽기 위해 필요).
     EXECUTE 'GRANT USAGE ON SCHEMA public TO anonymous, authenticated';
 
-    -- 4) 읽기 allowlist — congress_ro와 동일한 12개 소비자 객체만. anonymous=무인증 공개 읽기.
+    -- 4) 읽기 allowlist — congress_ro와 동일한 8개 소비자 객체만. anonymous=무인증 공개 읽기.
+    --    (회의·발언 도메인 meetings·utterances·meeting_bills·bill_meeting_contexts는 031에서 제거.)
     EXECUTE 'GRANT SELECT ON
         members, committees, bills, bill_lead_proposers, bill_coproposers,
-        votes, meetings, utterances, meeting_bills, bill_final_outcomes,
-        bill_lineage, bill_meeting_contexts
+        votes, bill_final_outcomes, bill_lineage
       TO anonymous, authenticated';
 
-    -- 5) 검색 함수 EXECUTE(직접연결 소비자와 동일 표면).
+    -- 5) 검색 함수 EXECUTE(직접연결 소비자와 동일 표면). search_utterances는 031에서 제거.
     EXECUTE 'GRANT EXECUTE ON FUNCTION search_snippet(text, text, integer) TO anonymous, authenticated';
     EXECUTE 'GRANT EXECUTE ON FUNCTION search_bills(text, integer) TO anonymous, authenticated';
-    EXECUTE 'GRANT EXECUTE ON FUNCTION search_utterances(text, integer) TO anonymous, authenticated';
 END
 $$;

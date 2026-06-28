@@ -53,7 +53,6 @@ class ScenarioSpec:
     key: str
     title: str
     bill_keyword: str
-    utterance_keyword: str
     canonical_bill_nos: tuple[str, ...]
     bill_keyword_floor: int
     canonical_keyword_floor: int = 0
@@ -103,15 +102,12 @@ class ScenarioResult:
     key: str
     title: str
     bill_keyword: str
-    utterance_keyword: str
     expected_zero_keyword: str | None
     checks: tuple[CheckResult, ...]
     keyword_counts: Mapping[str, int]
     bill_metrics: Mapping[str, int]
     canonical_bills: Sequence[Mapping[str, object]]
     lineage_rows: Sequence[Mapping[str, object]]
-    speaker_roles: Sequence[Mapping[str, object]]
-    meeting_fanout: Sequence[Mapping[str, object]]
     promulgation_signals: tuple[PromulgationSignal, ...]
     quality_gaps: tuple[PromulgationSignal, ...]
     boundary_notes: tuple[BoundaryNote, ...]
@@ -153,7 +149,6 @@ SCENARIO_SPECS = (
         key="jeonse_fraud",
         title="전세사기",
         bill_keyword="전세사기",
-        utterance_keyword="전세사기",
         canonical_bill_nos=("2217510", "2218526"),
         bill_keyword_floor=7,
         canonical_keyword_floor=1,
@@ -174,7 +169,6 @@ SCENARIO_SPECS = (
         key="medical_school_quota",
         title="의대정원",
         bill_keyword="의대정원",
-        utterance_keyword="의대정원",
         canonical_bill_nos=("2207635",),
         bill_keyword_floor=1,
         canonical_keyword_floor=1,
@@ -192,7 +186,6 @@ SCENARIO_SPECS = (
         key="ai_basic_act",
         title="AI 기본법",
         bill_keyword="인공지능",
-        utterance_keyword="인공지능",
         canonical_bill_nos=("2206772", "2215126"),
         bill_keyword_floor=2,
         canonical_keyword_floor=2,
@@ -211,7 +204,6 @@ SCENARIO_SPECS = (
         key="marine_death_special_prosecutor",
         title="채상병 특검",
         bill_keyword="순직 해병",
-        utterance_keyword="순직 해병",
         canonical_bill_nos=("2212725",),
         bill_keyword_floor=1,
         canonical_keyword_floor=1,
@@ -260,11 +252,11 @@ def render_regression_json(report: RegressionPackReport, output_path: Path) -> N
 
 
 def _load_scenario(cur: object, spec: ScenarioSpec) -> ScenarioResult:
-    keyword_counts = _load_keyword_counts(cur, spec.bill_keyword, spec.utterance_keyword)
+    keyword_counts = _load_keyword_counts(cur, spec.bill_keyword)
     expected_zero_counts = (
-        _load_keyword_counts(cur, spec.expected_zero_keyword, spec.expected_zero_keyword)
+        _load_keyword_counts(cur, spec.expected_zero_keyword)
         if spec.expected_zero_keyword is not None
-        else {"bill_hits": 0, "utterance_hits": 0}
+        else {"bill_hits": 0}
     )
     bill_metrics = _load_bill_metrics(cur, spec.bill_keyword, spec.canonical_bill_nos)
     canonical_keyword_hits = _count_canonical_keyword_hits(
@@ -299,7 +291,6 @@ def _load_scenario(cur: object, spec: ScenarioSpec) -> ScenarioResult:
         key=spec.key,
         title=spec.title,
         bill_keyword=spec.bill_keyword,
-        utterance_keyword=spec.utterance_keyword,
         expected_zero_keyword=spec.expected_zero_keyword,
         checks=checks,
         keyword_counts=keyword_counts,
@@ -311,8 +302,6 @@ def _load_scenario(cur: object, spec: ScenarioSpec) -> ScenarioResult:
         },
         canonical_bills=canonical_bills,
         lineage_rows=lineage_rows,
-        speaker_roles=_load_speaker_role_distribution(cur, spec.utterance_keyword),
-        meeting_fanout=_load_meeting_fanout(cur, spec.bill_keyword, spec.canonical_bill_nos),
         promulgation_signals=promulgation_signals,
         quality_gaps=tuple(
             signal for signal in promulgation_signals if signal.status == "quality_gap"
@@ -409,20 +398,12 @@ def _build_checks(
             )
         )
     if spec.expected_zero_keyword is not None:
-        checks.extend(
-            (
-                _expected_zero_check(
-                    metric="expected_zero_bill_hits",
-                    label=f"`{spec.expected_zero_keyword}` bill retrieval",
-                    current=expected_zero_counts["bill_hits"],
-                    detail="0 is expected here; alias expansion is [4] skill-layer scope.",
-                ),
-                _expected_zero_check(
-                    metric="expected_zero_utterance_hits",
-                    label=f"`{spec.expected_zero_keyword}` utterance retrieval",
-                    current=expected_zero_counts["utterance_hits"],
-                    detail="0 is expected here; alias expansion is [4] skill-layer scope.",
-                ),
+        checks.append(
+            _expected_zero_check(
+                metric="expected_zero_bill_hits",
+                label=f"`{spec.expected_zero_keyword}` bill retrieval",
+                current=expected_zero_counts["bill_hits"],
+                detail="0 is expected here; alias expansion is [4] skill-layer scope.",
             )
         )
     return tuple(checks)
@@ -467,17 +448,16 @@ def _expected_zero_check(
     )
 
 
-def _load_keyword_counts(cur: object, bill_keyword: str, utterance_keyword: str) -> dict[str, int]:
+def _load_keyword_counts(cur: object, bill_keyword: str) -> dict[str, int]:
     cur.execute(
         """
         SELECT
-            (SELECT COUNT(*)::int FROM search_bills(%s, %s)) AS bill_hits,
-            (SELECT COUNT(*)::int FROM search_utterances(%s, %s)) AS utterance_hits
+            (SELECT COUNT(*)::int FROM search_bills(%s, %s)) AS bill_hits
         """,
-        (bill_keyword, SEARCH_LIMIT, utterance_keyword, SEARCH_LIMIT),
+        (bill_keyword, SEARCH_LIMIT),
     )
     row = cur.fetchone()
-    return {"bill_hits": int(row[0]), "utterance_hits": int(row[1])}
+    return {"bill_hits": int(row[0])}
 
 
 def _load_bill_metrics(
@@ -619,66 +599,6 @@ def _count_relation_matches(
     return count
 
 
-def _load_speaker_role_distribution(
-    cur: object,
-    keyword: str,
-) -> tuple[dict[str, object], ...]:
-    cur.execute(
-        """
-        WITH hits AS (
-            SELECT utterance_id
-            FROM search_utterances(%s, %s)
-        )
-        SELECT
-            u.speaker_role,
-            COUNT(*)::int AS utterances
-        FROM hits h
-        JOIN utterances u ON u.id = h.utterance_id
-        GROUP BY u.speaker_role
-        ORDER BY utterances DESC, u.speaker_role
-        """,
-        (keyword, SEARCH_LIMIT),
-    )
-    return _fetch_dicts(cur)
-
-
-def _load_meeting_fanout(
-    cur: object,
-    keyword: str,
-    canonical_bill_nos: Sequence[str],
-) -> tuple[dict[str, object], ...]:
-    cur.execute(
-        """
-        WITH keyword_hits AS (
-            SELECT bill_id
-            FROM search_bills(%s, %s)
-        ), scenario_bills AS (
-            SELECT DISTINCT
-                b.bill_id,
-                b.bill_no,
-                left(b.bill_name, 100) AS bill_name,
-                b.proc_result
-            FROM bills b
-            LEFT JOIN keyword_hits kh ON kh.bill_id = b.bill_id
-            WHERE kh.bill_id IS NOT NULL
-               OR b.bill_no = ANY(%s)
-        )
-        SELECT
-            b.bill_no,
-            b.bill_name,
-            b.proc_result,
-            COUNT(DISTINCT mb.meeting_id)::int AS linked_meetings
-        FROM scenario_bills b
-        LEFT JOIN meeting_bills mb ON mb.bill_id = b.bill_id
-        GROUP BY b.bill_no, b.bill_name, b.proc_result
-        ORDER BY linked_meetings DESC, b.bill_no
-        LIMIT 10
-        """,
-        (keyword, SEARCH_LIMIT, list(canonical_bill_nos)),
-    )
-    return _fetch_dicts(cur)
-
-
 def _classify_promulgation_signal(row: Mapping[str, object]) -> PromulgationSignal:
     bill_no = str(row.get("bill_no", ""))
     bill_name = str(row.get("bill_name", ""))
@@ -780,7 +700,6 @@ def _render_markdown(report: RegressionPackReport) -> str:
                 "",
                 f"- Status: **{'PASS' if scenario.passed else 'FAIL'}**",
                 f"- Bill keyword: `{scenario.bill_keyword}`",
-                f"- Utterance keyword: `{scenario.utterance_keyword}`",
             ]
         )
         if scenario.expected_zero_keyword is not None:
@@ -828,12 +747,6 @@ def _render_markdown(report: RegressionPackReport) -> str:
         if scenario.lineage_rows:
             lines.extend(["", "### Canonical Lineage", ""])
             lines.extend(_render_table(scenario.lineage_rows))
-
-        lines.extend(["", "### Speaker Role Distribution", ""])
-        lines.extend(_render_table(scenario.speaker_roles))
-
-        lines.extend(["", "### Meeting Fanout", ""])
-        lines.extend(_render_table(scenario.meeting_fanout))
 
     return "\n".join(lines) + "\n"
 
