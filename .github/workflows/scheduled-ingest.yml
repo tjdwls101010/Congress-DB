@@ -1,0 +1,56 @@
+# 매일 국회 최신 데이터를 Neon main에 *무손상*으로 증분 적재한다.
+#
+# scripts.safe_update = 백업 브랜치(copy-on-write 스냅샷) → 증분 수집 → 무손상 diff
+#   → (손상 감지 시) main을 백업으로 자동 복원. 이미 멱등·비파괴로 설계돼 무인 실행에 안전하다.
+#   손상이 감지돼 복원되면 종료코드 1로 끝나므로 이 잡이 실패(빨간불)로 떠 알림이 간다
+#   — "데이터는 지켰지만 적재는 건너뜀"이 조용한 초록불이 되지 않는다.
+#
+# 사전 준비 — 레포 Settings → Secrets and variables → Actions 에 등록(한 번):
+#   CONGRESS_MAIN_URL          Neon main owner 연결문자열(쓰기 권한)
+#   NEON_API_KEY               Neon 컨트롤플레인 키(백업 브랜치 생성·복원)
+#   NATIONAL_ASSEMBLY_API_KEY  국회 OpenAPI 키(https://open.assembly.go.kr)
+#   (.neon 의 project id 는 레포에 커밋돼 있어 secret 불필요.)
+#
+# 제약:
+#   - 스케줄 워크플로는 default 브랜치에 있어야 발동한다(이 파일이 main에 머지된 뒤 활성).
+#   - GitHub cron 은 UTC·best-effort(수~수십 분 지연 가능).
+#   - 레포가 60일간 활동이 없으면 스케줄이 자동 비활성화된다(필요 시 다시 켠다).
+#   - 러너는 Neon 만 겨눈다 — 로컬 postgres 불필요.
+
+name: scheduled-ingest
+
+on:
+  schedule:
+    # 매일 03:00 KST = 18:00 UTC
+    - cron: "0 18 * * *"
+  workflow_dispatch: {}
+
+# 두 run 이 동시에 Neon 에 쓰지 않도록 직렬화(백업/복원 레이스 방지).
+concurrency:
+  group: neon-safe-update
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  safe-update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Safe incremental update (Neon main)
+        run: uv run python -m scripts.safe_update
+        env:
+          CONGRESS_MAIN_URL: ${{ secrets.CONGRESS_MAIN_URL }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NATIONAL_ASSEMBLY_API_KEY: ${{ secrets.NATIONAL_ASSEMBLY_API_KEY }}

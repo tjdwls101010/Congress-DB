@@ -3,6 +3,10 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-06-28 — 일일 자동 증분 적재 (GitHub Actions + safe-update)
+
+국회 최신 데이터를 주기적으로 Neon main에 반영하기 위해 `.github/workflows/scheduled-ingest.yml`을 추가했다. 매일 03:00 KST(cron UTC 18:00) + 수동(workflow_dispatch)으로 `uv run python -m scripts.safe_update`를 실행한다. 이미 멱등·비파괴·자동복원으로 설계된 safe-update를 그대로 감싼 것이라 무인 실행에 안전하다 — 손상 감지 시 백업 브랜치로 자동복원하고 **종료코드 1**로 끝나므로 그 run이 CI 실패로 표면화돼 알림이 간다("데이터는 지켰지만 적재는 건너뜀"이 조용한 초록불이 되지 않음). 러너는 Neon만 겨누므로 로컬 postgres 불필요하고, `concurrency` group으로 동시 쓰기를 직렬화한다. 필요 secret 3개(`CONGRESS_MAIN_URL`·`NEON_API_KEY`·`NATIONAL_ASSEMBLY_API_KEY`)는 레포 Settings에 등록하며 `.neon` project id는 커밋돼 있다. **제약:** 스케줄은 default 브랜치에서만 발동하므로(이 체인이 main에 머지된 뒤 활성), GitHub cron은 UTC·best-effort, 레포 60일 무활동 시 자동 비활성. 백업 브랜치는 무손상 시 자동 삭제되나 복원/실패 run은 `pre-update-*`를 남기므로 장기 운영 시 Neon 브랜치 만료/주기 정리를 둔다.
+
 ## 2026-06-28 — congress 스킬 E2E 검증 + hg_nm COMMENT 정확화 (migration 033)
 
 032 개선이 실제로 LLM 소비자의 silent trap을 막는지 dynamic-workflow E2E로 실증했다: 스킬을 로드한 신선 에이전트 9명이 실전 입법조사 질문에 답하고, 독립 채점자가 라이브 정답 SQL로 적대 검증했다. 결과 정답 8/9, **9개 시나리오가 노린 함정 전부 회피** — 채점자들이 "운이 아니라 COMMENT/스킬이 막아준 것"임을 반복 확인했다(불참 분모·vote_date_kst·proc_result NULL·bill_lineage 권한우회·별칭 치환이 모두 introspection으로 잡힘). 부수 오류 2건은 스키마 결함이 아니라 합성 단계였고(없는 법안 디테일 confabulation; 가결 5행을 '공포 3건'으로 평탄화), 후자는 부모 레포 SKILL.md에 '가결≠공포는 다른 모집단 — 분리 보고' 경고로 반영했다. **이 실측이 스킬 함정 섹션 trim의 근거다** — 단일-객체 함정은 introspection으로 잡히므로 헤드라인+"쿼리 전 introspect" 포인터로 압축하고, cross-table 함정만 스킬에 전문 유지한다.
