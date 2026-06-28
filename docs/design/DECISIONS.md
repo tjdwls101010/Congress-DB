@@ -3,6 +3,12 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-06-28 — congress 스킬 E2E 검증 + hg_nm COMMENT 정확화 (migration 033)
+
+032 개선이 실제로 LLM 소비자의 silent trap을 막는지 dynamic-workflow E2E로 실증했다: 스킬을 로드한 신선 에이전트 9명이 실전 입법조사 질문에 답하고, 독립 채점자가 라이브 정답 SQL로 적대 검증했다. 결과 정답 8/9, **9개 시나리오가 노린 함정 전부 회피** — 채점자들이 "운이 아니라 COMMENT/스킬이 막아준 것"임을 반복 확인했다(불참 분모·vote_date_kst·proc_result NULL·bill_lineage 권한우회·별칭 치환이 모두 introspection으로 잡힘). 부수 오류 2건은 스키마 결함이 아니라 합성 단계였고(없는 법안 디테일 confabulation; 가결 5행을 '공포 3건'으로 평탄화), 후자는 부모 레포 SKILL.md에 '가결≠공포는 다른 모집단 — 분리 보고' 경고로 반영했다. **이 실측이 스킬 함정 섹션 trim의 근거다** — 단일-객체 함정은 introspection으로 잡히므로 헤드라인+"쿼리 전 introspect" 포인터로 압축하고, cross-table 함정만 스킬에 전문 유지한다.
+
+E2E가 짚은 COMMENT 부정확 2건을 033으로 교정했다: members.hg_nm의 스테일 예시 수치(표결수 0 vs 1595 — 라이브는 1627)를 상대표현으로, 'stub=어디에도 기록 없음' 과장을 '대표발의·표결 0이어도 공동발의 등 다른 트랙엔 행이 있을 수 있음'으로 정확화. COMMENT만 변경(구조·권한 무변), 멱등.
+
 ## 2026-06-28 — 직접-SQL 소비자 함정 감사: COMMENT 교정 + vote_date_kst 생성컬럼 (migration 032)
 
 이 DB를 직접 SQL로 쓰는 입법전문가 harness(LLM) 관점에서 "에러 없이 조용히 틀리는 함정"을 5렌즈 dynamic-workflow로 라이브 실증 감사했다(join-key·NULL/상태·이름/타입·검색·소비자 가시성; 27건 중 19건 재현 확인). **적대적 검증의 결론:** 함정을 파생 뷰·생성 boolean·CHECK·alias 테이블로 "구조적 제거"하려는 제안 대부분은 *문서화된 함정 > drift 위험 있는 파생물*이라 기각됐다 — 특히 상태분류 뷰는 authored 라벨을 LLM이 *추론을 멈추고 맹신*하게 만들어, 라벨 하나가 틀리면 NULL보다 위험한 조용한 확신이 된다. 즉 현 COMMENT 중심(자기문서화) 설계가 대체로 정당함을 확인했다.
