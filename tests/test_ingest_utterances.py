@@ -394,3 +394,18 @@ def test_ingest_utterances_keeps_existing_when_rescrape_collapses(
         remaining = cur.fetchone()[0]
     assert remaining == 120, f"degraded re-scrape replaced existing utterances: {remaining}"
     assert 920101 in result.degraded_rescrape_meeting_ids
+
+
+def test_degraded_rescrape_blocks_any_decrease() -> None:
+    """감소 금지 정책: 기존(≥MIN)보다 발언이 적은 재스크랩은 전부 보류, 같거나 많으면 허용."""
+    from congress_db.ingest.ingest_utterances import _degraded_rescrape_meetings
+
+    scraped = {
+        1: [None] * 119,  # 119 < 120 → 보류
+        2: [None] * 120,  # == 120 → 허용
+        3: [None] * 121,  # > 120 → 허용(성장)
+        4: [None] * 5,    # 급감 → 보류
+        5: [None] * 3,    # 기존<MIN → 미적용
+    }
+    existing = {1: 120, 2: 120, 3: 120, 4: 120, 5: 10}
+    assert _degraded_rescrape_meetings(scraped, existing) == {1, 4}

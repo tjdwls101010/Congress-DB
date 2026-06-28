@@ -241,22 +241,26 @@ def run_safe_update(
         backup_id = create_backup_branch(project, neon_key, main_branch_id, f"pre-update-{stamp}")
         safe_print(f"[safe-update] backup branch={backup_id} (복원: restore main ← {backup_id})", flush=True)
 
-    conn = psycopg.connect(main_url)
-    conn.autocommit = True
-    try:
-        safe_print("[safe-update] fingerprint(before)…", flush=True)
-        before = fingerprint(conn)
+    def _fingerprint_fresh() -> dict[str, Any]:
+        # 매번 새 연결 — 수집(20~30분) 동안 유휴 연결을 붙들면 Neon이 AdminShutdown으로 끊는다.
+        conn = psycopg.connect(main_url)
+        conn.autocommit = True
+        try:
+            return fingerprint(conn)
+        finally:
+            conn.close()
 
-        os.environ["DATABASE_URL"] = main_url
-        from ..ingest.ingest_command import run_ingest
-        safe_print("[safe-update] incremental ingest…", flush=True)
-        ingest = run_ingest(mode="auto")
-        safe_print(f"[safe-update] ingest status={ingest.status} dead_letters={ingest.dead_letter_count}", flush=True)
+    safe_print("[safe-update] fingerprint(before)…", flush=True)
+    before = _fingerprint_fresh()
 
-        safe_print("[safe-update] fingerprint(after)…", flush=True)
-        after = fingerprint(conn)
-    finally:
-        conn.close()
+    os.environ["DATABASE_URL"] = main_url
+    from ..ingest.ingest_command import run_ingest
+    safe_print("[safe-update] incremental ingest…", flush=True)
+    ingest = run_ingest(mode="auto")
+    safe_print(f"[safe-update] ingest status={ingest.status} dead_letters={ingest.dead_letter_count}", flush=True)
+
+    safe_print("[safe-update] fingerprint(after)…", flush=True)
+    after = _fingerprint_fresh()
 
     rep = diff(before, after)
     added = {t: d for t, d in rep["added"].items() if d}

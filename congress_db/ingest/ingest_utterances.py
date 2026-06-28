@@ -559,9 +559,9 @@ def _replace_utterances_for_meetings(conn: object, meeting_ids: list[int]) -> No
         cur.execute("DELETE FROM utterances WHERE meeting_id = ANY(%s)", (meeting_ids,))
 
 
-# 재스크랩이 기존의 이 비율 미만으로 줄면 열화 스크래핑으로 보고 교체를 보류한다.
-RESCRAPE_FLOOR_RATIO = 0.5
-# 기존 발언이 이 수 미만인 작은 회의는 정상 변동 폭이 커서 floor 가드를 적용하지 않는다.
+# 회의록은 한 번 확정되면 발언이 줄지 않는다 — 재스크랩이 기존보다 적으면(열화 스크래핑·
+# 부분 파싱) 무조건 교체를 보류하고 기존을 보존한다(감소 금지). 더 많으면(성장) 교체.
+# 기존 발언이 이 수 미만인 작은 회의는 절차적 변동이 잦아 가드를 적용하지 않는다.
 RESCRAPE_FLOOR_MIN_EXISTING = 20
 
 
@@ -579,11 +579,11 @@ def _existing_utterance_counts(conn: object, meeting_ids: list[int]) -> dict[int
 def _degraded_rescrape_meetings(
     scraped: dict[int, list[Any]], existing_counts: dict[int, int]
 ) -> set[int]:
-    """재스크랩이 기존 대비 급감한(열화 의심) 회의 집합. 이들은 교체하지 않고 보존한다."""
+    """재스크랩이 기존보다 발언이 적은(감소=열화 의심) 회의 집합. 이들은 교체하지 않고 보존한다."""
     degraded: set[int] = set()
     for meeting_id, utterances in scraped.items():
         existing = existing_counts.get(meeting_id, 0)
-        if existing >= RESCRAPE_FLOOR_MIN_EXISTING and len(utterances) < RESCRAPE_FLOOR_RATIO * existing:
+        if existing >= RESCRAPE_FLOOR_MIN_EXISTING and len(utterances) < existing:
             degraded.add(meeting_id)
     return degraded
 
