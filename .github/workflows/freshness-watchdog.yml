@@ -1,0 +1,100 @@
+# 신선도 워치독 — 적재가 조용히 멈추면 빨간불로 알린다(WI5, F3).
+#
+# 배경: 국회 OpenAPI가 해외 IP를 차단해 수집은 한국 self-hosted 러너에서만 되지만(scheduled-ingest),
+#   그 러너가 죽으면 예약 run이 24시간 큐 대기 후 *cancelled*로 조용히 사라진다(취소는 빨간불이 아니라
+#   알림이 안 감). Neon *자체는* GitHub-호스트 러너에서 접근 가능하므로(차단은 국회 API뿐), 이 워치독은
+#   무료 ubuntu-latest에서 공개 congress_ro로 데이터 신선도만 감시해, 정지·누락을 CI 실패로 표면화한다.
+#
+# 연결: congress_ro는 *의도적으로 공개된* 무인증 읽기전용 계정이라(DECISIONS 2026-06-18 — 누구나 DB를
+#   읽도록 SKILL.md에 전문 공개) 연결문자열을 아래에 그대로 둔다. 추가 secret 설정이 필요 없다.
+#
+# 제약:
+#   - 스케줄 워크플로는 default 브랜치(main)에 머지돼야 발동한다.
+#   - GitHub cron 은 UTC·best-effort. 레포 60일 무활동 시 스케줄 자동 비활성(필요 시 재활성).
+#   - 임계값은 아래 env 로 노출한다(근거는 주석) — 운영하며 미세조정 가능.
+
+name: freshness-watchdog
+
+on:
+  schedule:
+    # 매일 10:00 KST = 01:00 UTC (03:00 KST 예약 적재가 끝났어야 할 아침에 점검)
+    - cron: "0 1 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # 적재는 매일 03:00 KST — 3일 이상 신규 수집이 없으면 러너 death 신호(07-16·17 취소 전례).
+      STALE_DAYS: "3"
+      # 가결 법률안인데 이만큼 지나도 공포 outcome 행이 없으면 공포 추적 누락(WI1 편입 후엔 매일 갱신).
+      OUTCOME_GAP_DAYS: "30"
+      # 최근 가결 법률안에 이만큼 표결 행이 없으면 votes 수집 누락(표결은 대개 당일 수집).
+      VOTE_GAP_DAYS: "7"
+      # congress_ro는 의도적으로 공개된 읽기전용 계정이라(DECISIONS 2026-06-18, SKILL.md에 전문 공개)
+      # 연결문자열을 그대로 둔다 — 추가 secret 설정 없이 동작한다.
+      CONGRESS_RO_URL: "postgresql://congress_ro:-bnO7FC_xrsV12xPm4cwtpNBmhFY_TXU@ep-muddy-unit-ao33i6y0-pooler.c-2.ap-southeast-1.aws.neon.tech/congress?sslmode=require"
+    steps:
+      - name: Ensure psql
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          fi
+          psql --version
+
+      - name: Check data freshness
+        run: |
+          set -euo pipefail
+          if [ -z "${CONGRESS_RO_URL:-}" ]; then
+            echo "::error::CONGRESS_RO_URL 비어 있음 — 위 env의 공개 congress_ro 연결문자열이 지워졌는지 확인하라."
+            exit 1
+          fi
+          # 위반이 있으면 한 행씩 사유를 출력하는 쿼리. 결과가 비어 있으면 green.
+          violations="$(psql "$CONGRESS_RO_URL" -X -A -t \
+            -v STALE_DAYS="$STALE_DAYS" \
+            -v OUTCOME_GAP_DAYS="$OUTCOME_GAP_DAYS" \
+            -v VOTE_GAP_DAYS="$VOTE_GAP_DAYS" <<'SQL'
+          SELECT msg FROM (
+            -- 1) bills 적재 정지
+            SELECT format('적재 정지: bills 최신 수집 %s (임계 %s일 초과)', max(fetched_at), :STALE_DAYS) AS msg
+              FROM bills
+              HAVING max(fetched_at) < now() - :STALE_DAYS * interval '1 day'
+            UNION ALL
+            -- 2) 공포 이력 적재 정지 (WI1 편입 후엔 매일 갱신되므로 타당)
+            SELECT format('공포 적재 정지: bill_final_outcomes 최신 수집 %s (임계 %s일 초과)', max(fetched_at), :STALE_DAYS)
+              FROM bill_final_outcomes
+              HAVING max(fetched_at) < now() - :STALE_DAYS * interval '1 day'
+            UNION ALL
+            -- 3) 공포 추적 누락: 오래된 가결 법률안에 outcome 행이 아예 없음
+            SELECT format('공포 추적 누락: %s일+ 전 가결 법률안 중 outcome 행 없음 %s건', :OUTCOME_GAP_DAYS, count(*))
+              FROM bills b
+              WHERE b.proc_result IN ('원안가결','수정가결')
+                AND b.bill_name ~ '법(률)?안'
+                AND b.proc_dt < now()::date - :OUTCOME_GAP_DAYS
+                AND NOT EXISTS (SELECT 1 FROM bill_final_outcomes o WHERE o.bill_no = b.bill_no)
+              HAVING count(*) > 0
+            UNION ALL
+            -- 4) 표결 수집 누락: 최근 가결 법률안인데 votes 행이 없음
+            SELECT format('표결 수집 누락: 최근 %s일 가결 법률안 중 votes 행 없음 %s건', :VOTE_GAP_DAYS, count(*))
+              FROM bills b
+              WHERE b.proc_result IN ('원안가결','수정가결')
+                AND b.bill_name ~ '법(률)?안'
+                AND b.proc_dt >= now()::date - :VOTE_GAP_DAYS
+                AND NOT EXISTS (SELECT 1 FROM votes v WHERE v.bill_id = b.bill_id)
+              HAVING count(*) > 0
+          ) x
+          WHERE msg IS NOT NULL;
+          SQL
+          )"
+          if [ -n "$(printf '%s' "$violations" | tr -d '[:space:]')" ]; then
+            echo "::error::신선도 워치독 위반 감지 — 적재/수집이 조용히 멈췄을 수 있다:"
+            printf '%s\n' "$violations" | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error:: - $line"
+            done
+            exit 1
+          fi
+          echo "신선도 정상: bills·공포 수집 최신, 공포·표결 추적 누락 없음."
