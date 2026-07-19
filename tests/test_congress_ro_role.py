@@ -36,6 +36,7 @@ def test_congress_ro_role_exposes_only_consumer_relations() -> None:
         "votes",
         "bill_final_outcomes",
         "bill_lineage",
+        "data_freshness",
     ):
         assert relation in sql
 

@@ -55,7 +55,7 @@ BEGIN
     --    (회의·발언 도메인 meetings·utterances·meeting_bills·bill_meeting_contexts는 031에서 제거.)
     EXECUTE 'GRANT SELECT ON
         members, committees, bills, bill_lead_proposers, bill_coproposers,
-        votes, bill_final_outcomes, bill_lineage
+        votes, bill_final_outcomes, bill_lineage, data_freshness
       TO anonymous, authenticated';
 
     -- 5) 검색 함수 EXECUTE(직접연결 소비자와 동일 표면). search_utterances는 031에서 제거.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import date
 
+from congress_db.core.db import get_conn
 from congress_db.ops.regression_pack import (
     BoundaryNote,
     CheckResult,
@@ -14,6 +15,7 @@ from congress_db.ops.regression_pack import (
     _classify_promulgation_signal,
     _expected_zero_check,
     _floor_check,
+    _load_view_checks,
     render_regression_json,
     render_regression_report,
 )
@@ -32,6 +34,30 @@ def test_floor_checks_are_minimums_not_exact_matches() -> None:
     assert check.kind == "floor"
     assert check.current == 9
     assert check.floor == 7
+
+
+def test_view_checks_pass_when_data_freshness_exposes_domains() -> None:
+    with get_conn() as conn, conn.cursor() as cur:
+        checks = _load_view_checks(cur)
+    assert len(checks) == 1
+    assert checks[0].metric == "data_freshness_domains"
+    assert checks[0].passed
+    assert checks[0].current >= 5
+
+
+def test_report_fails_when_view_check_fails() -> None:
+    failing = CheckResult(
+        metric="data_freshness_domains",
+        label="data_freshness 뷰 도메인 행 수",
+        kind="floor",
+        current=0,
+        floor=5,
+        expected=None,
+        passed=False,
+        detail="broken view",
+    )
+    report = RegressionPackReport(generated_at="t", scenarios=(), view_checks=(failing,))
+    assert report.passed is False
 
 
 def test_expected_zero_check_requires_zero() -> None:

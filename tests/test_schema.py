@@ -358,6 +358,9 @@ def test_critical_gotcha_comments_carry_their_warning() -> None:
         ("bill_final_outcomes", "promulgation_dt"): "거부권",
         # 성별 GROUP BY 시 NULL 버킷 stub 경고
         ("members", "sex_gbn_nm"): "NULL",
+        # fetched_at은 신선도 판단에 쓰며 전체 신선도는 data_freshness 뷰로 (WI4)
+        ("bills", "fetched_at"): "data_freshness",
+        ("bill_final_outcomes", "fetched_at"): "data_freshness",
     }
     for (table, column), marker in column_markers.items():
         comment = _column_comment(table, column) or ""
@@ -370,6 +373,8 @@ def test_critical_gotcha_comments_carry_their_warning() -> None:
         "bill_lineage": "COVERAGE",
         # bills 테이블에 생애주기 단계 시간순 개요(introspect-only 자립)
         "bills": "생애주기 단계",
+        # 신선도 뷰: 단정 전 기준일 병기 규율(WI4)
+        "data_freshness": "신선도",
     }
     for relation, marker in relation_markers.items():
         comment = _relation_comment(relation) or ""
@@ -379,6 +384,29 @@ def test_critical_gotcha_comments_carry_their_warning() -> None:
     for func in ("search_bills",):
         comment = _function_comment(func) or ""
         assert "3-gram" in comment, f"{func} COMMENT lost its 2-char performance warning"
+
+
+def test_data_freshness_view_exposes_one_row_per_domain() -> None:
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT domain FROM data_freshness ORDER BY domain")
+        domains = [row[0] for row in cur.fetchall()]
+    assert domains == sorted(
+        ["bills", "members", "votes", "bill_final_outcomes", "bill_relations"]
+    )
+
+
+def test_data_freshness_votes_has_null_ingest_and_bills_has_fact_date() -> None:
+    # votes엔 fetched_at이 없어 last_ingest_at은 NULL 컬럼, latest_fact_date는 표결일 계열이어야 함.
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT domain, last_ingest_at, latest_fact_date FROM data_freshness"
+        )
+        rows = {r[0]: (r[1], r[2]) for r in cur.fetchall()}
+    # 컬럼 계보: votes.last_ingest_at은 항상 NULL(표현식이 NULL::timestamptz)
+    assert rows["votes"][0] is None
+    # members·bill_relations는 latest_fact_date가 항상 NULL(사실 날짜 없음)
+    assert rows["members"][1] is None
+    assert rows["bill_relations"][1] is None
 
 
 def test_foreign_key_columns_are_indexed_for_direct_sql_joins() -> None:

@@ -36,7 +36,8 @@ GRANT SELECT ON
     bill_coproposers,
     votes,
     bill_final_outcomes,
-    bill_lineage
+    bill_lineage,
+    data_freshness
 TO congress_ro;
 
 GRANT EXECUTE ON FUNCTION search_snippet(text, text, integer) TO congress_ro;

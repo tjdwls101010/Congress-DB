@@ -123,10 +123,60 @@ class RegressionPackReport:
 
     generated_at: str
     scenarios: tuple[ScenarioResult, ...]
+    view_checks: tuple[CheckResult, ...] = ()
 
     @property
     def passed(self) -> bool:
-        return all(scenario.passed for scenario in self.scenarios)
+        return all(scenario.passed for scenario in self.scenarios) and all(
+            check.passed for check in self.view_checks
+        )
+
+
+_FRESHNESS_DOMAINS = (
+    "bills",
+    "members",
+    "votes",
+    "bill_final_outcomes",
+    "bill_relations",
+)
+
+
+def _load_view_checks(cur: object) -> tuple[CheckResult, ...]:
+    """소비 표면 뷰의 floor 게이트. data_freshness가 도메인 1행씩 노출하는지 확인한다(WI4).
+
+    마이그레이션 034 적용 전(Neon에 뷰 부재)에는 통과 처리해 '적용 전 회귀팩' 베이스라인을
+    깨지 않고, 적용 후에는 도메인 floor를 강제한다.
+    """
+    cur.execute("SELECT to_regclass('public.data_freshness')")
+    exists = cur.fetchone()[0] is not None
+    floor = len(_FRESHNESS_DOMAINS)
+    if not exists:
+        return (
+            CheckResult(
+                metric="data_freshness_domains",
+                label="data_freshness 뷰 도메인 행 수",
+                kind="floor",
+                current=0,
+                floor=floor,
+                expected=None,
+                passed=True,
+                detail="data_freshness 뷰 미적용(마이그레이션 034 적용 전) — 적용 후 도메인 floor를 강제한다.",
+            ),
+        )
+    cur.execute("SELECT count(*) FROM data_freshness")
+    domain_count = int(cur.fetchone()[0])
+    return (
+        CheckResult(
+            metric="data_freshness_domains",
+            label="data_freshness 뷰 도메인 행 수",
+            kind="floor",
+            current=domain_count,
+            floor=floor,
+            expected=None,
+            passed=domain_count >= floor,
+            detail=f"신선도 뷰가 {floor}개 스테이지(도메인) 1행씩 노출해 소비자가 단정 전 기준일을 확인하게 한다.",
+        ),
+    )
 
 
 COMMON_BOUNDARY_NOTES = (
@@ -228,10 +278,12 @@ def run_regression_pack(
     """4개 retrieval scenario를 실행하고 Markdown/JSON 리포트를 저장한다."""
     with get_readonly_conn() as conn, conn.cursor() as cur:
         scenarios = tuple(_load_scenario(cur, spec) for spec in SCENARIO_SPECS)
+        view_checks = _load_view_checks(cur)
 
     report = RegressionPackReport(
         generated_at=datetime.now(timezone.utc).isoformat(),
         scenarios=scenarios,
+        view_checks=view_checks,
     )
     render_regression_report(report, markdown_path)
     render_regression_json(report, json_path)
