@@ -72,12 +72,13 @@ erDiagram
 | `cmt_proc_result` | TEXT | 위원회 처리결과(라벨) |
 | `summary` | TEXT | 주요내용 |
 | `fetched_at` | TIMESTAMPTZ | 마지막 수집 시각 |
+| `is_law_bill` | BOOLEAN GENERATED ALWAYS … STORED | 법률안(공포 대상) 여부(`bill_name ~ '법(률)?안'`, `migrations/037`). 가결-미공포를 계류/거부권 후보로 좁힐 때 사용 |
 
 ### 4. `bill_relations` — 대안 관계
 
 대안반영폐기·수정안반영폐기된 원안과 그 내용을 흡수한 대안/수정안 법안을 연결한다. 출처는 의안정보시스템(likms) `billDetail.do`의 hidden `selRefBillId`.
 
-> **소비자 비노출 (ops-internal, `congress_ro` REVOKE #125):** 소비자는 폐기원안→해소된 canonical 대안 계보를 **`bill_lineage` 뷰**로 읽는다(direct+alias 해소를 캡슐화, `relation_type`은 `proc_result`에서 파생 노출, 미해소면 `alternative_bill_id=NULL`). 이 raw 테이블과 `bill_source_aliases`는 ETL 전용이다.
+> **소비자 비노출 (ops-internal, `congress_ro` REVOKE #125):** 소비자는 폐기원안→해소된 canonical 대안 계보를 **`bill_lineage` 뷰**로 읽는다(direct+alias 해소를 캡슐화, `relation_type`은 `proc_result`에서, 소관위-종료 원안은 `cmt_proc_result`에서 파생 노출(C1), 미해소면 `alternative_bill_id=NULL`). 이 raw 테이블과 `bill_source_aliases`는 ETL 전용이다. 증분은 미보유분만 스크랩(missing-only) — 본회의 폐기 + 소관위-종료 폐기 원안 모두 대상(WI2·C1).
 
 | 컬럼 | 타입 | 비고 |
 |---|---|---|
@@ -110,7 +111,10 @@ ALLBILL이 제공하는 본회의 의결 이후 정부이송·공포 이력을 `
 | `promulgation_dt` | DATE | 공포일 (`PROM_DT`) |
 | `prom_no` | TEXT | 공포번호 (`PROM_NO`) |
 | `prom_law_nm` | TEXT | 공포 법률명 (`PROM_LAW_NM`) |
+| `prom_law_nm_norm` | TEXT GENERATED ALWAYS … STORED | `prom_law_nm` 정규화(중점 U+318D→U+00B7 + 공백 제거, `migrations/038`). 법제처 등 외부 법령명 매칭용(상대측도 같은 정규화 필요; 1차 키는 `prom_no`) |
 | `fetched_at` | TIMESTAMPTZ | 마지막 수집 시각 |
+
+> **증분 편입 (WI1, 2026-07-19):** `bill_final_outcomes`는 이제 증분 파이프라인 스테이지로 매일 채워진다 — 신규 가결분 outcome 생성 + 공포 대기(`promulgation_dt IS NULL`) 법률안 재조회(재의결로 `plenary_dt` 갱신 반영). upsert는 비파괴(`COALESCE(EXCLUDED, 기존)`).
 
 ### 5. `bill_lead_proposers` — 대표발의 N:M
 
@@ -143,7 +147,19 @@ OpenAPI가 복수 대표발의자를 줄 수 있어 정규화한다.
 | `result_vote_mod` | TEXT NOT NULL | 찬성/반대/기권/불참 — **불참은 저장값 약 1/4**(빠진 행 아님; 출석 분모는 불참 제외) |
 | `poly_nm_at_vote` | TEXT | 표결 시점 정당 |
 
+> **재의결 표결 부재 (WI3, `migrations/035`):** 대통령 거부권 후 재의결된 법안은 본회의 표결이 두 번이나 원천 API가 원표결만 제공해 `votes`엔 하나만 있다. 재의결 여부는 `bill_final_outcomes.plenary_dt > bills.proc_dt`로 식별하고, 부재한 재의결 표결의 표는 회의록·websearch로 확인한다.
+
 > **회의·발언 도메인(`meetings`·`meeting_bills`·`utterances`)은 2026-06-28 `migrations/031_drop_meeting_minutes.sql`에서 제거됐다.** 이 ERD에는 더 이상 포함하지 않는다.
+
+## 소비 뷰 (consumer views — owner 권한으로 실행돼 REVOKE된 ETL 테이블도 캡슐화 노출)
+
+### `bill_lineage` — 폐기 원안 → 흡수 canonical 대안 계보 (`migrations/023`·`036`)
+
+`bill_relations` + `bill_source_aliases` 해소를 캡슐화한 소비 표면(raw 두 테이블은 `congress_ro` REVOKE). `relation_type`은 `bills.proc_result`에서 파생하되, **소관위-종료 원안(`proc_result` NULL·`cmt_proc_result` 폐기)은 `cmt_proc_result`에서 파생**한다(WI2·C1, `migrations/036`). 본회의·소관위 종료 폐기 원안을 모두 스크랩하므로 0행이면 대체로 진짜 미흡수(잔여 갭은 `selRefBillId` 부재 소수 — 뷰 COMMENT COVERAGE).
+
+### `data_freshness` — 스테이지별 신선도 (`migrations/034`, WI4)
+
+도메인(`bills`·`members`·`votes`·`bill_final_outcomes`·`bill_relations`)별 1행: `last_ingest_at`(그 도메인 최신 `fetched_at`; votes는 미보유라 NULL), `latest_fact_date`(도메인 최신 사실 날짜 — bills=최신 발의일, votes=최신 표결일, outcomes=최신 공포일). 최신 현황·미공포·계류를 단정하기 전 이 뷰로 기준일을 확인하고 산출물에 병기한다(스테이지마다 수집 시점이 달라 '없음'이 미수집일 수 있음).
 
 ## Operational Tables
 
