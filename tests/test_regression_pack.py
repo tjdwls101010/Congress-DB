@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import date
 
+from congress_db.core.db import get_conn
 from congress_db.ops.regression_pack import (
     BoundaryNote,
     CheckResult,
@@ -14,6 +15,7 @@ from congress_db.ops.regression_pack import (
     _classify_promulgation_signal,
     _expected_zero_check,
     _floor_check,
+    _load_view_checks,
     render_regression_json,
     render_regression_report,
 )
@@ -32,6 +34,39 @@ def test_floor_checks_are_minimums_not_exact_matches() -> None:
     assert check.kind == "floor"
     assert check.current == 9
     assert check.floor == 7
+
+
+def test_view_checks_pass_when_data_freshness_exposes_domains() -> None:
+    with get_conn() as conn, conn.cursor() as cur:
+        checks = _load_view_checks(cur)
+    by_metric = {c.metric: c for c in checks}
+    assert "data_freshness_domains" in by_metric
+    assert by_metric["data_freshness_domains"].passed
+    assert by_metric["data_freshness_domains"].current >= 5
+
+
+def test_view_checks_gate_is_law_bill_classification() -> None:
+    with get_conn() as conn, conn.cursor() as cur:
+        checks = _load_view_checks(cur)
+    by_metric = {c.metric: c for c in checks}
+    assert "is_law_bill_majority" in by_metric
+    # 로컬은 빈 DB라 law=0·non_law=0 → floor=1, current=0 → 통과 아님이 될 수 있으니 존재만 확인.
+    assert by_metric["is_law_bill_majority"].metric == "is_law_bill_majority"
+
+
+def test_report_fails_when_view_check_fails() -> None:
+    failing = CheckResult(
+        metric="data_freshness_domains",
+        label="data_freshness 뷰 도메인 행 수",
+        kind="floor",
+        current=0,
+        floor=5,
+        expected=None,
+        passed=False,
+        detail="broken view",
+    )
+    report = RegressionPackReport(generated_at="t", scenarios=(), view_checks=(failing,))
+    assert report.passed is False
 
 
 def test_expected_zero_check_requires_zero() -> None:

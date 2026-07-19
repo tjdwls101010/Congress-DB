@@ -123,10 +123,109 @@ class RegressionPackReport:
 
     generated_at: str
     scenarios: tuple[ScenarioResult, ...]
+    view_checks: tuple[CheckResult, ...] = ()
 
     @property
     def passed(self) -> bool:
-        return all(scenario.passed for scenario in self.scenarios)
+        return all(scenario.passed for scenario in self.scenarios) and all(
+            check.passed for check in self.view_checks
+        )
+
+
+_FRESHNESS_DOMAINS = (
+    "bills",
+    "members",
+    "votes",
+    "bill_final_outcomes",
+    "bill_relations",
+)
+
+
+def _load_view_checks(cur: object) -> tuple[CheckResult, ...]:
+    """소비 표면 floor 게이트(WI4·WI4b). 새 마이그레이션 적용 전(대상 객체 부재)에는 통과
+    처리해 '적용 전 회귀팩' 베이스라인을 깨지 않고, 적용 후에는 floor를 강제한다."""
+    return _data_freshness_check(cur) + _is_law_bill_classification_check(cur)
+
+
+def _data_freshness_check(cur: object) -> tuple[CheckResult, ...]:
+    """data_freshness가 도메인 1행씩 노출하는지(WI4)."""
+    cur.execute("SELECT to_regclass('public.data_freshness')")
+    exists = cur.fetchone()[0] is not None
+    floor = len(_FRESHNESS_DOMAINS)
+    if not exists:
+        return (
+            CheckResult(
+                metric="data_freshness_domains",
+                label="data_freshness 뷰 도메인 행 수",
+                kind="floor",
+                current=0,
+                floor=floor,
+                expected=None,
+                passed=True,
+                detail="data_freshness 뷰 미적용(마이그레이션 034 적용 전) — 적용 후 도메인 floor를 강제한다.",
+            ),
+        )
+    cur.execute("SELECT count(*) FROM data_freshness")
+    domain_count = int(cur.fetchone()[0])
+    return (
+        CheckResult(
+            metric="data_freshness_domains",
+            label="data_freshness 뷰 도메인 행 수",
+            kind="floor",
+            current=domain_count,
+            floor=floor,
+            expected=None,
+            passed=domain_count >= floor,
+            detail=f"신선도 뷰가 {floor}개 스테이지(도메인) 1행씩 노출해 소비자가 단정 전 기준일을 확인하게 한다.",
+        ),
+    )
+
+
+def _is_law_bill_classification_check(cur: object) -> tuple[CheckResult, ...]:
+    """is_law_bill 생성컬럼이 살아 있는지 — 법률안 수 > 비-법률 수 분류 floor(WI4b·C2)."""
+    cur.execute(
+        """
+        SELECT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'bills'
+              AND column_name = 'is_law_bill'
+        )
+        """
+    )
+    exists = bool(cur.fetchone()[0])
+    if not exists:
+        return (
+            CheckResult(
+                metric="is_law_bill_majority",
+                label="법률안 수 > 비-법률 수",
+                kind="floor",
+                current=0,
+                floor=1,
+                expected=None,
+                passed=True,
+                detail="is_law_bill 생성컬럼 미적용(마이그레이션 037 적용 전) — 적용 후 분류 floor를 강제한다.",
+            ),
+        )
+    cur.execute(
+        """
+        SELECT count(*) FILTER (WHERE is_law_bill),
+               count(*) FILTER (WHERE NOT is_law_bill)
+        FROM bills
+        """
+    )
+    law_count, non_law_count = (int(v) for v in cur.fetchone())
+    return (
+        CheckResult(
+            metric="is_law_bill_majority",
+            label="법률안 수 > 비-법률 수",
+            kind="floor",
+            current=law_count,
+            floor=non_law_count + 1,
+            expected=None,
+            passed=law_count > non_law_count,
+            detail="is_law_bill이 대다수 의안을 법률안으로 분류해야 정상(정규식이 깨져 전부 비-법률로 뒤집히면 계류 집계가 붕괴).",
+        ),
+    )
 
 
 COMMON_BOUNDARY_NOTES = (
@@ -228,10 +327,12 @@ def run_regression_pack(
     """4개 retrieval scenario를 실행하고 Markdown/JSON 리포트를 저장한다."""
     with get_readonly_conn() as conn, conn.cursor() as cur:
         scenarios = tuple(_load_scenario(cur, spec) for spec in SCENARIO_SPECS)
+        view_checks = _load_view_checks(cur)
 
     report = RegressionPackReport(
         generated_at=datetime.now(timezone.utc).isoformat(),
         scenarios=scenarios,
+        view_checks=view_checks,
     )
     render_regression_report(report, markdown_path)
     render_regression_json(report, json_path)
