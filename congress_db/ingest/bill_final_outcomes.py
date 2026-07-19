@@ -26,10 +26,29 @@ class BillFinalOutcomeTarget:
     propose_dt: date | None
     proc_result: str | None
     has_outcome: bool
+    is_law_bill: bool = False
+    outcome_promulgated: bool = False
 
     @property
     def is_passed(self) -> bool:
         return self.proc_result in PASSED_PROC_RESULTS
+
+    @property
+    def is_fully_resolved(self) -> bool:
+        """더 받아낼 게 없어 재조회를 건너뛰어도 되는 상태.
+
+        outcome 행이 없거나 propose_dt가 비면 아직 받을 게 있다. outcome 행이 있어도
+        **법률안인데 promulgation_dt가 NULL이면 공포 대기(재의결 포함) pending**이라 재조회한다
+        (F1b). 반면 공포 비대상(비-법률 결의안·수사요구안 등)의 promulgation NULL은 종착이므로
+        재조회하지 않는다 — 매일 영영 안 채워질 수백 건을 재호출하는 낭비를 막는다(WI1 수용기준 ③).
+        """
+        if not self.has_outcome:
+            return False
+        if self.propose_dt is None:
+            return False
+        if self.is_law_bill and not self.outcome_promulgated:
+            return False
+        return True
 
 
 @dataclass(frozen=True)
@@ -76,13 +95,16 @@ _UPSERT_OUTCOME_SQL = """
         %(prom_no)s, %(prom_law_nm)s
     )
     ON CONFLICT (bill_no) DO UPDATE SET
-        plenary_dt       = EXCLUDED.plenary_dt,
-        govt_transfer_dt = EXCLUDED.govt_transfer_dt,
-        promulgation_dt  = EXCLUDED.promulgation_dt,
-        prom_no          = EXCLUDED.prom_no,
-        prom_law_nm      = EXCLUDED.prom_law_nm,
+        plenary_dt       = COALESCE(EXCLUDED.plenary_dt, bill_final_outcomes.plenary_dt),
+        govt_transfer_dt = COALESCE(EXCLUDED.govt_transfer_dt, bill_final_outcomes.govt_transfer_dt),
+        promulgation_dt  = COALESCE(EXCLUDED.promulgation_dt, bill_final_outcomes.promulgation_dt),
+        prom_no          = COALESCE(EXCLUDED.prom_no, bill_final_outcomes.prom_no),
+        prom_law_nm      = COALESCE(EXCLUDED.prom_law_nm, bill_final_outcomes.prom_law_nm),
         fetched_at       = now()
 """
+# pending 재조회(F1b)는 원천 우선 upsert하되, 원천이 빈 값을 줄 때 기존에 채워진 값을 NULL로
+# 덮지 않도록 COALESCE(EXCLUDED, 기존)로 보호한다(bills upsert의 비파괴 패턴과 일치, DECISIONS 2026-06-28).
+# 재의결로 갱신된 plenary_dt·뒤늦은 promulgation_dt는 원천에 값이 있으므로 정상 반영된다.
 
 _UPDATE_MISSING_PROPOSE_DT_SQL = """
     UPDATE bills
@@ -104,7 +126,7 @@ def backfill_bill_final_outcomes(
     eligible_targets = [
         target
         for target in targets
-        if not (target.has_outcome and target.propose_dt is not None)
+        if not target.is_fully_resolved
     ]
     fetch_targets = eligible_targets
     if limit is not None:
@@ -175,7 +197,9 @@ def _load_targets(*, bill_nos: Sequence[str] | None = None) -> list[BillFinalOut
                 b.bill_no,
                 b.propose_dt,
                 b.proc_result,
-                o.bill_no IS NOT NULL AS has_outcome
+                o.bill_no IS NOT NULL AS has_outcome,
+                (b.bill_name ~ '법(률)?안') AS is_law_bill,
+                (o.promulgation_dt IS NOT NULL) AS outcome_promulgated
             FROM bills b
             LEFT JOIN bill_final_outcomes o ON o.bill_no = b.bill_no
             WHERE b.bill_no IS NOT NULL
@@ -195,6 +219,8 @@ def _load_targets(*, bill_nos: Sequence[str] | None = None) -> list[BillFinalOut
                 propose_dt=row[2],
                 proc_result=row[3],
                 has_outcome=bool(row[4]),
+                is_law_bill=bool(row[5]),
+                outcome_promulgated=bool(row[6]),
             )
             for row in cur.fetchall()
         ]

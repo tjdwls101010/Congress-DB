@@ -11,6 +11,22 @@ from congress_db.ingest.ingest_command import (
 )
 
 
+def test_incremental_stages_include_bill_final_outcomes_after_votes() -> None:
+    names = [stage.name for stage in build_incremental_stages()]
+    assert "bill_final_outcomes" in names
+    assert names.index("bill_final_outcomes") == names.index("votes") + 1
+    assert names.index("bill_final_outcomes") < names.index("sanity_check")
+
+
+def test_incremental_stages_include_bill_relations_and_aliases_after_bills() -> None:
+    names = [stage.name for stage in build_incremental_stages()]
+    assert "bill_relations" in names
+    assert "bill_source_aliases" in names
+    assert names.index("bill_relations") == names.index("bills") + 1
+    assert names.index("bill_source_aliases") == names.index("bill_relations") + 1
+    assert names.index("bill_source_aliases") < names.index("votes")
+
+
 def test_decide_ingest_mode_uses_backfill_until_successful_baseline_and_cursors() -> None:
     assert (
         decide_ingest_mode("auto", successful_backfill=False, required_cursors=False)
@@ -37,6 +53,21 @@ def test_incremental_stages_scope_bills_and_votes_to_missing(
 
     monkeypatch.setattr(ingest_command, "retry_dead_letters", lambda: {"retried": 0})
     monkeypatch.setattr(ingest_command, "ingest_members", lambda: {"stage": "members"})
+    monkeypatch.setattr(
+        ingest_command,
+        "backfill_bill_final_outcomes",
+        lambda: {"stage": "bill_final_outcomes"},
+    )
+    monkeypatch.setattr(
+        ingest_command,
+        "ingest_bill_relations",
+        lambda **kwargs: {"stage": "bill_relations"},
+    )
+    monkeypatch.setattr(
+        ingest_command,
+        "resolve_bill_source_aliases",
+        lambda **kwargs: {"stage": "bill_source_aliases"},
+    )
 
     def fake_bills(**kwargs):
         calls["bills_kwargs"] = kwargs
@@ -77,6 +108,21 @@ def test_incremental_stages_cap_explicit_worker_counts(
     monkeypatch.setenv("CONGRESS_DB_HTTP_CONCURRENCY_LIMIT", "7")
     monkeypatch.setattr(ingest_command, "retry_dead_letters", lambda: {"retried": 0})
     monkeypatch.setattr(ingest_command, "ingest_members", lambda: {"stage": "members"})
+    monkeypatch.setattr(
+        ingest_command,
+        "backfill_bill_final_outcomes",
+        lambda: {"stage": "bill_final_outcomes"},
+    )
+    monkeypatch.setattr(
+        ingest_command,
+        "ingest_bill_relations",
+        lambda **kwargs: {"stage": "bill_relations"},
+    )
+    monkeypatch.setattr(
+        ingest_command,
+        "resolve_bill_source_aliases",
+        lambda **kwargs: {"stage": "bill_source_aliases"},
+    )
     monkeypatch.setattr(
         ingest_command,
         "ingest_bills",

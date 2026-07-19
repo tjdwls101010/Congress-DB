@@ -13,6 +13,7 @@ from ..core.db import get_conn
 from ..core.progress import safe_print
 from ..ops.data_completeness import generate_data_completeness_report
 from ..ops.sanity_check import run_sanity_check
+from .bill_final_outcomes import backfill_bill_final_outcomes
 from .ingest_bills import ingest_bills
 from .ingest_members import ingest_members
 from .ingest_state import (
@@ -144,6 +145,7 @@ def build_default_backfill_stages(
     ingest_members_fn: Callable[..., object] = ingest_members,
     ingest_bills_fn: Callable[..., object] = ingest_bills,
     ingest_votes_fn: Callable[..., object] = ingest_votes,
+    backfill_bill_final_outcomes_fn: Callable[..., object] = backfill_bill_final_outcomes,
     run_sanity_check_fn: Callable[..., object] = run_sanity_check,
     generate_data_completeness_report_fn: Callable[..., object] = generate_data_completeness_report,
 ) -> tuple[BackfillStage, ...]:
@@ -189,6 +191,26 @@ def build_default_backfill_stages(
         )
         return _stage_from_result(result, exclude=("vote_row_failures",), dead_letters=dead_letters)
 
+    def run_bill_final_outcomes() -> StageResult:
+        result = backfill_bill_final_outcomes_fn()
+        failures = getattr(result, "failures", ())
+        dead_letters = tuple(
+            DeadLetterDraft(
+                source="bill_final_outcomes",
+                stage="fetch",
+                item_key=str(failure.bill_no),
+                payload={
+                    "bill_id": failure.bill_id,
+                    "bill_no": failure.bill_no,
+                    "proc_result": failure.proc_result,
+                    "reason": failure.reason,
+                },
+                error=f"{failure.reason}: {failure.error}",
+            )
+            for failure in failures
+        )
+        return _stage_from_result(result, exclude=("failures",), dead_letters=dead_letters)
+
     def run_sanity() -> StageResult:
         result = run_sanity_check_fn()
         return _stage_from_result(result)
@@ -201,6 +223,7 @@ def build_default_backfill_stages(
         BackfillStage("members", run_members),
         BackfillStage("bills", run_bills),
         BackfillStage("votes", run_votes),
+        BackfillStage("bill_final_outcomes", run_bill_final_outcomes),
         BackfillStage("sanity_check", run_sanity),
         BackfillStage("data_completeness", run_data_completeness),
     )
