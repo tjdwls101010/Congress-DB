@@ -3,6 +3,10 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-07-19 — 대안계보 증분 편입(missing-only) + 소관위-종료 원안 커버리지 확장 (WI2·C1, migration 036)
+
+대안반영폐기·수정안반영폐기 원안의 흡수 대안 스크랩이 증분 파이프라인에 없어 수동 스크립트로만 채워졌다. `ingest_bill_relations`에 **missing-only 모드**를 추가하고(전량 3,743건 매일 재스크랩은 최취약 likms 경로에 과부하 — 라이브 실측 시 미보유분은 28건뿐), `build_incremental_stages`에 `bill_relations`+`bill_source_aliases` 스테이지를 bills 다음에 편입했다. **C1(채택):** "bill_lineage 0행 ≠ 미흡수" 함정의 뿌리인 소관위-종료 원안(proc_result NULL·cmt_proc_result 폐기, 라이브 459건)의 likms 상세페이지에 selRefBillId가 실재하는지 표본 5건을 프로브한 결과 **5/5 존재** → 선정 조건에 cmt-level OR을 추가하고, `bill_lineage` 뷰의 relation_type을 proc_result가 NULL이면 cmt_proc_result에서 파생하도록 갱신했다(036). 459건 1회 백필과 selRefBillId 부재 잔여분 건수는 Neon 적용·백필 실행(WI8) 후 확정해 이 로그에 추가한다. safe_update fingerprint의 삭제 가드는 이미 `bill_relations`를 포함(추가 조치 불요).
+
 ## 2026-06-28 — 일일 자동 증분 적재 (GitHub Actions + safe-update)
 
 국회 최신 데이터를 주기적으로 Neon main에 반영하기 위해 `.github/workflows/scheduled-ingest.yml`을 추가했다. 매일 03:00 KST(cron UTC 18:00) + 수동(workflow_dispatch)으로 `uv run python -m scripts.safe_update`를 실행한다. 이미 멱등·비파괴·자동복원으로 설계된 safe-update를 그대로 감싼 것이라 무인 실행에 안전하다 — 손상 감지 시 백업 브랜치로 자동복원하고 **종료코드 1**로 끝나므로 그 run이 CI 실패로 표면화돼 알림이 간다("데이터는 지켰지만 적재는 건너뜀"이 조용한 초록불이 되지 않음). 러너는 Neon만 겨누므로 로컬 postgres 불필요하고, `concurrency` group으로 동시 쓰기를 직렬화한다. 필요 secret 3개(`CONGRESS_MAIN_URL`·`NEON_API_KEY`·`NATIONAL_ASSEMBLY_API_KEY`)는 레포 Settings에 등록하며 `.neon` project id는 커밋돼 있다. **제약:** 스케줄은 default 브랜치에서만 발동하므로(이 체인이 main에 머지된 뒤 활성), GitHub cron은 UTC·best-effort, 레포 60일 무활동 시 자동 비활성. 백업 브랜치는 무손상 시 자동 삭제되나 복원/실패 run은 `pre-update-*`를 남기므로 장기 운영 시 Neon 브랜치 만료/주기 정리를 둔다.

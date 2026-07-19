@@ -24,7 +24,9 @@ from ..ops.data_completeness import generate_data_completeness_report
 from ..ops.migration_readiness import generate_migration_readiness_report
 from ..ops.sanity_check import run_sanity_check
 from .bill_final_outcomes import backfill_bill_final_outcomes
+from .bill_source_aliases import resolve_bill_source_aliases
 from .dead_letter_retry import retry_dead_letters
+from .ingest_bill_relations import ingest_bill_relations
 from .ingest_bills import ingest_bills
 from .ingest_members import ingest_members
 from .ingest_state import upsert_cursor
@@ -328,6 +330,8 @@ def build_incremental_stages() -> tuple[BackfillStage, ...]:
         BackfillStage("retry_dead_letters", _run_dead_letter_retry),
         BackfillStage("members", run_members),
         BackfillStage("bills", run_bills),
+        BackfillStage("bill_relations", _run_bill_relations),
+        BackfillStage("bill_source_aliases", _run_bill_source_aliases),
         BackfillStage("votes", run_votes),
         BackfillStage("bill_final_outcomes", _run_bill_final_outcomes),
         BackfillStage("sanity_check", lambda: _stage_from_result(run_sanity_check())),
@@ -336,6 +340,69 @@ def build_incremental_stages() -> tuple[BackfillStage, ...]:
             lambda: _stage_from_result(generate_data_completeness_report()),
         ),
         BackfillStage("migration_readiness", _run_migration_readiness),
+    )
+
+
+def _run_bill_relations() -> StageResult:
+    """신규 폐기 원안(본회의·소관위-종료)의 흡수 대안 관계를 미보유분만 스크랩한다(WI2·C1).
+
+    missing-only라 정상 상태에서 대상은 신규 폐기분 수 건~수십 건 수준이다. likms 실패는
+    dead_letter로 보존해 retry_dead_letters가 재처리한다.
+    """
+    result = ingest_bill_relations(relation_fetch_mode="missing")
+    dead_letters = tuple(
+        DeadLetterDraft(
+            source="bill_relations",
+            stage="bill_relations",
+            item_key=str(failure.bill_id),
+            payload={"bill_id": failure.bill_id, "reason": failure.reason},
+            error=f"{failure.reason}: {failure.error}",
+        )
+        for failure in getattr(result, "failures", ())
+    )
+    return _stage_from_result(result, exclude=("failures",), dead_letters=dead_letters)
+
+
+def _run_bill_source_aliases() -> StageResult:
+    """신규 대안 BILL_ID를 canonical bills로 해소해 bill_lineage 계보 절단을 막는다(WI2).
+
+    resolve_bill_source_aliases는 이미 미해소분만 대상으로 하므로 별도 mode가 필요 없다.
+    """
+    result = resolve_bill_source_aliases()
+    dead_letters = tuple(
+        DeadLetterDraft(
+            source="bill_source_aliases",
+            stage="resolve",
+            item_key=str(ambiguity.source_bill_id),
+            payload={
+                "source_bill_id": ambiguity.source_bill_id,
+                "bill_no": ambiguity.bill_no,
+                "canonical_bill_ids": ambiguity.canonical_bill_ids,
+                "relation_types": ambiguity.relation_types,
+                "n_relations": ambiguity.n_relations,
+            },
+            error="ambiguous canonical bill candidates",
+        )
+        for ambiguity in getattr(result, "ambiguities", ())
+    ) + tuple(
+        DeadLetterDraft(
+            source="bill_source_aliases",
+            stage="fetch",
+            item_key=str(failure.source_bill_id),
+            payload={
+                "source_bill_id": failure.source_bill_id,
+                "relation_types": failure.relation_types,
+                "n_relations": failure.n_relations,
+                "reason": failure.reason,
+            },
+            error=f"{failure.reason}: {failure.error}",
+        )
+        for failure in getattr(result, "failures", ())
+    )
+    return _stage_from_result(
+        result,
+        exclude=("aliases", "accepted_gaps", "ambiguities", "failures"),
+        dead_letters=dead_letters,
     )
 
 

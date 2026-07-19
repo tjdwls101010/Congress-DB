@@ -5,7 +5,9 @@ from __future__ import annotations
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, Literal, Sequence
+
+RelationFetchMode = Literal["all", "missing"]
 
 import requests
 from bs4 import BeautifulSoup
@@ -52,11 +54,17 @@ class BillRelationFailure:
 @dataclass(frozen=True)
 class _BillRelationTarget:
     bill_id: str
-    proc_result: str
+    proc_result: str | None
+    cmt_proc_result: str | None = None
 
     @property
     def relation_type(self) -> str:
-        return _relation_type_for_proc_result(self.proc_result)
+        # 본회의 처리결과가 폐기값이면 그것으로, 아니면 소관위-종료 원안(C1)이라
+        # 위원회 처리결과(cmt_proc_result)에서 파생한다. 선정 SQL이 둘 중 하나는
+        # 폐기값임을 보장한다.
+        if self.proc_result in _PROC_TO_RELATION_TYPE:
+            return _relation_type_for_proc_result(self.proc_result)
+        return _relation_type_for_proc_result(self.cmt_proc_result)
 
 
 @dataclass(frozen=True)
@@ -89,9 +97,18 @@ def ingest_bill_relations(
     limit: int | None = None,
     worker_count: int = DEFAULT_WORKER_COUNT,
     retry_delays: Sequence[float] = DEFAULT_RETRY_DELAYS,
+    relation_fetch_mode: RelationFetchMode = "all",
 ) -> IngestBillRelationsResult:
-    """대안반영폐기/수정안반영폐기 원안의 흡수 대안 관계를 적재한다."""
-    targets = _load_bill_relation_targets(limit=limit)
+    """대안반영폐기/수정안반영폐기 원안의 흡수 대안 관계를 적재한다.
+
+    relation_fetch_mode="missing"은 아직 bill_relations 행이 없는 원안만 스크랩한다(증분용) —
+    전량 3,700여 건을 매일 재스크랩하는 것은 최취약 likms 경로에 과부하라 금지한다.
+    선정 대상엔 본회의 폐기(proc_result)뿐 아니라 소관위-종료 폐기(proc_result NULL·cmt_proc_result
+    폐기, C1)도 포함한다.
+    """
+    targets = _load_bill_relation_targets(
+        limit=limit, relation_fetch_mode=relation_fetch_mode
+    )
     selected_worker_count = cap_worker_count(worker_count) if targets else 0
     fetched, failures = _fetch_bill_relations(
         targets,
@@ -124,22 +141,45 @@ def ingest_bill_relations(
     )
 
 
-def _load_bill_relation_targets(*, limit: int | None = None) -> list[_BillRelationTarget]:
+def _load_bill_relation_targets(
+    *,
+    limit: int | None = None,
+    relation_fetch_mode: RelationFetchMode = "all",
+) -> list[_BillRelationTarget]:
     if limit is not None and limit <= 0:
         raise ValueError("limit must be positive")
+    if relation_fetch_mode not in ("all", "missing"):
+        raise ValueError("relation_fetch_mode must be one of: all, missing")
+    missing_only_sql = ""
+    if relation_fetch_mode == "missing":
+        missing_only_sql = (
+            "AND NOT EXISTS (SELECT 1 FROM bill_relations r "
+            "WHERE r.absorbed_bill_id = b.bill_id)"
+        )
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
-            """
-            SELECT bill_id, proc_result
-            FROM bills
-            WHERE proc_result IN ('대안반영폐기', '수정안반영폐기')
-            ORDER BY propose_dt DESC NULLS LAST, bill_no
+            f"""
+            SELECT b.bill_id, b.proc_result, b.cmt_proc_result
+            FROM bills b
+            WHERE (
+                    b.proc_result IN ('대안반영폐기', '수정안반영폐기')
+                    OR (
+                        b.proc_result IS NULL
+                        AND b.cmt_proc_result IN ('대안반영폐기', '수정안반영폐기')
+                    )
+                  )
+              {missing_only_sql}
+            ORDER BY b.propose_dt DESC NULLS LAST, b.bill_no
             LIMIT %s
             """,
             (limit,),
         )
         return [
-            _BillRelationTarget(bill_id=str(row[0]), proc_result=str(row[1]))
+            _BillRelationTarget(
+                bill_id=str(row[0]),
+                proc_result=row[1],
+                cmt_proc_result=row[2],
+            )
             for row in cur.fetchall()
         ]
 
@@ -271,7 +311,7 @@ def _resolve_existing_dead_letters(conn: Any, absorbed_bill_ids: Sequence[str]) 
         return int(cur.rowcount)
 
 
-def _relation_type_for_proc_result(proc_result: str) -> str:
+def _relation_type_for_proc_result(proc_result: str | None) -> str:
     try:
         return _PROC_TO_RELATION_TYPE[proc_result]
     except KeyError as exc:
