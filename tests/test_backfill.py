@@ -181,6 +181,7 @@ def test_default_backfill_stages_use_full_load_parameters() -> None:
         ingest_members_fn=capture("members"),
         ingest_bills_fn=capture("bills"),
         ingest_votes_fn=capture("votes"),
+        backfill_bill_final_outcomes_fn=capture("bill_final_outcomes"),
         run_sanity_check_fn=capture("sanity_check"),
         generate_data_completeness_report_fn=capture("data_completeness"),
     )
@@ -189,6 +190,7 @@ def test_default_backfill_stages_use_full_load_parameters() -> None:
         "members",
         "bills",
         "votes",
+        "bill_final_outcomes",
         "sanity_check",
         "data_completeness",
     ]

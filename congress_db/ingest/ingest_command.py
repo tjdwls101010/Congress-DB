@@ -23,6 +23,7 @@ from ..core.progress import safe_print
 from ..ops.data_completeness import generate_data_completeness_report
 from ..ops.migration_readiness import generate_migration_readiness_report
 from ..ops.sanity_check import run_sanity_check
+from .bill_final_outcomes import backfill_bill_final_outcomes
 from .dead_letter_retry import retry_dead_letters
 from .ingest_bills import ingest_bills
 from .ingest_members import ingest_members
@@ -328,6 +329,7 @@ def build_incremental_stages() -> tuple[BackfillStage, ...]:
         BackfillStage("members", run_members),
         BackfillStage("bills", run_bills),
         BackfillStage("votes", run_votes),
+        BackfillStage("bill_final_outcomes", _run_bill_final_outcomes),
         BackfillStage("sanity_check", lambda: _stage_from_result(run_sanity_check())),
         BackfillStage(
             "data_completeness",
@@ -335,6 +337,32 @@ def build_incremental_stages() -> tuple[BackfillStage, ...]:
         ),
         BackfillStage("migration_readiness", _run_migration_readiness),
     )
+
+
+def _run_bill_final_outcomes() -> StageResult:
+    """신규 가결분 공포 이력 생성 + 공포 대기(pending) 재조회를 증분에 편입한다(WI1).
+
+    대상은 backfill_bill_final_outcomes의 선정 로직(outcome 없는 가결 + 법률안 pending +
+    propose_dt 결측)이 정하며, 일일 호출량은 수십 건 수준이다. no_data·fetch 실패는 dead_letter로
+    보존해 retry_dead_letters가 다음 run에서 재처리한다.
+    """
+    result = backfill_bill_final_outcomes()
+    dead_letters = tuple(
+        DeadLetterDraft(
+            source="bill_final_outcomes",
+            stage="fetch",
+            item_key=str(failure.bill_no),
+            payload={
+                "bill_id": failure.bill_id,
+                "bill_no": failure.bill_no,
+                "proc_result": failure.proc_result,
+                "reason": failure.reason,
+            },
+            error=f"{failure.reason}: {failure.error}",
+        )
+        for failure in getattr(result, "failures", ())
+    )
+    return _stage_from_result(result, exclude=("failures",), dead_letters=dead_letters)
 
 
 def _run_dead_letter_retry() -> StageResult:

@@ -19,6 +19,9 @@ TEST_BILLS = {
     "TEST_FINAL_LAW_PROC": "2991004",
     "TEST_FINAL_IDEMPOTENT": "2991005",
     "TEST_FINAL_NO_DATA": "2991006",
+    "TEST_FINAL_PENDING_LAW": "2991007",
+    "TEST_FINAL_TERMINAL_NONLAW": "2991008",
+    "TEST_FINAL_PRESERVE": "2991009",
 }
 
 
@@ -57,6 +60,7 @@ def _insert_bill(
     bill_id: str,
     bill_no: str,
     *,
+    bill_name: str | None = None,
     proc_result: str | None = "원안가결",
     propose_dt: str | None = None,
     law_proc_dt: str | None = None,
@@ -69,7 +73,29 @@ def _insert_bill(
             )
             VALUES (%s, %s, %s, %s, %s, %s)
             """,
-            (bill_id, bill_no, bill_id, proc_result, propose_dt, law_proc_dt),
+            (bill_id, bill_no, bill_name or bill_id, proc_result, propose_dt, law_proc_dt),
+        )
+        conn.commit()
+
+
+def _insert_outcome(
+    bill_no: str,
+    *,
+    plenary_dt: str | None = None,
+    govt_transfer_dt: str | None = None,
+    promulgation_dt: str | None = None,
+    prom_no: str | None = None,
+    prom_law_nm: str | None = None,
+) -> None:
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO bill_final_outcomes (
+                bill_no, plenary_dt, govt_transfer_dt, promulgation_dt, prom_no, prom_law_nm
+            )
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (bill_no, plenary_dt, govt_transfer_dt, promulgation_dt, prom_no, prom_law_nm),
         )
         conn.commit()
 
@@ -301,3 +327,105 @@ def test_no_data_records_dead_letter_through_backfill_stage() -> None:
         row = cur.fetchone()
 
     assert row == ("bill_final_outcomes", "fetch", bill_no, "pending")
+
+
+def test_pending_promulgation_law_bill_is_refetched_and_filled() -> None:
+    # F1b: outcome 행이 이미 있어도 공포 대기(promulgation NULL) 법률안은 재조회돼야 한다.
+    bill_no = TEST_BILLS["TEST_FINAL_PENDING_LAW"]
+    _insert_bill(
+        "TEST_FINAL_PENDING_LAW",
+        bill_no,
+        bill_name="테스트 방송법 일부개정법률안",
+        propose_dt="2024-12-01",
+    )
+    _insert_outcome(bill_no, plenary_dt="2024-12-26")  # 원표결만, 공포 대기
+    fetch, calls = _mock_fetcher(
+        {
+            bill_no: _ok(
+                _allbill_row(
+                    bill_no,
+                    rgs_rsln_dt="2025-04-17",  # 재의결로 본회의 의결일 갱신
+                    gvrn_trsf_dt="2025-04-20",
+                    prom_dt="2025-04-25",
+                    prom_no="20500",
+                    prom_law_nm="방송법",
+                )
+            )
+        }
+    )
+
+    result = backfill_bill_final_outcomes(fetch_allbill=fetch, bill_nos=(bill_no,))
+
+    assert calls == [bill_no]  # skip이 아니라 재조회됨
+    assert result.skipped_count == 0
+    assert result.outcome_upserted_count == 1
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT plenary_dt, promulgation_dt, prom_no FROM bill_final_outcomes WHERE bill_no = %s",
+            (bill_no,),
+        )
+        row = cur.fetchone()
+
+    assert row == (date(2025, 4, 17), date(2025, 4, 25), "20500")
+
+
+def test_terminal_nonlaw_passed_bill_with_null_promulgation_is_skipped() -> None:
+    # 수용기준 ③: 공포 비대상(비-법률) 가결 의안은 promulgation NULL이어도 종착이라 재조회하지 않는다.
+    bill_no = TEST_BILLS["TEST_FINAL_TERMINAL_NONLAW"]
+    _insert_bill(
+        "TEST_FINAL_TERMINAL_NONLAW",
+        bill_no,
+        bill_name="테스트 ○○ 특검 수사요구안",  # 비-법률
+        propose_dt="2025-01-01",
+    )
+    _insert_outcome(bill_no, plenary_dt="2025-01-10")  # 공포 비대상, promulgation NULL
+    fetch, calls = _mock_fetcher({})  # 호출되면 KeyError — 호출 안 됨을 보장
+
+    result = backfill_bill_final_outcomes(fetch_allbill=fetch, bill_nos=(bill_no,))
+
+    assert calls == []  # 불필요한 ALLBILL 호출 없음
+    assert result.skipped_count == 1
+
+
+def test_pending_refetch_preserves_existing_values_when_source_returns_blank() -> None:
+    # 비파괴: pending 재조회 시 원천이 빈 값을 줘도 기존에 채워진 필드를 NULL로 덮지 않는다.
+    bill_no = TEST_BILLS["TEST_FINAL_PRESERVE"]
+    _insert_bill(
+        "TEST_FINAL_PRESERVE",
+        bill_no,
+        bill_name="테스트 상법 일부개정법률안",
+        propose_dt="2025-02-01",
+    )
+    _insert_outcome(
+        bill_no,
+        plenary_dt="2025-03-13",
+        govt_transfer_dt="2025-03-20",
+    )  # 공포 대기, plenary·govt 기존값 존재
+    fetch, _calls = _mock_fetcher(
+        {
+            bill_no: _ok(
+                _allbill_row(
+                    bill_no,
+                    rgs_rsln_dt=None,  # 원천이 빈 값을 줌
+                    gvrn_trsf_dt=None,
+                    prom_dt="2025-04-01",  # 공포는 이제 채워 줌
+                    prom_no="20600",
+                    prom_law_nm="상법",
+                )
+            )
+        }
+    )
+
+    backfill_bill_final_outcomes(fetch_allbill=fetch, bill_nos=(bill_no,))
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT plenary_dt, govt_transfer_dt, promulgation_dt, prom_no
+            FROM bill_final_outcomes WHERE bill_no = %s
+            """,
+            (bill_no,),
+        )
+        row = cur.fetchone()
+
+    assert row == (date(2025, 3, 13), date(2025, 3, 20), date(2025, 4, 1), "20600")
