@@ -42,9 +42,8 @@ make test
 | `make data-completeness` | 현재 로컬 적재 결과 데이터 완성도 follow-up 리포트 생성 |
 | `make migration-readiness` | hosted Postgres migration 전 readiness 리포트 생성 |
 
-`ingest-members`, `ingest-bills`, `ingest-votes`, `ingest-meetings`,
-`ingest-utterances`, `ingest-session-groups`는 개발/진단용 stage 명령이다.
-일반 운영 흐름에서는 `make ingest`를 사용한다.
+`ingest-members`, `ingest-bills`, `ingest-votes`, `ingest-bill-relations` 등은
+개발/진단용 stage 명령이다. 일반 운영 흐름에서는 `make ingest`를 사용한다.
 
 Hosted Postgres 이전에는 [docs/design/PRE-MIGRATION-BACKFILL-GATE.md](docs/design/PRE-MIGRATION-BACKFILL-GATE.md)에 따라
 깨끗한 로컬 DB에서 100% 백필을 모니터링하고, 이상 지점을 수정한 뒤 idempotency 재실행까지 통과해야 한다.

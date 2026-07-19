@@ -6,10 +6,9 @@ __pycache__/
 *.egg-info/
 .venv/
 
-# Env
+# Env (자격증명만 — .neon은 비밀 아닌 project id라 커밋한다: safe-update 백업이 CI/clone에서 필요)
 .env
 .env.local
-.neon
 
 # Test caches
 .pytest_cache/

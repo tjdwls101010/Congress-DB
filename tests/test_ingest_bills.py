@@ -526,3 +526,87 @@ def test_backfill_missing_bill_summaries_returns_structured_failures(
     assert result.remaining_missing_count >= 1
     assert result.summary_failures[0].bill_no == "9000001"
     assert "summary source overloaded" in result.summary_failures[0].error
+
+
+def _fake_get_factory(state):
+    """LIST 응답을 state['rows']로 갈아끼우는 fake requests.get."""
+    def fake_get(url: str, **kwargs: Any) -> MagicMock:
+        endpoint = url.rsplit("/", 1)[-1]
+        params = kwargs["params"]
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        if endpoint == "nzmimeepazxkubdpn" and "AGE" not in params:
+            response.json.return_value = _no_data()
+        elif endpoint == "nzmimeepazxkubdpn":
+            response.json.return_value = _envelope(endpoint, total=len(state["rows"]), rows=state["rows"])
+        elif endpoint == "BPMBILLSUMMARY":
+            response.json.return_value = _envelope(
+                endpoint, total=1, rows=[{"BILL_NO": params["BILL_NO"], "SUMMARY": "요약"}]
+            )
+        else:
+            raise AssertionError(endpoint)
+        return response
+    return fake_get
+
+
+_INGEST_KW = dict(limit_pct=1.0, page_size=5, benchmark_sample_size=1, worker_levels=(1,))
+
+
+def test_ingest_bills_preserves_processing_fields_when_list_blanks_them(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """LIST가 cmt_proc/proc 등을 빈값으로 다시 줘도 기존 채워진 값은 보존돼야 한다."""
+    from datetime import date
+
+    populated = _bill_row(
+        "TEST_BILL_1", "9000001", "법안1", "TEST_BILL_MEMBER_1", "TEST_BILL_MEMBER_2", "공동",
+        cmt_proc_result="회송",
+    )
+    populated.update({
+        "PROC_RESULT": "원안가결", "PROC_DT": "2026-05-20", "CMT_PROC_DT": "2026-05-19",
+        "COMMITTEE_DT": "2026-05-18", "LAW_PROC_DT": "2026-05-21",
+    })
+    blanked = _bill_row(
+        "TEST_BILL_1", "9000001", "법안1", "TEST_BILL_MEMBER_1", "TEST_BILL_MEMBER_2", "공동",
+        cmt_proc_result=None,
+    )  # PROC_*/CMT_*/COMMITTEE_DT/LAW_PROC_DT 모두 None(기본값)
+
+    state = {"rows": [populated]}
+    monkeypatch.setattr("congress_db.core.api_client.requests.get", _fake_get_factory(state))
+    ingest_bills(benchmark_output_path=tmp_path / "B.md", **_INGEST_KW)
+    state["rows"] = [blanked]
+    ingest_bills(benchmark_output_path=tmp_path / "B.md", **_INGEST_KW)
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT cmt_proc_result, proc_result, proc_dt, cmt_proc_dt, committee_dt, law_proc_dt "
+            "FROM bills WHERE bill_id = 'TEST_BILL_1'"
+        )
+        row = cur.fetchone()
+    assert row == ("회송", "원안가결", date(2026, 5, 20), date(2026, 5, 19),
+                   date(2026, 5, 18), date(2026, 5, 21)), row
+
+
+def test_ingest_bills_keeps_proposers_when_list_blanks_proposer_codes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """LIST 행이 RST/PUBL_MONA_CD를 빈값으로 주면 기존 발의자를 지우지 않아야 한다."""
+    populated = _bill_row(
+        "TEST_BILL_1", "9000001", "법안1", "TEST_BILL_MEMBER_1",
+        "TEST_BILL_MEMBER_2,TEST_BILL_MEMBER_3", "공동",
+    )
+    blanked = _bill_row("TEST_BILL_1", "9000001", "법안1", "", "", "")  # 발의자 코드 공란
+
+    state = {"rows": [populated]}
+    monkeypatch.setattr("congress_db.core.api_client.requests.get", _fake_get_factory(state))
+    ingest_bills(benchmark_output_path=tmp_path / "B.md", **_INGEST_KW)
+    state["rows"] = [blanked]
+    ingest_bills(benchmark_output_path=tmp_path / "B.md", **_INGEST_KW)
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM bill_lead_proposers WHERE bill_id = 'TEST_BILL_1'")
+        leads = cur.fetchone()[0]
+        cur.execute("SELECT count(*) FROM bill_coproposers WHERE bill_id = 'TEST_BILL_1'")
+        copros = cur.fetchone()[0]
+    assert leads == 1, f"lead proposers wiped: {leads}"
+    assert copros == 2, f"coproposers wiped: {copros}"

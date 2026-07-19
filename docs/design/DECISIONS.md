@@ -3,6 +3,53 @@
 Newest first. Each entry: `## YYYY-MM-DD — short title`, then 1-3 sentences
 (context + decision + why).
 
+## 2026-07-19 — 재의결 표결은 원천이 원표결만 제공(분기 B) — grain 유지 + COMMENT 교정 (migration 035)
+
+증분 파이프라인이 재의결(거부권 후 재표결) 표결을 놓친다는 실증 결함(F2 — 재의결 26건 실재하나 표결 이벤트 2개 가진 법안 0건)의 원인을 원천에서 확정하려, 재의결 확정 2건(방송법 2200851 원표결 2024-12-26·재의결 2025-04-17, 상법 2208496 원표결 2025-03-13·재의결 2025-04-17)으로 표결 API를 직접 호출했다. **관측:** 표결상세(`nojepdqqaweusdfbi`)는 두 사례 모두 300행에 `VOTE_DATE` distinct가 원표결일 하나뿐(같은 `MONA_CD` 중복 등장 0 — 한 의원의 두 표결이 함께 오지 않음)이고, 표결BILL목록(`ncocpgfiaoituanbr`)은 BILL_ID당 1행(같은 BILL_ID 중복 없음, `PROC_DT`=원표결일)이라 — **원천이 재의결 표결 이벤트를 아예 제공하지 않음**을 확정했다(분기 B). **결정:** 저장분(원표결)이 API 현재 응답과 동일해 재조회해도 원표결 그대로 유지되고(덮임 무해) grain을 바꿔도 담을 데이터가 없으므로, `votes` PK·재조회 정책은 손대지 않고, `votes`/`vote_date` COMMENT의 "같은 법안 모든 행이 같은 표결 순간 공유"라는 단일-이벤트 전제를 교정해 재의결 함정을 명시한다(035): 부재 이벤트 식별은 `bill_final_outcomes.plenary_dt > bills.proc_dt`, 재의결 표의 찬반·이탈표는 회의록·websearch. `plenary_dt` COMMENT는 재의결 26건을 이미 경고했으나 `votes` 쪽만 이를 몰랐던 대칭 결함을 해소한다. **한계:** likms 상세페이지에 재의결 표결이 별도로 있을 가능성은 미실측 — 원천 OpenAPI 두 표결 엔드포인트 기준의 판정이다.
+
+## 2026-06-28 — 일일 자동 증분 적재 (GitHub Actions + safe-update)
+
+국회 최신 데이터를 주기적으로 Neon main에 반영하기 위해 `.github/workflows/scheduled-ingest.yml`을 추가했다. 매일 03:00 KST(cron UTC 18:00) + 수동(workflow_dispatch)으로 `uv run python -m scripts.safe_update`를 실행한다. 이미 멱등·비파괴·자동복원으로 설계된 safe-update를 그대로 감싼 것이라 무인 실행에 안전하다 — 손상 감지 시 백업 브랜치로 자동복원하고 **종료코드 1**로 끝나므로 그 run이 CI 실패로 표면화돼 알림이 간다("데이터는 지켰지만 적재는 건너뜀"이 조용한 초록불이 되지 않음). 러너는 Neon만 겨누므로 로컬 postgres 불필요하고, `concurrency` group으로 동시 쓰기를 직렬화한다. 필요 secret 3개(`CONGRESS_MAIN_URL`·`NEON_API_KEY`·`NATIONAL_ASSEMBLY_API_KEY`)는 레포 Settings에 등록하며 `.neon` project id는 커밋돼 있다. **제약:** 스케줄은 default 브랜치에서만 발동하므로(이 체인이 main에 머지된 뒤 활성), GitHub cron은 UTC·best-effort, 레포 60일 무활동 시 자동 비활성. 백업 브랜치는 무손상 시 자동 삭제되나 복원/실패 run은 `pre-update-*`를 남기므로 장기 운영 시 Neon 브랜치 만료/주기 정리를 둔다.
+
+**추가(같은 날, 실측 후 — 러너 위치 제약):** main 머지 후 수동 run 3회로 검증하니 **국회 OpenAPI(`open.assembly.go.kr`)가 해외 클라우드 IP를 차단**해 GitHub-호스트 러너(`ubuntu-latest`)에서 ConnectTimeout으로 수집이 실패함을 확인했다(선생님 한국 기기에선 0.05s 연결 — 지오 차단 확정). 배선(secret 3개·`.neon`·prod-write 가드·백업 브랜치 생성·Neon 연결)은 전부 정상이었고 막힌 건 러너 위치뿐. ⇒ `runs-on`을 `self-hosted`로 바꿔 **한국에서 닿는 self-hosted 러너**에서 실행한다(GitHub 스케줄·secret·로그·수동버튼은 그대로). 그 과정에서 두 설정 공백도 교정: `CONGRESS_MAIN_URL` secret이 로컬 URL로 잘못 등록돼 가드가 abort(가드가 프로덕션 사고를 막음), `.neon`(비밀 아닌 project id)이 gitignore돼 CI에 없어 백업이 실패 → 커밋. 실패 run이 남긴 `pre-update-20260628-1005` 백업 브랜치는 수동 삭제(수집이 첫 단계에서 실패해 main 무변).
+
+## 2026-06-28 — congress 스킬 E2E 검증 + hg_nm COMMENT 정확화 (migration 033)
+
+032 개선이 실제로 LLM 소비자의 silent trap을 막는지 dynamic-workflow E2E로 실증했다: 스킬을 로드한 신선 에이전트 9명이 실전 입법조사 질문에 답하고, 독립 채점자가 라이브 정답 SQL로 적대 검증했다. 결과 정답 8/9, **9개 시나리오가 노린 함정 전부 회피** — 채점자들이 "운이 아니라 COMMENT/스킬이 막아준 것"임을 반복 확인했다(불참 분모·vote_date_kst·proc_result NULL·bill_lineage 권한우회·별칭 치환이 모두 introspection으로 잡힘). 부수 오류 2건은 스키마 결함이 아니라 합성 단계였고(없는 법안 디테일 confabulation; 가결 5행을 '공포 3건'으로 평탄화), 후자는 부모 레포 SKILL.md에 '가결≠공포는 다른 모집단 — 분리 보고' 경고로 반영했다. **이 실측이 스킬 함정 섹션 trim의 근거다** — 단일-객체 함정은 introspection으로 잡히므로 헤드라인+"쿼리 전 introspect" 포인터로 압축하고, cross-table 함정만 스킬에 전문 유지한다.
+
+E2E가 짚은 COMMENT 부정확 2건을 033으로 교정했다: members.hg_nm의 스테일 예시 수치(표결수 0 vs 1595 — 라이브는 1627)를 상대표현으로, 'stub=어디에도 기록 없음' 과장을 '대표발의·표결 0이어도 공동발의 등 다른 트랙엔 행이 있을 수 있음'으로 정확화. COMMENT만 변경(구조·권한 무변), 멱등.
+
+## 2026-06-28 — 직접-SQL 소비자 함정 감사: COMMENT 교정 + vote_date_kst 생성컬럼 (migration 032)
+
+이 DB를 직접 SQL로 쓰는 입법전문가 harness(LLM) 관점에서 "에러 없이 조용히 틀리는 함정"을 5렌즈 dynamic-workflow로 라이브 실증 감사했다(join-key·NULL/상태·이름/타입·검색·소비자 가시성; 27건 중 19건 재현 확인). **적대적 검증의 결론:** 함정을 파생 뷰·생성 boolean·CHECK·alias 테이블로 "구조적 제거"하려는 제안 대부분은 *문서화된 함정 > drift 위험 있는 파생물*이라 기각됐다 — 특히 상태분류 뷰는 authored 라벨을 LLM이 *추론을 멈추고 맹신*하게 만들어, 라벨 하나가 틀리면 NULL보다 위험한 조용한 확신이 된다. 즉 현 COMMENT 중심(자기문서화) 설계가 대체로 정당함을 확인했다.
+
+**결정 — A안(문서·교정 중심) + 안전한 생성컬럼 1개.** (1) 라이브에서 재현된 함정을 COMMENT 교정/강화로 막는다: `votes.result_vote_mod` 불참은 *빠진 행이 아니라 저장된 값 약 1/4*(출석 분모는 `FILTER (WHERE result_vote_mod <> '불참')`, 안 그러면 찬성률이 수 %p 조용히 낮음); "가결-미공포"의 약 2/3는 비-법률 의안(결의안·감사요구안 등)이라 계류/거부권 과대(법률안 `bill_name ~ '법(률)?안'`으로 좁힐 것); `proc_result` NULL=미처리(votes 0행으로 교차확인); 검색의 가운뎃점(·U+00B7/ㆍU+318D)·정식명 정밀도·summary-only 절단 경고를 함수 COMMENT에 추가; 031로 사라진 객체를 가리키던 stale COMMENT 2건(`search_utterances`·`meetings.comm_name`)과 소비자 비노출(ETL) 테이블(`bill_relations`·`bill_source_aliases`)의 유혹성 COMMENT 교정. 휘발성 절대수치(가결 1,593→1,625 등)는 상대표현+"count로 재산출"로(quote 시 '확인된 거짓' 방지). (2) 유일한 구조 변경 — `votes.vote_date_kst`(한국 달력일) 생성컬럼: 서버 세션이 GMT라 `vote_date::date`가 늦은 UTC 표결 5,058행을 하루 어긋나게 뽑고 DATE 컬럼과 직접 등치 조인이 조용히 0행이 되는 문제를, 고정 +9h 오프셋(`AT TIME ZONE INTERVAL '9 hours'`, IMMUTABLE이라 PG16/17 생성컬럼 허용)으로 환산한 STORED 컬럼이 막는다(엔진 계산이라 base와 drift 불가; `Asia/Seoul`과 라이브 전 구간 불일치 0). 기존 votes GRANT가 자동 포함, 적재 INSERT는 명시적 컬럼 목록이라 무영향. base 스키마·과거 마이그레이션은 보존하고 032를 델타로(멱등). **교훈:** 읽기전용 감사 에이전트는 DDL을 실제 실행해 보지 못하므로 `'Asia/Seoul'` 생성컬럼이 STABLE이라 거부될 수 있음을 못 잡는다 — owner 권한 TEMP 테이블로 표현식 수용 여부를 먼저 검증하고 이식성 있는 불변식을 택했다.
+
+## 2026-06-28 — 회의록(회의·발언) 도메인 전면 제거 (migration 031)
+
+이 DB를 직접 쓰는 입법전문가 harness 소비 관점에서 회의록의 가치를 재검토했다. **사실:** `utterances`(발언 본문)는 라이브 main 1,780MB로 논리 데이터(2,122MB)의 **~84%**(138만 행)를 차지하는데, 정작 "논의 진척/처리상태"는 회의록이 아니라 구조화 테이블(`bills.proc_result`·`bill_lineage`·`bill_final_outcomes`)이 답하고, 발언↔법안 직접 귀속은 회의 fanout(회의당 평균 32 법안)으로 신뢰도가 낮다. 즉 회의록을 빼도 *진척 추적 능력은 손실이 없다* — 회의록이 websearch로 대체 불가능한 유일한 지점은 "누가 무엇을 발언했나"(정부·참고인 발언 등 심층 토론)뿐이고, 그 심층 분석은 websearch로 넘긴다.
+
+**결정 — C안(회의 도메인 전면 드롭).** 회의 메타(`meetings`·`meeting_bills`)도 함께 제거한다: 그 본업이 *발언 본문↔법안*을 잇는 다리였는데 본문이 사라지면 다리가 놀고, 발언 통계를 노출하던 `bill_meeting_contexts` 뷰가 빈 껍데기가 되기 때문이다(메타만 남기는 B안은 어중간한 잔해를 남긴다). 제거 객체: 테이블 `utterances`·`meeting_bills`·`meetings`, 뷰 `bill_meeting_contexts`, 함수 `search_utterances`. 유지: `search_bills`·`search_snippet`(제네릭, search_bills가 사용)·`bill_lineage`. 라이브 main에 적용 전 **Neon 스냅샷 브랜치**(`pre-utterances-drop-20260628`, 만료 2026-07-19)로 복원망을 깔았다 — 드롭을 되돌릴 수 있는 작업으로 만든 뒤 single-transaction으로 실행(논리 데이터 2.1GB→298MB). 과금 스토리지는 스냅샷 브랜치 삭제 + history 보존창 경과 후 회수된다.
+
+**구현 — base 스키마/과거 마이그레이션은 보존, 031을 델타로.** `db/schema.sql`과 001~030은 서로 의존하므로(예: 001이 `utterances`에 인덱스 생성) 편집하지 않고, `031_drop_meeting_minutes.sql`이 base+history 적용 *뒤* 회의 도메인을 드롭한다(fresh db-reset은 빈 테이블을 만들었다 드롭 — 비용 0). 소비자 read-allowlist는 12객체→**8 relation(members·committees·bills·bill_lead_proposers·bill_coproposers·votes·bill_final_outcomes·bill_lineage)+2 함수(search_bills·search_snippet)**로 축소(`db/roles/*.sql`). 회의/발언 적재 코드(`ingest_meetings`·`ingest_utterances`·`scrape_minutes`·`minutes_web_list`·`speaker_roles`·`agenda_parser`·`meeting_id`·`utterance_mapping_quality`·`validate_minutes_dom`)와 오케스트레이션 스테이지·dead-letter 핸들러·전용 테스트를 전부 제거했고, ops 진단(sanity·data_completeness·migration_readiness·regression_pack·safe_update)에서 회의/발언 경로를 들어냈다. **되돌리기 비용 비대칭:** 회의 목록·안건 적재는 파이프라인의 싸고 안 깨지는 부분이라 나중에 재추가가 쉽지만, 발언 본문(138만 행) 재스크래핑만 비싸다 — 그건 A·B·C 어느 안이든 "본문을 버린다"는 동일 선택이다. **교훈:** 회의록을 '진척 파악이 어렵다'는 이유로 빼려는 충동은 진단을 오귀속한 것이다 — 진척은 애초에 구조화 테이블의 일이고, 회의록의 진짜 효용/비용은 "발언 본문을 심층 분석하느냐 vs ~84% 스토리지+가장 깨지기 쉬운 스크래핑 파이프라인"의 트레이드오프에서 갈린다.
+
+## 2026-06-28 — 무손상 증분 수집: 엔진 비파괴 수정 5종 + 백업-브랜치 안전망(make safe-update)
+
+PM이 "앞으로 종종 수동으로 Neon을 업데이트할 텐데 **어떤 상황에서도 기존 데이터를 손상하지 않고** 추가만 잘 되도록 dynamic-workflow로 확실히 검증해 달라"고 요청. Neon 브랜치(main의 copy-on-write 격리 사본)에서 실제 증분 수집을 돌리고, 다차원 정적 감사(23 에이전트)+적대적 반증+실증을 결합한 결과 **정상 소스 실행에서도 기존 데이터를 조용히 깎는 경로 3종이 실재**함을 라이브로 재현했다(구버전 코드 1회 실행: `bills.cmt_proc_*` 60건 NULL화, 부록 회의 발언 재스크랩 급감 2113→258 등, 주간 재조정의 meeting_bills 358건 제거). 트랜잭션 원자성·votes append·members 로스터·미변경 회의 발언은 안전 확인.
+
+**결정 — 2겹 방어로 "어떤 상황에서도 무손상" 보장:**
+
+**(1) 수집 엔진 자체를 비파괴로 수정(TDD, `congress_db/ingest/`):**
+- **bills upsert COALESCE** — 누적 필드(`cmt_proc_dt/result`·`proc_result/dt`·`law_proc_dt`·`committee_dt`·`committee_id`·`propose_dt`·`proposer_raw`)를 `COALESCE(EXCLUDED.x, bills.x)`로 보존(기존엔 summary만 보호). 목록 API가 빈 값을 줘도 채워진 값을 NULL로 덮지 않는다(votes 경로의 기존 COALESCE 패턴을 일치시킴).
+- **발의자 DELETE scope 한정** — 대표/공동발의자 delete-재삽입 범위를 "이번 응답이 실제로 발의자 코드를 실어 온 법안"으로만 한정(기존: 전체 fetched bills). 빈 `RST_MONA_CD` 한 건이 발의자를 전멸시키지 못한다.
+- **meeting_bills 추가 전용** — `_replace_meeting_bills_for_meetings` DELETE 제거, ON CONFLICT DO NOTHING 추가만. PM 결정(과거 '안건 상정' 링크는 역사적 사실이라 보존; 소스가 줄어도 안 지움). 주간 재조정은 새 링크를 더할 뿐. `_meeting_bill_replace_scope`·`_replace_meeting_bills_for_meetings` 제거.
+- **utterances 재스크랩 floor 가드** — 재스크랩 결과가 기존의 `RESCRAPE_FLOOR_RATIO`(0.5) 미만이면(열화 스크래핑 의심, 기존≥20행) 교체 보류·기존 보존·dead-letter 기록. 0건은 기존 가드가 막지만 부분 파싱(부록 급감)은 이 가드가 막는다.
+- **회의 prune 삭제 상한** — 한 run 삭제 후보가 `max(5, existing//100)` 초과면(부분/빈/일시실패 크롤이 정상 회의를 대량 누락시키는 신호) prune 자체를 건너뜀(80% floor를 대체). 정상 소수 제거는 통과.
+
+**(2) 운영 안전망 `make safe-update`(`congress_db/ops/safe_update.py`):** ① main을 백업 브랜치로 즉시 스냅샷(복원 시 endpoint host 불변→공개 연결문자열 안깨짐, 라이브 검증) → ② 수집 전 read-only fingerprint → ③ 증분 수집 → ④ 수집 후 diff(기존 PK 삭제·append 감소·non-null→null·자식 전멸·회의 발언 전멸) → ⑤ 손상 감지 시 **main을 백업으로 자동 복원**(손상 미잔존, 그 run 추가만 보류), 무손상 시 백업 삭제. 엔진 수정이 1차 방어, 이 탐지+복원이 우회 경로까지 막는 2차 보험. `NEON_API_KEY`·`CONGRESS_MAIN_URL`은 `.env.local`(git 제외)에 저장. 런북: `docs/design/SAFE-UPDATE-RUNBOOK.md`.
+
+**검증:** 222 passed(신규 TDD: bills 보존/발의자 보존·meeting_bills 추가전용·utterance floor·prune cap·safe_update diff). 수정 엔진을 fresh Neon 브랜치에 재실행한 실증 결과는 PR 본문 참조. **교훈:** 성숙한 수집 파이프라인의 "조용한 손상"은 코드 읽기로 안 보이고, main 격리 사본(Neon 브랜치)에 실제로 돌려 before/after를 anti-join해야 드러난다. delete-재삽입의 위험은 항상 "DELETE 범위와 재삽입 가능분의 비상관"에 있다.
+
 ## 2026-06-18 — 외부 공개 읽기: congress_ro 연결문자열 공개 채택 + Data API 락다운 + RLS 재활성화 함정 수정
 
 PM이 "쓰기는 나만, 읽기는 누구나"로 DB를 외부 공개하기로 결정. 세 가지를 처리했다.

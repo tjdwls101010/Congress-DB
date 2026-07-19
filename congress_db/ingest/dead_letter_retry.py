@@ -9,8 +9,6 @@ from typing import Any
 from ..core.db import get_conn
 from .ingest_state import resolve_dead_letter
 from .ingest_bills import retry_bill_summary
-from .ingest_meetings import retry_vconfbill_rows
-from .ingest_utterances import ingest_utterances
 from .ingest_votes import retry_vote_rows
 
 
@@ -88,21 +86,9 @@ def retry_dead_letters(
 def default_retry_handlers() -> dict[tuple[str, str], RetryHandler]:
     """현재 자동 재시도가 가능한 dead letter handler 목록."""
     return {
-        ("minutes.html", "fetch"): _retry_minutes_html,
         ("bills.summary", "fetch"): _retry_bill_summary,
         ("votes.rows", "fetch"): _retry_vote_rows,
-        ("meeting_bills.vconfbill", "fetch"): _retry_vconfbill,
     }
-
-
-def _retry_minutes_html(dead_letter: DeadLetter) -> bool:
-    mnts_id = int(dead_letter.item_key)
-    result = ingest_utterances(
-        calibration_limit=1,
-        meeting_ids=(mnts_id,),
-        allow_partial=True,
-    )
-    return result.scrape_error_count == 0
 
 
 def _retry_bill_summary(dead_letter: DeadLetter) -> bool:
@@ -113,11 +99,6 @@ def _retry_bill_summary(dead_letter: DeadLetter) -> bool:
 def _retry_vote_rows(dead_letter: DeadLetter) -> bool:
     bill_id = str(dead_letter.payload.get("bill_id") or dead_letter.item_key)
     return retry_vote_rows(bill_id)
-
-
-def _retry_vconfbill(dead_letter: DeadLetter) -> bool:
-    bill_id = str(dead_letter.payload.get("bill_id") or dead_letter.item_key)
-    return retry_vconfbill_rows(bill_id)
 
 
 def _load_unresolved_dead_letters(*, source_prefix: str | None = None) -> tuple[DeadLetter, ...]:

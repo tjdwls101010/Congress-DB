@@ -123,17 +123,3 @@ FROM bills b JOIN bill_final_outcomes o ON o.bill_no = b.bill_no
 WHERE o.promulgation_dt IS NOT NULL
 ORDER BY o.promulgation_dt DESC LIMIT 20;
 ```
-
-## 10. 회의록 발언 검색 + 주변 문맥 읽기
-
-```sql
--- 키워드 발언 검색
-SELECT meeting_id, speaker_name, speaker_title, snippet
-FROM search_utterances('국민연금', 20);
-
--- 특정 회의의 발언 stream (sequence 순서로 문맥 복원)
-SELECT u.sequence, u.speaker_name, u.speaker_title, u.content
-FROM utterances u
-WHERE u.meeting_id = '<meeting_id>'
-ORDER BY u.sequence;
-```

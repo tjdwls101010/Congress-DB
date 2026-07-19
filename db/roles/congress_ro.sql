@@ -26,6 +26,8 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE SELECT ON TABLES FROM congress_
 ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM congress_ro;
 
 -- Consumer allowlist: 입법전문가 스킬이 introspect/query해도 되는 표면만 노출한다.
+-- (회의·발언 도메인 meetings·utterances·meeting_bills·bill_meeting_contexts·search_utterances는
+--  031에서 제거 — 더 이상 grant하지 않는다.)
 GRANT SELECT ON
     members,
     committees,
@@ -33,14 +35,9 @@ GRANT SELECT ON
     bill_lead_proposers,
     bill_coproposers,
     votes,
-    meetings,
-    utterances,
-    meeting_bills,
     bill_final_outcomes,
-    bill_lineage,
-    bill_meeting_contexts
+    bill_lineage
 TO congress_ro;
 
 GRANT EXECUTE ON FUNCTION search_snippet(text, text, integer) TO congress_ro;
 GRANT EXECUTE ON FUNCTION search_bills(text, integer) TO congress_ro;
-GRANT EXECUTE ON FUNCTION search_utterances(text, integer) TO congress_ro;

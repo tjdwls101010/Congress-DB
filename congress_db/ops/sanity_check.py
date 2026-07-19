@@ -10,56 +10,18 @@ from ..core.db import get_conn
 
 DEFAULT_SANITY_REPORT = Path("docs/ops/SANITY-CHECK.md")
 DEFAULT_KEYWORD = "전세사기"
-DEFAULT_RESPONDENT_TITLE_PATTERN = "%기획재정부장관%"
 ROW_COUNT_TABLES = (
     "members",
     "bills",
     "bill_lead_proposers",
     "bill_coproposers",
     "votes",
-    "meetings",
-    "meeting_bills",
-    "utterances",
 )
-
-_S3_MEETING_STREAMS_SQL = """
-    WITH bill_counts AS (
-        SELECT meeting_id, COUNT(*) AS bill_count
-        FROM meeting_bills
-        GROUP BY meeting_id
-    ), utterance_counts AS (
-        SELECT meeting_id, COUNT(*) AS utterance_count
-        FROM utterances
-        GROUP BY meeting_id
-    )
-    SELECT
-        m.mnts_id AS "회의ID",
-        m.meeting_type AS "유형",
-        m.conf_date AS "일자",
-        left(m.title, 90) AS "회의명",
-        COALESCE(bc.bill_count, 0) AS "연결법안",
-        COALESCE(uc.utterance_count, 0) AS "발언",
-        first_u.speaker_name AS "첫발언자",
-        left(first_u.content, 120) AS "첫발언"
-    FROM meetings m
-    LEFT JOIN bill_counts bc ON bc.meeting_id = m.mnts_id
-    LEFT JOIN utterance_counts uc ON uc.meeting_id = m.mnts_id
-    LEFT JOIN LATERAL (
-        SELECT speaker_name, content
-        FROM utterances u
-        WHERE u.meeting_id = m.mnts_id
-        ORDER BY sequence
-        LIMIT 1
-    ) first_u ON true
-    WHERE COALESCE(uc.utterance_count, 0) > 0
-    ORDER BY m.conf_date DESC, m.mnts_id DESC
-    LIMIT %s
-    """
 
 
 @dataclass(frozen=True)
 class SanitySection:
-    """S1~S7 검증용 결과 표."""
+    """sanity 검증용 결과 표."""
 
     key: str
     title: str
@@ -102,20 +64,15 @@ def run_sanity_check(
     output_path: Path = DEFAULT_SANITY_REPORT,
     sample_size: int = 5,
     keyword: str = DEFAULT_KEYWORD,
-    respondent_title_pattern: str = DEFAULT_RESPONDENT_TITLE_PATTERN,
 ) -> SanityCheckResult:
-    """S1~S7 쿼리를 실행하고 Markdown 리포트를 저장한다."""
+    """sanity 쿼리(S1/S2/S4a/S7)를 실행하고 Markdown 리포트를 저장한다."""
     with get_conn() as conn, conn.cursor() as cur:
         result = SanityCheckResult(
             row_counts=_load_row_counts(cur),
             sections=(
                 _load_s1_member_cards(cur, sample_size),
                 _load_s2_bill_process(cur, sample_size),
-                _load_s3_meeting_streams(cur, sample_size),
                 _load_s4_bill_keyword(cur, sample_size, keyword),
-                _load_s4_utterance_keyword(cur, sample_size, keyword),
-                _load_s5_committee_activity(cur, committee_count=2, per_committee=5),
-                _load_s6_respondent_search(cur, sample_size, respondent_title_pattern),
                 _load_s7_party_vote_pattern(cur),
             ),
             fts_decision=default_fts_decision(),
@@ -138,7 +95,7 @@ def default_fts_decision() -> FtsDecision:
             "environment churn before the first hosted Postgres migration.",
             "pg_trgm works in the current Postgres 16 container, is available on "
             "Neon, and gives the API/SDK a practical first keyword-search "
-            "path for bills and utterances.",
+            "path for bills.",
         ),
         migration_path="db/migrations/001_search_indexes.sql",
     )
@@ -173,11 +130,6 @@ def _load_s1_member_cards(cur: object, sample_size: int) -> SanitySection:
             SELECT mona_cd, COUNT(*) AS cnt
             FROM votes
             GROUP BY mona_cd
-        ), utterance_counts AS (
-            SELECT speaker_mona_cd AS mona_cd, COUNT(*) AS cnt
-            FROM utterances
-            WHERE speaker_mona_cd IS NOT NULL
-            GROUP BY speaker_mona_cd
         )
         SELECT
             m.hg_nm AS "의원",
@@ -185,14 +137,12 @@ def _load_s1_member_cards(cur: object, sample_size: int) -> SanitySection:
             m.mona_cd AS "mona_cd",
             COALESCE(l.cnt, 0) AS "대표발의",
             COALESCE(c.cnt, 0) AS "공동발의",
-            COALESCE(v.cnt, 0) AS "표결",
-            COALESCE(u.cnt, 0) AS "발언"
+            COALESCE(v.cnt, 0) AS "표결"
         FROM members m
         LEFT JOIN lead_counts l ON l.mona_cd = m.mona_cd
         LEFT JOIN co_counts c ON c.mona_cd = m.mona_cd
         LEFT JOIN vote_counts v ON v.mona_cd = m.mona_cd
-        LEFT JOIN utterance_counts u ON u.mona_cd = m.mona_cd
-        ORDER BY COALESCE(u.cnt, 0) DESC, COALESCE(l.cnt, 0) DESC, m.hg_nm
+        ORDER BY COALESCE(l.cnt, 0) DESC, COALESCE(v.cnt, 0) DESC, m.hg_nm
         LIMIT %s
         """,
         (sample_size,),
@@ -200,7 +150,7 @@ def _load_s1_member_cards(cur: object, sample_size: int) -> SanitySection:
     return SanitySection(
         key="S1",
         title="의원 통합 조회",
-        query_goal="발언 수가 많은 임의 의원 5명의 발의/표결/발언 연결 상태",
+        query_goal="대표발의 수가 많은 임의 의원 5명의 발의/표결 연결 상태",
         rows=_fetch_dicts(cur),
     )
 
@@ -254,16 +204,6 @@ def _load_s2_bill_process(cur: object, sample_size: int) -> SanitySection:
     )
 
 
-def _load_s3_meeting_streams(cur: object, sample_size: int) -> SanitySection:
-    cur.execute(_S3_MEETING_STREAMS_SQL, (sample_size,))
-    return SanitySection(
-        key="S3",
-        title="회의 본문 + 법안 + 발언 stream",
-        query_goal="최근 회의 5개의 연결법안/발언 stream 연결 상태",
-        rows=_fetch_dicts(cur),
-    )
-
-
 def _load_s4_bill_keyword(cur: object, sample_size: int, keyword: str) -> SanitySection:
     pattern = f"%{keyword}%"
     cur.execute(
@@ -289,137 +229,6 @@ def _load_s4_bill_keyword(cur: object, sample_size: int, keyword: str) -> Sanity
         query_goal=f"`{keyword}`가 법안명 또는 주요내용에 포함된 법안",
         rows=_fetch_dicts(cur),
         note="`pg_trgm` GIN 인덱스가 ILIKE 기반 한국어 키워드 검색을 지원한다.",
-    )
-
-
-def _load_s4_utterance_keyword(cur: object, sample_size: int, keyword: str) -> SanitySection:
-    pattern = f"%{keyword}%"
-    cur.execute(
-        """
-        SELECT
-            m.conf_date AS "일자",
-            m.meeting_type AS "회의유형",
-            left(m.title, 90) AS "회의명",
-            u.sequence AS "순번",
-            u.speaker_name AS "화자",
-            u.speaker_title AS "직함",
-            left(regexp_replace(u.content, E'[\\n\\r\\t]+', ' ', 'g'), 180) AS "발췌"
-        FROM utterances u
-        JOIN meetings m ON m.mnts_id = u.meeting_id
-        WHERE u.content ILIKE %s
-        ORDER BY m.conf_date DESC, u.meeting_id, u.sequence
-        LIMIT %s
-        """,
-        (pattern, sample_size),
-    )
-    return SanitySection(
-        key="S4b",
-        title="발언 키워드 검색",
-        query_goal=f"`{keyword}`가 발언 본문에 포함된 utterance와 회의 문맥",
-        rows=_fetch_dicts(cur),
-        note="API/SDK는 hit의 같은 회의 앞뒤 sequence window를 함께 읽어 지역 문맥을 복원한다.",
-    )
-
-
-def _load_s5_committee_activity(
-    cur: object,
-    *,
-    committee_count: int,
-    per_committee: int,
-) -> SanitySection:
-    cur.execute(
-        """
-        WITH selected_committees AS (
-            SELECT mt.comm_name, COUNT(*) AS utterance_count
-            FROM utterances u
-            JOIN meetings mt ON mt.mnts_id = u.meeting_id
-            WHERE mt.comm_name IS NOT NULL
-              AND u.speaker_mona_cd IS NOT NULL
-            GROUP BY mt.comm_name
-            ORDER BY COUNT(*) DESC, mt.comm_name
-            LIMIT %s
-        ), speaker_counts AS (
-            SELECT
-                sc.comm_name,
-                mem.hg_nm,
-                mem.poly_nm,
-                COUNT(*) AS utterance_count,
-                SUM(char_length(u.content)) AS total_chars
-            FROM selected_committees sc
-            JOIN meetings mt ON mt.comm_name = sc.comm_name
-            JOIN utterances u ON u.meeting_id = mt.mnts_id
-            JOIN members mem ON mem.mona_cd = u.speaker_mona_cd
-            GROUP BY sc.comm_name, mem.mona_cd, mem.hg_nm, mem.poly_nm
-        ), ranked AS (
-            SELECT *,
-                   row_number() OVER (
-                       PARTITION BY comm_name
-                       ORDER BY utterance_count DESC, total_chars DESC, hg_nm
-                   ) AS rn
-            FROM speaker_counts
-        )
-        SELECT
-            comm_name AS "위원회",
-            rn AS "순위",
-            hg_nm AS "의원",
-            poly_nm AS "정당",
-            utterance_count AS "발언수",
-            total_chars AS "총글자수"
-        FROM ranked
-        WHERE rn <= %s
-        ORDER BY comm_name, rn
-        """,
-        (committee_count, per_committee),
-    )
-    return SanitySection(
-        key="S5",
-        title="위원회 단위 활동",
-        query_goal="발언량이 많은 위원회 2개의 의원별 발언량 top 5",
-        rows=_fetch_dicts(cur),
-    )
-
-
-def _load_s6_respondent_search(
-    cur: object,
-    sample_size: int,
-    respondent_title_pattern: str,
-) -> SanitySection:
-    cur.execute(
-        """
-        SELECT
-            m.conf_date AS "일자",
-            m.meeting_type AS "회의유형",
-            left(m.title, 90) AS "회의명",
-            prev_u.sequence AS "직전의원순번",
-            prev_u.speaker_name AS "직전의원",
-            left(regexp_replace(prev_u.content, E'[\\n\\r\\t]+', ' ', 'g'), 140) AS "직전발언",
-            u.sequence AS "답변순번",
-            u.speaker_name AS "답변자",
-            u.speaker_title AS "답변자직함",
-            left(regexp_replace(u.content, E'[\\n\\r\\t]+', ' ', 'g'), 180) AS "답변발췌"
-        FROM utterances u
-        JOIN meetings m ON m.mnts_id = u.meeting_id
-        LEFT JOIN LATERAL (
-            SELECT sequence, speaker_name, content
-            FROM utterances p
-            WHERE p.meeting_id = u.meeting_id
-              AND p.sequence < u.sequence
-              AND p.speaker_mona_cd IS NOT NULL
-            ORDER BY p.sequence DESC
-            LIMIT 1
-        ) prev_u ON true
-        WHERE u.speaker_title ILIKE %s
-        ORDER BY m.conf_date DESC, u.meeting_id, u.sequence
-        LIMIT %s
-        """,
-        (respondent_title_pattern, sample_size),
-    )
-    return SanitySection(
-        key="S6",
-        title="답변자 직함 검색 + 주변 읽기",
-        query_goal=f"`{respondent_title_pattern}`에 맞는 답변자 발언과 직전 의원 발언 후보",
-        rows=_fetch_dicts(cur),
-        note="Q&A 블록은 저장하지 않는다. 에이전트/API가 답변자 hit 주변 sequence window를 읽어 질의 맥락을 재구성한다.",
     )
 
 
@@ -469,16 +278,6 @@ def _load_quality_signals(cur: object) -> tuple[QualitySignal, ...]:
             "SELECT COUNT(*) FROM bills WHERE summary IS NULL OR summary = ''",
             "법안명 검색은 가능하지만 summary 기반 recall에는 영향. 원천 summary 부재/미제공 후보로 추적한다.",
         ),
-        (
-            "member_titled_utterances_unmapped",
-            """
-            SELECT COUNT(*)
-            FROM utterances
-            WHERE speaker_title IN ('위원', '의원')
-              AND speaker_mona_cd IS NULL
-            """,
-            "의원 발언인데 member FK가 없는 후보. 이름 중복/직함 파싱 문제일 수 있다.",
-        ),
     )
     signals: list[QualitySignal] = []
     for metric, sql, interpretation in queries:
@@ -502,7 +301,7 @@ def _render_markdown(result: SanityCheckResult) -> str:
     lines = [
         "# Integrated Sanity Check",
         "",
-        "This report runs the IA S1-S7 query paths against the current local backfill load.",
+        "This report runs the IA bill/vote/member query paths against the current local backfill load.",
         "It is a review artifact: code checks that the paths execute, and the PM can scan the rows for domain plausibility.",
         "",
         "## Dataset Row Counts",

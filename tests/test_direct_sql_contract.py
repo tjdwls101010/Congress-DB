@@ -17,7 +17,6 @@ TEST_MEMBER_2 = "TEST_SQL_M2"
 TEST_ORIGINAL_BILL = "TEST_SQL_ORIGINAL"
 TEST_ALTERNATIVE_BILL = "TEST_SQL_ALTERNATIVE"
 TEST_SOURCE_ALT_ID = "TEST_SQL_SOURCE_ALT"
-TEST_MEETING_ID = 990_000_101
 
 
 def setup_function() -> None:
@@ -30,8 +29,6 @@ def teardown_function() -> None:
 
 def _delete_fixture() -> None:
     with get_conn() as conn, conn.cursor() as cur:
-        cur.execute("DELETE FROM utterances WHERE meeting_id = %s", (TEST_MEETING_ID,))
-        cur.execute("DELETE FROM meeting_bills WHERE meeting_id = %s", (TEST_MEETING_ID,))
         cur.execute(
             "DELETE FROM votes WHERE bill_id = ANY(%s)",
             ([TEST_ORIGINAL_BILL, TEST_ALTERNATIVE_BILL],),
@@ -67,7 +64,6 @@ def _delete_fixture() -> None:
             "DELETE FROM bills WHERE bill_id = ANY(%s)",
             ([TEST_ORIGINAL_BILL, TEST_ALTERNATIVE_BILL],),
         )
-        cur.execute("DELETE FROM meetings WHERE mnts_id = %s", (TEST_MEETING_ID,))
         cur.execute("DELETE FROM members WHERE mona_cd = ANY(%s)", ([TEST_MEMBER_1, TEST_MEMBER_2],))
         cur.execute("DELETE FROM committees WHERE committee_id = %s", (TEST_COMMITTEE_ID,))
         conn.commit()
@@ -173,20 +169,6 @@ def _seed_fixture() -> None:
                     '직접 SQL 대안 법률')
             """
         )
-        cur.execute(
-            """
-            INSERT INTO meetings (mnts_id, title, meeting_type, conf_date, comm_name)
-            VALUES (%s, '직접 SQL 회의', '상임위', '2026-02-20', '직접SQL테스트위원회')
-            """,
-            (TEST_MEETING_ID,),
-        )
-        cur.execute(
-            """
-            INSERT INTO meeting_bills (meeting_id, bill_id)
-            VALUES (%s, %s)
-            """,
-            (TEST_MEETING_ID, TEST_ALTERNATIVE_BILL),
-        )
         cur.executemany(
             """
             INSERT INTO votes (bill_id, mona_cd, vote_date, result_vote_mod, poly_nm_at_vote)
@@ -206,38 +188,6 @@ def _seed_fixture() -> None:
                     "vote_date": "2026-03-01 10:00:00+09",
                     "result_vote_mod": "반대",
                     "poly_nm": "검증당",
-                },
-            ],
-        )
-        cur.executemany(
-            """
-            INSERT INTO utterances (
-                meeting_id, sequence, speaker_name, speaker_title,
-                speaker_mona_cd, speaker_role, content
-            )
-            VALUES (
-                %(meeting_id)s, %(sequence)s, %(speaker_name)s, %(speaker_title)s,
-                %(speaker_mona_cd)s, %(speaker_role)s, %(content)s
-            )
-            """,
-            [
-                {
-                    "meeting_id": TEST_MEETING_ID,
-                    "sequence": 1,
-                    "speaker_name": "직접일",
-                    "speaker_title": "위원",
-                    "speaker_mona_cd": TEST_MEMBER_1,
-                    "speaker_role": "의원",
-                    "content": "직접 SQL 대안 법률안에 찬성합니다.",
-                },
-                {
-                    "meeting_id": TEST_MEETING_ID,
-                    "sequence": 2,
-                    "speaker_name": "장관",
-                    "speaker_title": "테스트부장관",
-                    "speaker_mona_cd": None,
-                    "speaker_role": "국무위원(장관)",
-                    "content": "정부 의견을 설명합니다.",
                 },
             ],
         )
@@ -290,12 +240,7 @@ def test_bill_lifecycle_query_uses_public_direct_sql_surface() -> None:
                     WHERE bill_id = b.bill_id
                     GROUP BY result_vote_mod
                 ) v
-            ) AS vote_summary,
-            (
-                SELECT count(*)
-                FROM meeting_bills mb
-                WHERE mb.bill_id = b.bill_id
-            ) AS linked_meeting_count
+            ) AS vote_summary
         FROM target t
         JOIN bills b ON b.bill_id = t.bill_id
         LEFT JOIN committees c ON c.committee_id = b.committee_id
@@ -311,7 +256,6 @@ def test_bill_lifecycle_query_uses_public_direct_sql_surface() -> None:
     assert row["prom_law_nm"] == "직접 SQL 대안 법률"
     assert row["lead_proposers"] == ["직접이"]
     assert row["vote_summary"] == {"반대": 1, "찬성": 1}
-    assert row["linked_meeting_count"] == 1
 
 
 def test_bill_lineage_view_hides_alias_resolution_from_consumers() -> None:

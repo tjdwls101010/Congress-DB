@@ -18,9 +18,6 @@ EXPECTED_TABLES = frozenset(
         "bill_lead_proposers",
         "bill_coproposers",
         "votes",
-        "meetings",
-        "meeting_bills",
-        "utterances",
         "ingest_runs",
         "ingest_cursors",
         "dead_letters",
@@ -39,18 +36,6 @@ EXPECTED_MEMBER_COLUMNS = frozenset(
         "orig_nm",
         "units",
         "is_incumbent",
-        "fetched_at",
-    }
-)
-
-EXPECTED_MEETING_COLUMNS = frozenset(
-    {
-        "mnts_id",
-        "title",
-        "meeting_type",
-        "session_no",
-        "conf_date",
-        "comm_name",
         "fetched_at",
     }
 )
@@ -86,6 +71,8 @@ EXPECTED_VOTE_COLUMNS = frozenset(
         "bill_id",
         "mona_cd",
         "vote_date",
+        # 032: 한국(KST) 달력일 생성컬럼 — vote_date::date의 GMT-세션 하루-어긋남 함정 교정.
+        "vote_date_kst",
         "result_vote_mod",
         "poly_nm_at_vote",
     }
@@ -120,9 +107,6 @@ DIRECT_SQL_BASE_TABLES = frozenset(
         "bill_lead_proposers",
         "bill_coproposers",
         "votes",
-        "meetings",
-        "utterances",
-        "meeting_bills",
         "bill_final_outcomes",
         "bill_relations",
         "bill_source_aliases",
@@ -281,11 +265,6 @@ def test_no_unexpected_tables() -> None:
     assert not extra, f"Unexpected tables: {sorted(extra)}"
 
 
-def test_meetings_has_only_search_oriented_core_columns() -> None:
-    """회의 source/link/upstream 컬럼은 core 스키마에 남기지 않는다."""
-    assert _public_columns("meetings") == EXPECTED_MEETING_COLUMNS
-
-
 def test_members_exposes_roster_derived_incumbency() -> None:
     """현직 여부는 최신 의원 명부에서 파생된 공개 조회 컬럼이다."""
     assert _public_columns("members") == EXPECTED_MEMBER_COLUMNS
@@ -357,16 +336,8 @@ def test_high_risk_consumer_columns_have_comments() -> None:
         ("bills", "law_proc_dt"),
         ("votes", "bill_id"),
         ("votes", "mona_cd"),
-        ("utterances", "id"),
-        ("utterances", "meeting_id"),
-        ("utterances", "sequence"),
-        ("bill_meeting_contexts", "linked_bill_count"),
-        ("bill_meeting_contexts", "utterance_count"),
-        ("bill_meeting_contexts", "utterances_by_role"),
-        ("bill_meeting_contexts", "evidence_scope"),
         # raw 원천명 노출 컬럼 — GROUP BY 시 조용한 NULL 버킷/값목록을 introspect로 알려야 함
         ("members", "sex_gbn_nm"),
-        ("meetings", "meeting_type"),
     ):
         assert _column_comment(table, column), f"{table}.{column} lacks COMMENT"
 
@@ -399,15 +370,13 @@ def test_critical_gotcha_comments_carry_their_warning() -> None:
         "bill_lineage": "COVERAGE",
         # bills 테이블에 생애주기 단계 시간순 개요(introspect-only 자립)
         "bills": "생애주기 단계",
-        # bill_meeting_contexts fanout 단위(회의당) 명시
-        "bill_meeting_contexts": "회의당",
     }
     for relation, marker in relation_markers.items():
         comment = _relation_comment(relation) or ""
         assert marker in comment, f"{relation} COMMENT lost its warning ('{marker}')"
 
     # 검색 함수 성능 절벽(2글자 trigram 미사용) 경고 — recall만 남고 성능이 덮이는 회귀 방지
-    for func in ("search_bills", "search_utterances"):
+    for func in ("search_bills",):
         comment = _function_comment(func) or ""
         assert "3-gram" in comment, f"{func} COMMENT lost its 2-char performance warning"
 
@@ -420,9 +389,3 @@ def test_foreign_key_columns_are_indexed_for_direct_sql_joins() -> None:
 def test_direct_sql_base_tables_do_not_hide_rows_behind_rls() -> None:
     """congress_ro is controlled by GRANT allowlist; RLS without policies returns 0 rows."""
     assert not (DIRECT_SQL_BASE_TABLES & _rls_enabled_tables())
-
-
-def test_meeting_bills_has_only_junction_columns() -> None:
-    """회의-법안 junction은 관계 자체만 보존한다."""
-    columns = _public_columns("meeting_bills")
-    assert columns == {"meeting_id", "bill_id"}

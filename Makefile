@@ -1,7 +1,7 @@
-.PHONY: db-up db-down db-migrate db-shell db-reset test ingest \
+.PHONY: db-up db-down db-migrate db-shell db-reset test ingest safe-update \
         render-catalog ingest-members ingest-bills \
-        ingest-bill-relations ingest-bill-summaries ingest-votes ingest-meetings validate-minutes-dom ingest-utterances \
-        backfill-speaker-roles backfill-bill-source-aliases backfill-bill-final-outcomes ingest-backfill sanity-check data-completeness migration-readiness regression-pack
+        ingest-bill-relations ingest-bill-summaries ingest-votes \
+        backfill-bill-source-aliases backfill-bill-final-outcomes ingest-backfill sanity-check data-completeness migration-readiness regression-pack
 
 # .env가 있으면 변수 자동 로드 (없어도 통과)
 -include .env
@@ -55,6 +55,11 @@ test:
 ingest:
 	uv run python -m scripts.ingest
 
+# 안전 Neon 업데이트: 백업 브랜치 → 증분 수집 → 무손상 검증 → 손상 시 자동 복원
+# (CONGRESS_MAIN_URL·NEON_API_KEY 는 .env.local 에서 읽는다)
+safe-update:
+	uv run python -m scripts.safe_update
+
 # docs/ops/API-CATALOG.md 자동 생성
 render-catalog:
 	uv run python -m scripts.render_api_catalog
@@ -86,22 +91,6 @@ backfill-bill-final-outcomes:
 # 진단용: votes 적재 (기본 10%)
 ingest-votes:
 	uv run python -m scripts.ingest_votes
-
-# 진단용: meetings + meeting_bills 적재 (기본 캘리브레이션 500건)
-ingest-meetings:
-	uv run python -m scripts.ingest_meetings
-
-# 진단용: utterances 적재 (기본 캘리브레이션 500건)
-ingest-utterances:
-	uv run python -m scripts.ingest_utterances
-
-# 기존 utterances.speaker_role 백필 + 최종 NOT NULL/CHECK 적용
-backfill-speaker-roles:
-	uv run python -m scripts.backfill_speaker_roles
-
-# 회의록 DOM 구조 다층 샘플 검증
-validate-minutes-dom:
-	uv run python -m scripts.validate_minutes_dom
 
 # 진단용: 로컬 100% 백필 실행 (hosted Postgres migration 전 PM gate의 입력)
 ingest-backfill:

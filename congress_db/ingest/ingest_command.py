@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, is_dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
@@ -15,7 +15,6 @@ from .backfill import (
     DeadLetterDraft,
     StageResult,
     build_default_backfill_stages,
-    load_utterance_target_meeting_ids,
     run_backfill,
     run_incremental_stages,
 )
@@ -26,10 +25,8 @@ from ..ops.migration_readiness import generate_migration_readiness_report
 from ..ops.sanity_check import run_sanity_check
 from .dead_letter_retry import retry_dead_letters
 from .ingest_bills import ingest_bills
-from .ingest_meetings import ingest_meetings
 from .ingest_members import ingest_members
 from .ingest_state import upsert_cursor
-from .ingest_utterances import ingest_utterances
 from .ingest_votes import ingest_votes
 from ..core.throttle import cap_worker_count
 
@@ -40,15 +37,10 @@ REQUIRED_CURSOR_SPECS: tuple[tuple[str, str, int], ...] = (
     ("members", "full_refresh", 0),
     ("bills", "last_success_at", 0),
     ("votes", "last_success_at", 0),
-    ("meetings", "last_success_at", 0),
-    ("utterances", "last_success_at", 0),
 )
-RESUMABLE_BACKFILL_STAGE_NAMES = frozenset({"members", "bills", "votes", "meetings"})
+RESUMABLE_BACKFILL_STAGE_NAMES = frozenset({"members", "bills", "votes"})
 INCREMENTAL_BILL_SUMMARY_WORKERS = 100
 INCREMENTAL_VOTE_ROW_WORKERS = 20
-INCREMENTAL_MEETING_BILL_WORKERS = 200
-INCREMENTAL_SCRAPE_WORKERS = 20
-MEETING_BILLS_RECONCILIATION_INTERVAL_DAYS = 7
 
 
 @dataclass(frozen=True)
@@ -65,7 +57,6 @@ class IngestCommandResult:
 def run_ingest(
     *,
     mode: ModeRequest = "auto",
-    force_meeting_ids: Sequence[int] = (),
     now_fn: Callable[[], datetime] | None = None,
 ) -> IngestCommandResult:
     """PM/운영자가 쓰는 단일 수집 명령을 실행한다."""
@@ -84,14 +75,13 @@ def run_ingest(
             },
         )
     else:
-        stages = build_incremental_stages(force_meeting_ids=force_meeting_ids)
+        stages = build_incremental_stages()
         result = run_incremental_stages(
             stages=stages,
             run_metadata={
                 "entrypoint": "ingest",
                 "requested_mode": mode,
                 "selected_mode": selected_mode,
-                "force_meeting_ids": sorted(set(force_meeting_ids)),
             },
         )
 
@@ -293,8 +283,6 @@ def _is_resumable_stage_summary_healthy(name: str, summary: Mapping[str, Any]) -
             summary.get("vote_bill_count") == summary.get("target_bill_count")
             and int(summary.get("failed_vote_bill_count") or 0) == 0
         )
-    if name == "meetings":
-        return summary.get("meeting_count") == summary.get("target_count")
     return False
 
 
@@ -311,13 +299,8 @@ def _compact_resumed_stage_summary(summary: Mapping[str, Any]) -> dict[str, Any]
     return compacted
 
 
-def build_incremental_stages(
-    *,
-    force_meeting_ids: Sequence[int] = (),
-) -> tuple[BackfillStage, ...]:
+def build_incremental_stages() -> tuple[BackfillStage, ...]:
     """공식 증분 stage 묶음."""
-    forced_ids = tuple(sorted(set(force_meeting_ids)))
-    touched_meeting_ids: tuple[int, ...] = ()
 
     def run_members() -> StageResult:
         return _stage_from_result(ingest_members())
@@ -340,91 +323,11 @@ def build_incremental_stages(
             )
         )
 
-    def run_meetings() -> StageResult:
-        nonlocal touched_meeting_ids
-        result = ingest_meetings(
-            calibration_limit=None,
-            vconfbill_worker_count=cap_worker_count(INCREMENTAL_MEETING_BILL_WORKERS),
-            vconfbill_fetch_mode="missing",
-            vconfbill_force_meeting_ids=forced_ids,
-            allow_partial_vconfbill=True,
-        )
-        touched_meeting_ids = tuple(
-            sorted(set(result.new_meeting_ids) | set(result.changed_meeting_ids) | set(forced_ids))
-        )
-        failures = tuple(
-            DeadLetterDraft(
-                source="meeting_bills.vconfbill",
-                stage="fetch",
-                item_key=failure.bill_id,
-                payload={"bill_id": failure.bill_id},
-                error=failure.error,
-            )
-            for failure in result.vconfbill_failures
-        )
-        return _stage_from_result(result, exclude=("vconfbill_failures",), dead_letters=failures)
-
-    def run_meeting_bills_reconciliation() -> StageResult:
-        if not meeting_bills_reconciliation_due():
-            return StageResult(
-                summary={
-                    "skipped_reason": "meeting_bills reconciliation not due",
-                    "interval_days": MEETING_BILLS_RECONCILIATION_INTERVAL_DAYS,
-                }
-            )
-        result = ingest_meetings(
-            calibration_limit=None,
-            vconfbill_worker_count=cap_worker_count(INCREMENTAL_MEETING_BILL_WORKERS),
-            vconfbill_fetch_mode="all",
-            allow_partial_vconfbill=False,
-        )
-        return _stage_from_result(result)
-
-    def run_utterances() -> StageResult:
-        missing_ids = set(load_utterance_target_meeting_ids())
-        target_ids = tuple(sorted(set(touched_meeting_ids) | missing_ids | set(forced_ids)))
-        if not target_ids:
-            return StageResult(
-                summary={
-                    "meeting_count": 0,
-                    "scraped_meeting_count": 0,
-                    "scraped_meeting_ids": (),
-                    "utterance_count": 0,
-                    "selected_worker_count": None,
-                    "retry_count": 0,
-                    "retried_meeting_count": 0,
-                    "scrape_error_count": 0,
-                    "member_mapped_count": 0,
-                    "sample_errors": (),
-                    "skipped_reason": "no touched, missing, forced, or retryable meetings",
-                }
-            )
-        result = ingest_utterances(
-            calibration_limit=max(len(target_ids), 1),
-            meeting_ids=target_ids,
-            allow_partial=True,
-            scrape_worker_count=cap_worker_count(INCREMENTAL_SCRAPE_WORKERS),
-        )
-        failures = tuple(
-            DeadLetterDraft(
-                source="minutes.html",
-                stage="fetch",
-                item_key=str(failure.mnts_id),
-                payload={"mnts_id": failure.mnts_id},
-                error=failure.error,
-            )
-            for failure in result.scrape_failures
-        )
-        return _stage_from_result(result, exclude=("scrape_failures",), dead_letters=failures)
-
     return (
         BackfillStage("retry_dead_letters", _run_dead_letter_retry),
         BackfillStage("members", run_members),
         BackfillStage("bills", run_bills),
         BackfillStage("votes", run_votes),
-        BackfillStage("meetings", run_meetings),
-        BackfillStage("meeting_bills_reconciliation", run_meeting_bills_reconciliation),
-        BackfillStage("utterances", run_utterances),
         BackfillStage("sanity_check", lambda: _stage_from_result(run_sanity_check())),
         BackfillStage(
             "data_completeness",
@@ -432,30 +335,6 @@ def build_incremental_stages(
         ),
         BackfillStage("migration_readiness", _run_migration_readiness),
     )
-
-
-def meeting_bills_reconciliation_due(
-    *,
-    interval_days: int = MEETING_BILLS_RECONCILIATION_INTERVAL_DAYS,
-) -> bool:
-    """최근 성공 reconciliation이 없거나 interval을 넘겼으면 실행한다."""
-    with get_conn() as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT finished_at
-            FROM ingest_runs
-            WHERE mode = 'incremental'
-              AND status IN ('success', 'degraded_success')
-              AND summary #> '{stages,meeting_bills_reconciliation}' IS NOT NULL
-              AND summary #>> '{stages,meeting_bills_reconciliation,skipped_reason}' IS NULL
-            ORDER BY finished_at DESC NULLS LAST, id DESC
-            LIMIT 1
-            """
-        )
-        row = cur.fetchone()
-    if row is None or row[0] is None:
-        return True
-    return row[0] <= datetime.now(UTC) - timedelta(days=interval_days)
 
 
 def _run_dead_letter_retry() -> StageResult:

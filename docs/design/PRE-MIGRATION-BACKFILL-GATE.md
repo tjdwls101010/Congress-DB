@@ -3,6 +3,11 @@
 This is the operating contract for issue #45. Hosted Postgres migration (#12) must wait until
 this gate is complete.
 
+> **Historical note (2026-06-28):** The meeting/utterance domain (`meetings`, `meeting_bills`,
+> `utterances`) referenced below was later removed from the project (migration
+> `031_drop_meeting_minutes.sql`). The counts and checks involving those tables are kept here as a
+> record of the past gate run, not the current schema.
+
 ## Goal
 
 Prove that the initial ~2 years of 22대 data can be loaded, verified, and rerun

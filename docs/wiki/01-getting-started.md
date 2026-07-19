@@ -72,17 +72,19 @@ SELECT count(*) FROM congress.bills;
 ## 권한과 제약
 
 - **읽기전용**: `INSERT/UPDATE/DELETE/DDL`은 `permission denied`로 거부됩니다.
-- **노출 범위**: 소비자용 객체(테이블 10 · 뷰 2 · 함수 3, 아래)만 보입니다. 내부 적재/운영 테이블(`ingest_runs` 등)과 raw 테이블은 권한으로 차단됩니다.
+- **노출 범위**: 소비자용 객체(테이블 7 · 뷰 1 · 함수 2, 아래)만 보입니다. 내부 적재/운영 테이블(`ingest_runs` 등)과 raw 테이블은 권한으로 차단됩니다.
 - **쿼리 시간 제한**: 한 쿼리당 `statement_timeout = 60초`. 무거운 쿼리는 잘립니다 — 보통 분석 쿼리는 1초 미만입니다.
 - **pooled 연결**: 짧은 질의 여러 번에 최적화돼 있습니다. psycopg는 `prepare_threshold=None`을 주세요.
 
-## 노출된 객체 (테이블 10 · 뷰 2 · 함수 3)
+## 노출된 객체 (테이블 7 · 뷰 1 · 함수 2)
 
-**테이블 (10)**: `bills` · `members` · `committees` · `bill_lead_proposers` · `bill_coproposers` · `votes` · `meetings` · `utterances` · `meeting_bills` · `bill_final_outcomes`
+**테이블 (7)**: `bills` · `members` · `committees` · `bill_lead_proposers` · `bill_coproposers` · `votes` · `bill_final_outcomes`
 
-**뷰 (2)**: `bill_lineage`(원안→대안 계보) · `bill_meeting_contexts`(법안×회의 evidence)
+> 회의·발언 도메인 테이블(`meetings`·`meeting_bills`·`utterances`)·뷰(`bill_meeting_contexts`)·함수(`search_utterances`)는 2026-06-28(031)에 제거됐습니다.
 
-**함수 (3)**: `search_bills(text, int)` · `search_utterances(text, int)` · `search_snippet(text, text, int)`
+**뷰 (1)**: `bill_lineage`(원안→대안 계보)
+
+**함수 (2)**: `search_bills(text, int)` · `search_snippet(text, text, int)`
 
 구조·관계는 [02 — 데이터 모델](02-data-model.md)에서, 바로 쓰는 질의는 [03 — 질의 쿡북](03-query-cookbook.md)에서 이어집니다.
 

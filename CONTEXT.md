@@ -1,6 +1,8 @@
 # Congress-DB
 
-대한민국 국회 22대 임기(2024-05-30~) 데이터를 한 곳에 통합 적재하는 Postgres DB. 의원 한 명을 키로 그 의원의 발의 법안, 본회의 표결, 회의록 발언이 SQL JOIN 한 줄로 나오게 만드는 것이 목적이다.
+대한민국 국회 22대 임기(2024-05-30~) 데이터를 한 곳에 통합 적재하는 Postgres DB. 의원 한 명을 키로 그 의원의 발의 법안과 본회의 표결이 SQL JOIN 한 줄로 나오게 만드는 것이 목적이다.
+
+> **회의·발언 도메인 제거 (2026-06-28, `migrations/031_drop_meeting_minutes.sql`):** `meetings`·`meeting_bills`·`utterances` 테이블, `bill_meeting_contexts` 뷰, `search_utterances` 함수가 삭제됐다. "누가 무엇을 말했나" 심층 분석은 websearch로 옮겼고(아래 **이 DB가 담지 않는 것** 참조), 심의 *진행·상태*는 구조화 테이블(`bills.proc_result`·`bill_lineage`·`bill_final_outcomes`)이 답한다. 배경은 [DECISIONS.md](docs/design/DECISIONS.md) 2026-06-28 참조.
 
 스킬, AI agent, 개발자가 hosted Postgres에 read-only로 붙어 직접 SQL을 작성하는 것을 1차 소비 방식으로 둔다.
 
@@ -8,13 +10,14 @@
 
 이 저장소는 4단계 로드맵의 **1단계(국회 데이터 DB)** 만 담는다. 각 단계는 독립 프로젝트이며, 경계를 넘는 기능은 다음 단계로 미뤄 스코프를 묶는다.
 
-1. **국회 데이터 DB** — *이 저장소.* 22대 국회의 발의 법안·본회의 표결·회의록 발언을 정규화 적재.
+1. **국회 데이터 DB** — *이 저장소.* 22대 국회의 발의 법안·본회의 표결을 정규화 적재.
 2. **국회 DB 직접 조회** — 별도 SDK를 만들지 않는다(DECISIONS 2026-06-10). 스킬이 이 DB의 자기설명(`schema.sql`·`ERD.md`=구조, 컬럼·테이블 `COMMENT`=함정·어휘)을 introspect하고, introspection이 조립 못 하는 cross-table 레시피만 `docs/design/DB-QUERY-GUIDE.md`에서 보며 read-only SQL로 직접 조회한다. 고정 SDK 표면의 브리틀니스(1개만 틀려도 막힘)를 피하고 클로드의 SQL 능력을 활용한다.
 3. **법제처 데이터 접근 계층** — 현행법령·시행령·행정규칙·법령해석례(유권해석)·판례·헌재결정례를 법제처 OpenAPI에서 제공(별도 저장소). 국회는 API가 흩어져 DB 정규화가 필요했지만, 법제처는 `법령ID` 기반으로 본문·신구대조·체계도가 정연해 live API 또는 얇은 도구로 충분할 수 있다(3단계 진입 시 재판단).
 4. **입법 harness (스킬)** — 국회 DB(직접 SQL)·법제처 데이터와 WebSearch(사회문제 맥락)를 함께 쓰는 입법 코파일럿(별도 저장소). 입법전문가가 사회문제를 놓고 현황·갭·사법해석·입법이력을 종합해 법안을 고안하도록 돕는다. `legislative-copilot` 프로토타입은 참고만, 새로 구축.
 
 **이 DB가 담지 않는 것 (경계):**
 - 시행 중인 **현행법·시행령 본문, 유권해석, 판례** → 3단계(법제처 데이터 접근 계층). 이 DB의 `bills`는 *발의된 의안*만이며 *시행 중인 법*과 구분한다(아래 **법안** 정의 참조).
+- **회의록·발언(누가 무엇을 말했나)** → 범위 밖(2026-06-28 제거, 031). 심의 *진행·상태*는 구조화 테이블(`bills.proc_result`·`bill_lineage`·`bill_final_outcomes`)로 답하고, 발언 내용 심층 분석은 websearch로 넘긴다.
 - **검색/조회 API, 의미 검색, 정책 의제 레이어** → 2단계 이후.
 - **사회문제 맥락 수집(WebSearch)** → 4단계 harness.
 
@@ -22,7 +25,7 @@
 
 **의원 (Member)**:
 국회의원. 자연키는 `MONA_CD` (대수 구분 없는 의원 고유 코드). 이름이 같은 동명이인이 있을 수 있어 ID로 식별한다.
-_Avoid_: 위원(회의 컨텍스트에서의 호칭만으로 사용), 국회의원(전체 명칭으로 한 번 정도만)
+_Avoid_: 위원(위원회 컨텍스트에서의 호칭만으로 사용), 국회의원(전체 명칭으로 한 번 정도만)
 
 **현직 여부 (Incumbency)**:
 의원이 *현재 재직 중*인지를 나타내는 `members.is_incumbent`(BOOLEAN NOT NULL, 적재 완료 — 현재 현직 300·이탈 20). 손으로 관리하지 않고, 매 동기화 때 의원 인적사항 API(현직 명부)에 잡히면 TRUE, 안 잡히면 FALSE로 자동 갱신한다. 사퇴·의원직 상실 등으로 떠난 의원도 행은 그대로 두고(`ON DELETE RESTRICT`) `is_incumbent=FALSE`로만 표시해 행적 추적이 끊기지 않게 한다. 시점 정당(`poly_nm_at_vote`)과 같은 "출처에서 파생" 원칙을 따른다(별도 상태 테이블 없음). 사퇴 등으로 명부 동기화 전에 떠난 의원은 프로필 정당(`poly_nm`)이 NULL일 수 있다 — 시점 정당이 필요하면 `votes.poly_nm_at_vote`를 쓰고, 이를 `members.poly_nm`로 덮지 않는다(DECISIONS 2026-06-10).
@@ -47,39 +50,12 @@ _Avoid_: proposer identity, member join key
 **본회의 표결만** 다룬다. 위원회 단계의 가결·부결은 API가 제공하지 않아 추적하지 않는다. 본회의 표결 1건 = 그 표결에 기록된 의원 수만큼의 row(실측 285~300, 평균 ~297; 출결·의석 변동으로 가변 — 고정 286이 아니다).
 _Avoid_: 의결, 통과, 가결(처리결과의 한 값일 뿐)
 
-**회의 (Meeting)**:
-국회 회의록 웹 목록에 노출되고 HTML viewer로 본문 확인이 가능한 한 차 회의 인스턴스. 자연키는 회의록 상세 URL의 `id` 파라미터인 `mnts_id`다.
-_Avoid_: 세션(회기와 혼동)
-
-**회기 (Session No)**:
-"제434회 국회" 같은 회기 번호. `meetings.session_no`에 정수로 저장 (예: 434). API의 SESS / SESSION_CD에 대응.
-_Avoid_: 세션(한국어 대화에서는 회의와 혼동되기 쉬움)
-
-**차수 (Degree)**:
-한 회기 안에서의 "제3차" 같은 회의 차수. **별도 컬럼으로 저장하지 않는다** — `meetings.degree`는 #015 cleanup에서 제거됐다(`title`에서 파싱 가능하고 약 절반이 '개회식' sentinel이라 잉여). 차수가 필요하면 `meetings.title` 원문에서 도출한다. 회기(`session_no`)와는 다른 개념이다.
-
-**회의 안건 (Meeting Agenda Item)**:
-국회 원천의 `SUB_NAME`에 들어 있는 회의 상정 항목. 법안도 있지만 임명동의안·출석요구·연설·동의 등이 섞이며, core DB에는 별도 테이블로 보존하지 않고 법안-회의 연결을 만들 때 임시 입력으로만 사용한다.
-
-> **핵심 통찰**: 회의 안건은 회의의 메뉴판이지 본문 섹션이 아니다. API의 `SUB_NAME`은 회의가 다룬 안건 목록을 평탄화한 것일 뿐, 회의록 본문은 안건과 무관한 단일 utterance stream이다. 따라서 회의 안건을 core 검색 엔터티로 두지 않고, 법안으로 식별 가능한 항목만 `meeting_bills`에 남긴다.
-
 **정책 의제 (Policy Topic)**:
-사용자가 검색하려는 정책 주제. 예: 전세사기, 의대정원, 채상병 특검, AI 기본법. 회의 안건과 다르며, 향후 `policy_topics` 같은 의미 레이어에서 다룬다.
-_Avoid_: 안건(회의 공식 상정 항목과 혼동)
-
-**발언 (Utterance)**:
-회의록 본문의 한 발언. 화자(speaker_name + speaker_title)와 시퀀스(meeting 내 순번)로 식별. 의원의 발언은 `speaker_mona_cd`로 의원과 join 가능. 단 매핑되는 건 **의원 직함 발언뿐**(의원 직함 한정 ~100%)이고, 전체 발언 기준 화자-의원 매핑률은 **~61.5%**다 — 나머지 ~38.5%는 장관·국무총리·차관·증인·참고인·전문위원 등 비-의원 화자로 `speaker_mona_cd`가 NULL이다. 비-의원측 조회는 아래 **발언 역할** 정규화로 보강한다.
-
-**주변 발언 창 (Neighbor Window)**:
-키워드 hit나 특정 화자 발언의 같은 회의 앞뒤 `sequence` 범위. Q&A 블록, 토론 단위, 안건 단위를 DB에 미리 저장하지 않고 에이전트/API가 발언 stream에서 즉석으로 문맥을 읽는 단위다.
-_Avoid_: Q&A 그룹, 세그먼트(저장된 의미 단위처럼 들림)
-
-**발언 역할 (Speaker Role)**:
-발언자의 자격을 정규화한 분류: 의원 / 국무위원(장관) / 차관 / 증인 / 참고인 / 전문위원 / 기타. 원천 직함 텍스트(`speaker_title`)는 3,000종 이상으로 흩어져 있어, 이를 소수 역할 enum으로 정규화해 "정부측 발언만", "증인 발언만" 같은 조회를 가능케 한다.
-_Avoid_: 직함(raw 텍스트 그대로 — 정규화된 역할과 구분)
+사용자가 검색하려는 정책 주제. 예: 전세사기, 의대정원, 채상병 특검, AI 기본법. 향후 `policy_topics` 같은 의미 레이어에서 다룬다.
+_Avoid_: 안건(국회 공식 상정 항목과 혼동)
 
 **위원회 (Committee)**:
-상임위원회 / 특별위원회 / 소위원회. 의원은 시점마다 소속 위원회가 다를 수 있지만, **별도 history 테이블은 두지 않는다** — 위원회 시점은 회의(meetings)와 발언(utterances)에 자동으로 박혀 있기 때문.
+상임위원회 / 특별위원회 / 소위원회. 의원은 시점마다 소속 위원회가 다를 수 있지만, **별도 history 테이블은 두지 않는다** — 법안 소관 위원회는 `bills.committee_id → committees`로만 본다(위원회 시점별 membership/history는 범위 밖).
 
 **대수 (Assembly Term)**:
 "제22대"처럼 4년 임기 단위. 본 DB는 22대(2024-05-30~)만 다룬다. API 파라미터로 `DAE_NUM=22` / `AGE=22` / `ERACO=제22대` 형식이 혼재한다.
@@ -92,12 +68,6 @@ _Avoid_: 직함(raw 텍스트 그대로 — 정규화된 역할과 구분)
 - `BILL_NO`: `2218872` 같은 7자리 숫자. **source 간 안정적인 키.** likms·ALLBILL이 BILL_NO로 조회된다. 의안 동일성 판단·alias 해소의 기준은 BILL_NO다.
 - `bill_source_aliases`: source별 BILL_ID를 canonical `bills` row(BILL_NO 기준)에 잇는 정규화. **적재 완료**이나 ETL-internal이라 `congress_ro`에서 REVOKE된다(소비자는 `bill_lineage` 뷰로 계보를 읽음, #125).
 
-**mnts_id / confer_num / CONF_ID**:
-회의록을 가리키는 식별자가 API마다 형식이 다르다.
-- `mnts_id` (정수, 예: 55735): 회의록 상세 HTML URL의 id 파라미터. **회의록의 canonical key로 사용**.
-- `CONFER_NUM`: 본회의/위원회 API의 회의번호. mnts_id와 동일한 값.
-- `CONF_ID` (예: `N054193`): 별도 회의 식별자. core 검색에는 쓰지 않는 원천 보조키.
-
 **처리결과 (Proc Result)**:
 법안의 본회의 처리결과. 가결·부결·대안반영·철회 등. `bills.proc_result`에 텍스트로 저장.
 
@@ -109,22 +79,14 @@ _Avoid_: law_proc_dt를 공포일로 사용
 `bills`에 섞인 의안의 종류. 법률안(공포 대상) vs 비-법률 의안(감사요구안·수사요구안·규칙안·결의안·동의안·승인안 — 공포 비대상). 원천에 종류 필드가 없어 `bill_name`에서 파생하며(특별법안·특별조치법안도 법률안), "통과했는데 공포 없음"이 정상(비대상)인지 결측인지를 가른다.
 _Avoid_: 법안종류(법안=법률안에 한정되어 좁음)
 
-**정부측 발언자 소속 (Speaker Affiliation)** _(도입 예정 — M3)_:
-발언자의 부처·기관. `speaker_role`이 7종 역할까지만 주므로, '기타'에 묻힌 정부측 actor(부처 실장·청장·○○위원장·정책관)를 `speaker_title` 기반 보조조회로 회수한다. role enum을 늘리지 않고 raw 직함을 authoritative로 둔다.
-_Avoid_: 역할(speaker_role enum과 구분 — 소속/기관은 별개 축)
-
-**증거 강도 (Evidence Strength)**:
-`meeting_bills`는 회의-level 연결이라 한 회의에 수십~수백 법안이 걸린다(평균 32, p90 75, max 756). "같은 회의에서 다뤄짐"을 특정 법안의 발언 증거로 단정하지 않도록 **`bill_meeting_contexts` 뷰**(적재 완료, 소비자 노출)가 `linked_bill_count`(raw count)와 회의-단위 발언 통계를 소비 표면에 노출한다. 강도 버킷 라벨은 의도적으로 두지 않고 raw count로 소비자가 판단한다(DECISIONS 2026-06-11).
-_Avoid_: 안건 세그먼트(저장된 단위 — agenda_items 제외 결정과 충돌)
-
 **법안 문서 (Bill Document)** _(prototype-gated — 미적재)_:
 법안 원문·비용추계의 파일 URL(`BILLRCPV2`가 `BILL_ID` 키로 `BOOK_*`=원문·`COST_*`=비용추계 HWP/PDF 제공). **현재 DB에 적재하지 않음** — 2026-06-12 `bill_documents`로 적재했다 demand 미입증으로 되돌림(DECISIONS 2026-06-12). 스킬 프로토타입이 문서 링크 수요를 입증하면 재구축(방법은 이슈 #96에 보존).
 
 **청원 / 공청회 / 입법예고 (Petition / Public Hearing / Legislative Notice)** _(도입 예정 — M3)_:
-국회의 공식 시민수요·전문가증언·의견수렴 source. 청원(`PTT_ID`, 302건)은 시민 요구의 공식 신호이되 '여론' 대표성으로 단정하지 않는다(해석은 [4]). 공청회(59건)는 회의록 universe에 없어 별도 inventory·파싱검증 대상. 입법예고(17,708건)는 notice 메타만, 의견 본문은 범위 밖.
+국회의 공식 시민수요·전문가증언·의견수렴 source. 청원(`PTT_ID`, 302건)은 시민 요구의 공식 신호이되 '여론' 대표성으로 단정하지 않는다(해석은 [4]). 공청회(59건)는 별도 inventory·파싱검증 대상. 입법예고(17,708건)는 notice 메타만, 의견 본문은 범위 밖.
 
 **위원회 차원 (Committee Dimension)**:
-`bills.committee_id -> committee_name`을 canonical하게 보존하는 bill-side 소관 위원회/기관 dimension. 2026-06-13 Neon main 감사에서 31개 id/name pair가 1:1(충돌 0)로 확인되어, #120에서 `committees`를 만들고 `bills.committee_id` FK를 건 뒤 중복 display field `bills.committee`를 제거했다. `meetings.comm_name`은 meeting-side 원문 위원회명이고, 위원회 **membership**(누가 어느 위원)은 명부 API 검증 후에만 — 별개 개념이다.
+`bills.committee_id -> committee_name`을 canonical하게 보존하는 bill-side 소관 위원회/기관 dimension. 2026-06-13 Neon main 감사에서 31개 id/name pair가 1:1(충돌 0)로 확인되어, #120에서 `committees`를 만들고 `bills.committee_id` FK를 건 뒤 중복 display field `bills.committee`를 제거했다. 위원회 **membership**(누가 어느 위원)은 명부 API 검증 후에만 — 별개 개념이다.
 _Avoid_: 위원회 history(시점별 membership — 검증 전까지 제외)
 
 **대안 관계 (Alternative Relation)**:
@@ -147,51 +109,25 @@ _Avoid_: stage별 수동 실행, 임시 백필 스크립트
 백필, 증분 동기화, dead letter 재처리 중 하나를 실행한 기록. 상태는 `running`, `success`, `degraded_success`, `failed`, `blocked` 중 하나다.
 
 **수집 커서 (Ingest Cursor)**:
-각 source가 마지막으로 성공 처리한 기준점. 법안·표결·회의는 날짜 의미가 달라 하나의 global cursor를 쓰지 않고 source별로 분리한다. (개정 2026-06-04: cursor는 fetch 범위를 좁히는 데 쓰지 않고 마지막 성공 시점 관찰용으로만 남긴다 — DECISIONS 2026-06-04 / 이슈 #46.)
+각 source가 마지막으로 성공 처리한 기준점. 법안·표결은 날짜 의미가 달라 하나의 global cursor를 쓰지 않고 source별로 분리한다. (개정 2026-06-04: cursor는 fetch 범위를 좁히는 데 쓰지 않고 마지막 성공 시점 관찰용으로만 남긴다 — DECISIONS 2026-06-04 / 이슈 #46.)
 _Avoid_: global cursor
 
 **실패 편지 (Dead Letter)**:
-재시도 후에도 실패한 API item 또는 회의록 스크래핑 대상. 삭제하지 않고 `pending`/`resolved` 등 상태로 보존해 누락과 지연 적재 원인을 추적한다.
+재시도 후에도 실패한 API item. 삭제하지 않고 `pending`/`resolved` 등 상태로 보존해 누락과 지연 적재 원인을 추적한다.
 _Avoid_: 터미널 로그만 남기기, 실패 item 무시
-
-**Touched Meeting**:
-증분 동기화에서 새로 들어오거나 갱신된 회의. 해당 `meeting_id`만 utterances를 재스크래핑한다.
-
-## 회의 종류 (meeting_type 값)
-
-7가지 enum 값. 각각 다른 OpenAPI 또는 회의 제목 패턴에서 가져온다:
-
-| meeting_type | API 출처 |
-|---|---|
-| **본회의** | `nzbyfwhwaoanttzje` |
-| **상임위** / **특별위** | `ncwgseseafwbuheph` (`CLASS_NAME`·회의명·위원회명으로 구분) |
-| **국정감사** | `VCONFAPIGCONFLIST` |
-| **국정조사** | `VCONFPIPCONFLIST` |
-| **인사청문회** | `VCONFCFRMCONFLIST` |
-| **소위원회** | 회의 제목/위원회명 패턴 |
 
 ## Relationships
 
 - **의원 ↔ 법안 (대표발의)**: 한 법안에 한 명 이상 **대표발의자**가 있을 수 있다. bill_lead_proposers 정규화 테이블.
 - **의원 ↔ 법안 (공동발의)**: N:M. bill_coproposers 정규화 테이블.
 - **의원 ↔ 법안 (표결)**: N:M. votes 테이블 (의안 1개당 ~285~300 row, 평균 ~297; 고정 286 아님).
-- **법안 ↔ 회의**: N:M. meeting_bills 정규화. 한 법안이 여러 회의에서 다뤄지고, 한 회의가 여러 법안을 다룬다.
-- **회의 → 발언**: 1:N. utterances.meeting_id FK.
-- **의원 → 발언**: 1:N. utterances.speaker_mona_cd (nullable — 비-의원 화자는 NULL).
 - **수집 실행 → 실패 편지**: 1:N. dead_letters.run_id FK.
 - **수집 커서 → 수집 실행**: source별 cursor가 마지막 성공 run을 가리킨다.
 
 ## Example dialogue
 
-> **PM**: 의원의 위원회 이동 이력을 별도 테이블로 두어야 하나?
-> **개발자**: 발언의 위원회는 발언이 속한 회의의 `comm_name`으로 자동으로 안다. 의원의 시점별 위원회 소속 자체에 관심 없다면 별도 테이블 불필요.
-> **PM**: 발언 분석만 필요. 빼자.
-
-> **PM**: 안건 단위로 회의록을 잘라서 의미 단위로 만들면 되지 않나?
-> **개발자**: 실제 소위원회 회의록을 보면 "다음은 302페이지"처럼 심사자료 페이지와 여러 법안이 섞여 진행된다. 회의 안건은 core 테이블로 두지 않고, 법안으로 식별되는 항목만 `meeting_bills`로 연결하자.
-
 > **PM**: 위원회 단계의 표결 결과도 필요한가?
-> **개발자**: API가 본회의 표결만 제공한다. 위원회 표결을 회의록 발언에서 추출하는 건 정밀도가 낮다. 본회의 표결만 다루자.
+> **개발자**: API가 본회의 표결만 제공한다. 위원회 표결 추출은 정밀도가 낮다. 본회의 표결만 다루자.
 
 > **PM**: 2년치 초기 적재와 이후 신규 데이터 추가 코드를 따로 만들까?
 > **개발자**: 따로 만들면 drift가 생긴다. 같은 적재 Module을 사용하고, 백필은 전체 범위, 증분 동기화는 source별 cursor + 30일 overlap으로 실행 범위만 다르게 잡자.
@@ -200,12 +136,9 @@ _Avoid_: 터미널 로그만 남기기, 실패 item 무시
 
 ## Flagged ambiguities
 
-- **"세션" 다중 의미**: 한국어 대화에서 세션은 회의, 회기, 질의응답 묶음으로 섞이기 쉽다. 본 프로젝트에서는 공식 용어로 **회기**, **회의**, **발언**을 쓰고 "세션"은 피한다.
-- **"회의 안건" vs "정책 의제" vs "법안"**: 회의 안건은 국회 회의의 공식 상정 항목, 정책 의제는 사용자가 찾는 주제, 법안은 `BILL_ID`로 식별되는 의안이다. core DB에는 법안과 법안-회의 연결만 보존하고, 정책 의제는 향후 의미 레이어에서 다룬다.
-- **"의원" vs "위원"**: 같은 사람이지만 회의 컨텍스트(위원회 회의)에서는 "위원"으로 호칭됨. 화자 직함(`speaker_title`)에 그대로 보존하고, ID(`speaker_mona_cd`)로 의원과 join한다.
+- **"정책 의제" vs "법안"**: 정책 의제는 사용자가 찾는 주제, 법안은 `BILL_ID`로 식별되는 의안이다. core DB에는 법안만 보존하고, 정책 의제는 향후 의미 레이어에서 다룬다.
+- **"의원" vs "위원"**: 같은 사람이지만 위원회 컨텍스트에서는 "위원"으로 호칭됨. 식별·join은 `mona_cd`로 한다.
 - **의원 인적사항 API의 범위**: `nwvrqwxyaytdsfvhu`는 *현직* 의원만 반환하며(관측 시점 286명; 사퇴·재보궐 등으로 변동) 법안·표결 API는 그 밖의 22대 관련 MONA_CD도 참조한다. FK와 JOIN을 보존하기 위해 적재 중 발견한 누락 의원은 최소 이름만 가진 `members` stub으로 보존한다. **현직 여부**(`is_incumbent`)는 이 명부 등장 여부로 판정한다 — 명부에 없는 stub·퇴직자는 FALSE이며, 행은 삭제하지 않는다.
-- **회의 식별자 3종**: `mnts_id`(HTML 상세 URL의 id, canonical key), `CONFER_NUM`(본회의/위원회 API의 회의번호, mnts_id와 동일), `CONF_ID`(N0xxxxx, 별도 식별자). 통합 키는 `mnts_id`.
 - **대수 파라미터 형식 혼재**: `DAE_NUM=22` (정수) vs `AGE=22` (정수) vs `ERACO=제22대` (한글 텍스트). API별로 다르므로 한 군데 wrapper에서 흡수.
-- **회의록 의미 단위**: DB에는 미리 계산한 Q&A/토론/안건 세그먼트를 저장하지 않는다. 향후 스킬/분석 도구가 필요하면 `utterances`의 `meeting_id + sequence` 주변 발언 창에서 즉석 재구성한다.
 - **백필 vs 증분 동기화**: 별도 코드가 아니라 같은 적재 Module의 실행 mode다. 초기에는 로컬/별도 runner가 hosted Postgres DB에 직접 upsert한다.
-- **검색 recall은 DB가 아니라 스킬 inform 영역** (DECISIONS 2026-06-14): `search_bills`/`search_utterances`는 ILIKE 부분문자열 매칭이라 질의 문자열이 `bill_name`/`summary`/`content`에 그대로 박혀야 잡힌다. tsvector FTS는 한국어 형태소 분석기 부재로 recall이 ILIKE에 strictly dominated(옮기지 말 것). recall 손실의 주범은 본문에 그대로 없는 별칭(예: 김영란법→0건; 단 노란봉투법은 한 법안 summary에 적혀 1건 잡힘 — 즉 통칭이라도 본문에 적혀 있으면 잡힌다)·동의어(저출생↔저출산) 갭이며, 이는 스킬이 통칭→정식명 치환 + 질의확장으로 보완한다(별칭사전은 스킬 PRD 소관). 광역 토픽은 `result_limit`을 크게(200+) 주어 50-cap 절단을 피한다.
+- **검색 recall은 DB가 아니라 스킬 inform 영역** (DECISIONS 2026-06-14): `search_bills`는 ILIKE 부분문자열 매칭이라 질의 문자열이 `bill_name`/`summary`에 그대로 박혀야 잡힌다. tsvector FTS는 한국어 형태소 분석기 부재로 recall이 ILIKE에 strictly dominated(옮기지 말 것). recall 손실의 주범은 본문에 그대로 없는 별칭(예: 김영란법→0건; 단 노란봉투법은 한 법안 summary에 적혀 1건 잡힘 — 즉 통칭이라도 본문에 적혀 있으면 잡힌다)·동의어(저출생↔저출산) 갭이며, 이는 스킬이 통칭→정식명 치환 + 질의확장으로 보완한다(별칭사전은 스킬 PRD 소관). 광역 토픽은 `result_limit`을 크게(200+) 주어 50-cap 절단을 피한다.

@@ -114,7 +114,8 @@ def test_empty_catalog_mentions_missing_constant() -> None:
 def test_pipeline_catalog_rows_are_generated_from_endpoint_constant() -> None:
     rows = pipeline_catalog_rows()
 
-    assert len(rows) == len(PIPELINE_ENDPOINTS) == 11
+    # 031에서 회의·발언 endpoint 제거 → 현 universe는 5종(인적사항·발의법률안·제안이유·의안표결현황·본회의표결).
+    assert len(rows) == len(PIPELINE_ENDPOINTS) == 5
     assert [row["endpoint"] for row in rows] == sorted(
         spec.endpoint for spec in PIPELINE_ENDPOINTS
     )

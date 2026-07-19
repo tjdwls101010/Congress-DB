@@ -17,15 +17,9 @@ def main() -> None:
         default="auto",
         help="Execution mode. Default auto chooses from local DB state.",
     )
-    parser.add_argument(
-        "--force-meeting-id",
-        action="append",
-        type=int,
-        help="Meeting mnts_id to rescrape/regroup during incremental sync.",
-    )
     args = parser.parse_args()
 
-    result = run_ingest(mode=args.mode, force_meeting_ids=tuple(args.force_meeting_id or ()))
+    result = run_ingest(mode=args.mode)
     safe_print(
         "Completed ingest: "
         f"mode={result.mode} "

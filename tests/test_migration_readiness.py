@@ -14,7 +14,6 @@ from congress_db.ops.migration_readiness import (
 
 
 TEST_MEMBER = "TEST_READY_MEMBER"
-TEST_MEETING = 970101
 
 
 @pytest.fixture(autouse=True)
@@ -35,8 +34,6 @@ def _delete_rows() -> None:
             WHERE summary->>'test' LIKE 'migration_readiness%'
             """
         )
-        cur.execute("DELETE FROM utterances WHERE meeting_id = %s", (TEST_MEETING,))
-        cur.execute("DELETE FROM meetings WHERE mnts_id = %s", (TEST_MEETING,))
         cur.execute("DELETE FROM members WHERE mona_cd = %s", (TEST_MEMBER,))
         conn.commit()
 
@@ -90,11 +87,7 @@ def _complete_summary() -> dict[str, object]:
                 "sections": [
                     {"key": "S1"},
                     {"key": "S2"},
-                    {"key": "S3"},
                     {"key": "S4a"},
-                    {"key": "S4b"},
-                    {"key": "S5"},
-                    {"key": "S6"},
                     {"key": "S7"},
                 ]
             },
@@ -105,11 +98,6 @@ def _complete_summary() -> dict[str, object]:
                         "value": 0,
                         "interpretation": "accepted",
                     },
-                    {
-                        "name": "member_titled_utterance_actionable_mapping_rate_pct",
-                        "value": 99.0,
-                        "interpretation": "stable",
-                    }
                 ]
             },
         },
@@ -191,10 +179,10 @@ def test_readiness_report_blocks_on_unresolved_dead_letters(tmp_path: Path) -> N
         record_dead_letter(
             conn,
             run_id=run_id,
-            source="test.readiness.minutes",
+            source="test.readiness.bills",
             stage="fetch",
             item_key="970101",
-            payload={"mnts_id": 970101},
+            payload={"bill_no": "970101"},
             error="still failing",
         )
         conn.commit()
@@ -214,24 +202,3 @@ def test_readiness_report_blocks_when_required_stage_signals_are_unavailable(tmp
     assert report.recommendation == "not_ready_for_human_review"
     assert "sanity_check signal unavailable" in report.blockers
     assert "data_completeness signal unavailable" in report.blockers
-
-
-def test_readiness_report_warns_when_member_mapping_rate_regresses(tmp_path: Path) -> None:
-    previous = _complete_summary()
-    previous["stages"]["data_completeness"]["metrics"][1]["value"] = 99.0
-    _create_backfill_run(summary=previous)
-    latest = _complete_summary()
-    latest["stages"]["data_completeness"]["metrics"][1]["value"] = 97.4
-    _create_backfill_run(summary=latest)
-
-    report = generate_migration_readiness_report(output_path=tmp_path / "warning.md")
-
-    assert report.recommendation == "ready_for_human_review"
-    assert report.data_completeness_signal[
-        "member_titled_utterance_actionable_mapping_rate_pct"
-    ] == 97.4
-    assert report.data_completeness_signal["mapping_rate_regression_warning"] is True
-    assert report.warnings
-    assert "member-titled utterance mapping rate dropped" in (
-        tmp_path / "warning.md"
-    ).read_text()

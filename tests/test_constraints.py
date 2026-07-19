@@ -41,15 +41,12 @@ def _pk_columns(table: str) -> list[str]:
         ("members",          ["mona_cd"]),
         ("committees",       ["committee_id"]),
         ("bills",            ["bill_id"]),
-        ("meetings",         ["mnts_id"]),
         ("bill_relations",   ["absorbed_bill_id"]),
         ("bill_source_aliases", ["source", "source_bill_id"]),
         ("bill_final_outcomes", ["bill_no"]),
         ("bill_lead_proposers", ["bill_id", "mona_cd"]),
         ("bill_coproposers", ["bill_id", "mona_cd"]),
         ("votes",            ["bill_id", "mona_cd"]),
-        ("meeting_bills",    ["meeting_id", "bill_id"]),
-        ("utterances",       ["id"]),
         ("ingest_runs",      ["id"]),
         ("ingest_cursors",   ["source"]),
         ("dead_letters",     ["id"]),
@@ -57,40 +54,6 @@ def _pk_columns(table: str) -> list[str]:
 )
 def test_primary_keys(table: str, expected_pk: list[str]) -> None:
     assert _pk_columns(table) == expected_pk
-
-
-# -------------------------------------------------------------------------
-# CHECK 제약: meetings.meeting_type
-# -------------------------------------------------------------------------
-
-def test_meeting_type_rejects_invalid_value() -> None:
-    with get_conn() as conn, conn.cursor() as cur:
-        with pytest.raises(psycopg.errors.CheckViolation):
-            cur.execute(
-                """
-                INSERT INTO meetings
-                    (mnts_id, title, meeting_type, conf_date)
-                VALUES (999991, 'test', '엉뚱회의', '2024-06-01')
-                """
-            )
-        conn.rollback()
-
-
-@pytest.mark.parametrize(
-    "valid_type",
-    ["본회의", "상임위", "특별위", "국정감사", "국정조사", "인사청문회", "소위원회"],
-)
-def test_meeting_type_accepts_each_valid_value(valid_type: str) -> None:
-    with get_conn() as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO meetings
-                (mnts_id, title, meeting_type, conf_date)
-            VALUES (999992, 'test', %s, '2024-06-01')
-            """,
-            (valid_type,),
-        )
-        conn.rollback()
 
 
 # -------------------------------------------------------------------------
@@ -148,8 +111,7 @@ def test_committees_reject_duplicate_names() -> None:
 
 
 # -------------------------------------------------------------------------
-# UNIQUE/PK 제약: votes(bill_id, mona_cd), utterances(meeting_id, sequence),
-#                bills.bill_no
+# UNIQUE/PK 제약: votes(bill_id, mona_cd), bills.bill_no
 # -------------------------------------------------------------------------
 
 def test_votes_unique_bill_mona() -> None:
@@ -169,29 +131,6 @@ def test_votes_unique_bill_mona() -> None:
             cur.execute(
                 "INSERT INTO votes (bill_id, mona_cd, vote_date, result_vote_mod) "
                 "VALUES ('TESTB1', 'TESTM1', '2024-06-02', '반대')"
-            )
-        conn.rollback()
-
-
-def test_utterances_unique_meeting_sequence() -> None:
-    with get_conn() as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO meetings
-                (mnts_id, title, meeting_type, conf_date)
-            VALUES (999993, 'test', '본회의', '2024-06-01')
-            """
-        )
-        cur.execute(
-            "INSERT INTO utterances "
-            "(meeting_id, sequence, speaker_name, speaker_title, content, speaker_role) "
-            "VALUES (999993, 1, '의장', '의장', '개회합니다', '의원')"
-        )
-        with pytest.raises(psycopg.errors.UniqueViolation):
-            cur.execute(
-                "INSERT INTO utterances "
-                "(meeting_id, sequence, speaker_name, speaker_title, content, speaker_role) "
-                "VALUES (999993, 1, '다른', '의원', '중복 시퀀스', '의원')"
             )
         conn.rollback()
 

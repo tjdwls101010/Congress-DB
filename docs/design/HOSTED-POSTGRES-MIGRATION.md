@@ -1,5 +1,10 @@
 # Hosted Postgres Migration Runbook
 
+> **Historical note (2026-06-28):** The meeting/utterance domain (`meetings`, `meeting_bills`,
+> `utterances`, view `bill_meeting_contexts`, function `search_utterances`) recorded below was
+> later removed (migration `031_drop_meeting_minutes.sql`). Table counts and `search_utterances`
+> examples here describe the pre-031 state, kept as a migration record.
+
 > **Historical note (2026-06-10 pivot):** This runbook predates the no-SDK
 > decision (see `docs/design/DECISIONS.md`). Mentions below of a "separate SDK
 > repository" / "SDK-facing data" / "future SDK/app read traffic" are stale

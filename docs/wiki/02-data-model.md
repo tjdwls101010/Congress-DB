@@ -1,5 +1,7 @@
 # 02 — 데이터 모델
 
+> **회의·발언 도메인 제거(2026-06-28, 031):** `meetings`·`meeting_bills`·`utterances` 테이블, `bill_meeting_contexts` 뷰, `search_utterances` 함수는 삭제됐습니다. 심의 *진행·상태*는 구조화 테이블(`bills.proc_result`·`bill_lineage`·`bill_final_outcomes`)이 답하고, 발언 내용("누가 무엇을 말했나") 분석은 이 DB 범위 밖(→ websearch)입니다. 자세한 배경은 [`docs/design/DECISIONS.md`](../design/DECISIONS.md) 2026-06-28.
+
 ## 법안 생애주기 (한눈에)
 
 ```
@@ -37,11 +39,6 @@
 ### `votes` — 본회의 표결 (약 47만 행)
 - row 단위 = `bill_id × mona_cd`(의원당 1행). `count(*)`는 표결 event 수가 아니라 의원-표 수입니다.
 - `poly_nm_at_vote` = 표결 시점 정당. `result_vote_mod` = 찬성/반대/기권/불참.
-
-### `meetings` · `meeting_bills` · `utterances` — 회의록
-- `meetings`(회의) ─< `meeting_bills`(회의×법안 junction) >─ `bills`
-- `utterances`(발언, 약 138만 건)는 `meeting_id`로 회의에 붙습니다. `speaker_mona_cd`로 의원 발언을, `speaker_role`(7값 enum: 의원/기타/국무위원(장관)/차관/증인/전문위원/참고인)로 역할을 거릅니다.
-- ⚠️ 한 회의에 수십~수백 법안이 걸리므로(fanout), "이 회의에서 다뤄짐"을 특정 법안의 직접 발언 증거로 단정하면 과잉입니다. `bill_meeting_contexts` 뷰가 fanout과 회의-단위 통계를 줍니다.
 
 ### `bill_final_outcomes` — 최종 처리·공포 (**`bill_no`로 join**)
 - `bills`와 **`bill_no`로 join**합니다(`bill_id` 아님!).
