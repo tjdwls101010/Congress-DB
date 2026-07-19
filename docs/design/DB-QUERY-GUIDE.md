@@ -16,7 +16,7 @@
 - **담는 것:** 22대 국회(2024-05-30~)의 **발의된 의안** · **본회의 표결**.
 - **안 담는 것:** 시행 중인 **현행법·시행령 본문**(→ 법제처 단계) · **위원회 단계 표결**(원천이 안 줌) · **회의록·발언**(2026-06-28 제거 → 발언 분석은 websearch) · 정책의제 의미 레이어. → 이런 질문엔 "이 DB 범위 밖"이라고 답할 것.
 - **검색은 DB 내장 함수로**(직접 trigram 짜지 말 것): `search_bills('전세사기', 20)` — 시그니처는 함수 COMMENT(`\df+`)에.
-- **법제처/현행법 bridge:** 이 DB는 숫자 법령ID를 제공하지 않는다. `bill_final_outcomes.bill_no -> bills.bill_no`로 공포 이력을 붙이고, `prom_no`(공포 1,365건 100% 채움 — 가장 신뢰 가능한 bridge 키)·`promulgation_dt`·`govt_transfer_dt`·`plenary_dt`를 후속 법령 조회의 목적 중립 bridge로 넘긴다. **`prom_law_nm`(공포 법률명)은 단독 키로 쓰지 말 것** — 공포 66건이 이름 NULL이고 이름 있는 것의 절반이 공백 제거형이라 법제처(공백 사용)와 exact-match가 안 된다(누락 분포·권장 매칭은 `prom_law_nm` COMMENT). 이름으로 매칭해야 하면 양쪽에서 공백을 지우고(`replace(x,' ','')`) **중점도 통일하라** — 가운뎃점이 U+00B7(`·`, 95건)과 U+318D(`ㆍ`, 16건)로 혼재해 공백만 지워선 코드포인트가 달라 exact-match가 깨진다(`translate(x, chr(12685), chr(183))`로 U+318D→U+00B7 통일). 현행법 본문·시행일자 확정은 법제처/외부 법령 데이터 소스에서 해야 한다.
+- **법제처/현행법 bridge:** 이 DB는 숫자 법령ID를 제공하지 않는다. `bill_final_outcomes.bill_no -> bills.bill_no`로 공포 이력을 붙이고, `prom_no`(공포 1,365건 100% 채움 — 가장 신뢰 가능한 bridge 키)·`promulgation_dt`·`govt_transfer_dt`·`plenary_dt`를 후속 법령 조회의 목적 중립 bridge로 넘긴다. **`prom_law_nm`(공포 법률명)은 단독 키로 쓰지 말 것** — 공포 66건이 이름 NULL이고 이름 있는 것의 절반이 공백 제거형이라 법제처(공백 사용)와 exact-match가 안 된다(누락 분포·권장 매칭은 `prom_law_nm` COMMENT). 이름으로 매칭해야 하면 우리 쪽은 생성컬럼 `bill_final_outcomes.prom_law_nm_norm`(가운뎃점 U+318D→U+00B7 통일 + 공백 제거를 엔진이 STORED로 계산)을 쓰고 **상대측(법제처) 이름에도 같은 정규화를 적용하라** — 한쪽만 정규화하면 코드포인트·공백 차이로 조용히 0행이 된다(정규화 규칙 상세는 `prom_law_nm_norm` COMMENT). 현행법 본문·시행일자 확정은 법제처/외부 법령 데이터 소스에서 해야 한다.
 
 ---
 
@@ -74,7 +74,7 @@ LEFT JOIN bill_final_outcomes o ON o.bill_no = b.bill_no;
 ```
 
 ### Q2. 한 법안의 공포 + "통과인데 공포 없음" 판정 (bills + bill_final_outcomes)
-공포일은 `bill_final_outcomes.promulgation_dt`(`bill_no`로 join, `bill_id` 아님). "통과인데 공포 outcome 없음"은 **법률안일 때만** 진짜 갭이다 — `bills`엔 비-법률 의안(결의안·감사요구안 등 약 169건)이 섞여 통과해도 not_promulgable이라, 양성 필터 `bill_name ~ '법(률)?안'`로 거른다(근거·갭 상세는 `bills.bill_name`·`bill_final_outcomes.prom_law_nm` COMMENT).
+공포일은 `bill_final_outcomes.promulgation_dt`(`bill_no`로 join, `bill_id` 아님). "통과인데 공포 outcome 없음"은 **법률안일 때만** 진짜 갭이다 — `bills`엔 비-법률 의안(결의안·감사요구안 등 약 170건)이 섞여 통과해도 not_promulgable이라, 생성컬럼 `bills.is_law_bill`(= `bill_name ~ '법(률)?안'`을 엔진이 계산해 STORED)로 거른다(파생 규칙·용도·분리보고 규율은 `bills.is_law_bill` COMMENT).
 ```sql
 -- 한 법안 공포 이력
 SELECT b.bill_no, b.bill_name,
@@ -84,16 +84,17 @@ JOIN bill_final_outcomes o ON o.bill_no = b.bill_no   -- ★ bill_no로 join
 WHERE b.bill_no = '2213457';
 
 -- 통과한 '법률안'인데 공포 outcome 없음 = pending 또는 진짜 갭 (비-법률 의안 제외)
--- 거부권후보 = 본회의 의결일이 처리일보다 늦음(재의결) → 단순 계류와 구분 (현재 미공포 59건 = 거부권후보 26 + 계류 33)
+-- 거부권후보 = 본회의 의결일이 처리일보다 늦음(재의결) → 단순 계류와 구분.
+-- 미공포 법률안 수는 공포 적재 신선도에 민감하다(공포 이력이 bills보다 뒤처지면 과대) — count로 재산출하고 data_freshness로 기준일을 확인할 것.
 SELECT b.bill_no, b.bill_name, b.proc_dt,
        (o.plenary_dt > b.proc_dt) AS 거부권후보
 FROM bills b
 LEFT JOIN bill_final_outcomes o ON o.bill_no = b.bill_no
 WHERE b.proc_result IN ('원안가결','수정가결')
-  AND b.bill_name ~ '법(률)?안'
+  AND b.is_law_bill                                   -- 생성컬럼(= bill_name ~ '법(률)?안')
   AND NOT EXISTS (SELECT 1 FROM bill_final_outcomes o2
                   WHERE o2.bill_no = b.bill_no AND o2.promulgation_dt IS NOT NULL)
-ORDER BY b.proc_dt DESC NULLS LAST;   -- 현재 59건
+ORDER BY b.proc_dt DESC NULLS LAST;   -- 미공포 법률안(계류+거부권후보). 신선도는 data_freshness로 확인
 ```
 
 ### Q3. 원안→대안→공포 경로

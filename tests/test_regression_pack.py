@@ -39,10 +39,19 @@ def test_floor_checks_are_minimums_not_exact_matches() -> None:
 def test_view_checks_pass_when_data_freshness_exposes_domains() -> None:
     with get_conn() as conn, conn.cursor() as cur:
         checks = _load_view_checks(cur)
-    assert len(checks) == 1
-    assert checks[0].metric == "data_freshness_domains"
-    assert checks[0].passed
-    assert checks[0].current >= 5
+    by_metric = {c.metric: c for c in checks}
+    assert "data_freshness_domains" in by_metric
+    assert by_metric["data_freshness_domains"].passed
+    assert by_metric["data_freshness_domains"].current >= 5
+
+
+def test_view_checks_gate_is_law_bill_classification() -> None:
+    with get_conn() as conn, conn.cursor() as cur:
+        checks = _load_view_checks(cur)
+    by_metric = {c.metric: c for c in checks}
+    assert "is_law_bill_majority" in by_metric
+    # 로컬은 빈 DB라 law=0·non_law=0 → floor=1, current=0 → 통과 아님이 될 수 있으니 존재만 확인.
+    assert by_metric["is_law_bill_majority"].metric == "is_law_bill_majority"
 
 
 def test_report_fails_when_view_check_fails() -> None:

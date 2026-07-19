@@ -56,6 +56,8 @@ EXPECTED_BILL_COLUMNS = frozenset(
         "cmt_proc_result",
         "summary",
         "fetched_at",
+        # WI4b·C2: 법률안 여부 생성컬럼(bill_name ~ '법(률)?안', STORED).
+        "is_law_bill",
     }
 )
 
@@ -96,6 +98,8 @@ EXPECTED_BILL_FINAL_OUTCOME_COLUMNS = frozenset(
         "prom_no",
         "prom_law_nm",
         "fetched_at",
+        # WI4b·C3: 공포 법률명 정규화 생성컬럼(중점 통일 + 공백 제거, STORED).
+        "prom_law_nm_norm",
     }
 )
 
@@ -361,6 +365,10 @@ def test_critical_gotcha_comments_carry_their_warning() -> None:
         # fetched_at은 신선도 판단에 쓰며 전체 신선도는 data_freshness 뷰로 (WI4)
         ("bills", "fetched_at"): "data_freshness",
         ("bill_final_outcomes", "fetched_at"): "data_freshness",
+        # C2 is_law_bill: 가결≠공포 분리-보고 규율 유지 (WI4b)
+        ("bills", "is_law_bill"): "분리",
+        # C3 prom_law_nm_norm: 1차 bridge 키는 prom_no임을 유지 (WI4b)
+        ("bill_final_outcomes", "prom_law_nm_norm"): "prom_no",
     }
     for (table, column), marker in column_markers.items():
         comment = _column_comment(table, column) or ""
@@ -407,6 +415,55 @@ def test_data_freshness_votes_has_null_ingest_and_bills_has_fact_date() -> None:
     # members·bill_relations는 latest_fact_date가 항상 NULL(사실 날짜 없음)
     assert rows["members"][1] is None
     assert rows["bill_relations"][1] is None
+
+
+def test_is_law_bill_generated_column_matches_name_regex() -> None:
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO bills (bill_id, bill_no, bill_name) VALUES
+                ('TEST_C2_LAW', '2990201', '방송법 일부개정법률안'),
+                ('TEST_C2_SPECIAL', '2990202', '○○ 특별조치법안'),
+                ('TEST_C2_NONLAW', '2990203', '○○ 진상규명 결의안')
+            """
+        )
+        conn.commit()
+        cur.execute(
+            "SELECT bill_id, is_law_bill FROM bills WHERE bill_id LIKE 'TEST_C2_%' ORDER BY bill_id"
+        )
+        rows = dict(cur.fetchall())
+        cur.execute("DELETE FROM bills WHERE bill_id LIKE 'TEST_C2_%'")
+        conn.commit()
+    assert rows == {
+        "TEST_C2_LAW": True,
+        "TEST_C2_NONLAW": False,
+        "TEST_C2_SPECIAL": True,
+    }
+
+
+def test_prom_law_nm_norm_unifies_middle_dot_and_strips_spaces() -> None:
+    raw = "가" + chr(0x318D) + "나 법률"  # U+318D(ㆍ) + 공백
+    expected = "가" + chr(0x00B7) + "나법률"  # U+00B7(·) 통일 + 공백 제거
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO bills (bill_id, bill_no, bill_name) VALUES ('TEST_C3_BILL', '2990301', 'x')"
+        )
+        cur.execute(
+            """
+            INSERT INTO bill_final_outcomes (bill_no, prom_law_nm) VALUES
+                ('2990301', %s)
+            """,
+            (raw,),
+        )
+        conn.commit()
+        cur.execute(
+            "SELECT prom_law_nm_norm FROM bill_final_outcomes WHERE bill_no = '2990301'"
+        )
+        norm = cur.fetchone()[0]
+        cur.execute("DELETE FROM bill_final_outcomes WHERE bill_no = '2990301'")
+        cur.execute("DELETE FROM bills WHERE bill_id = 'TEST_C3_BILL'")
+        conn.commit()
+    assert norm == expected
 
 
 def test_foreign_key_columns_are_indexed_for_direct_sql_joins() -> None:
