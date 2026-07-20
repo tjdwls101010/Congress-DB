@@ -15,14 +15,16 @@ make safe-update
 ## 무엇을 하나
 
 1. **백업 브랜치 생성** — `main`을 Neon copy-on-write로 즉시 스냅샷(`pre-update-<날짜시각>`). 비용·시간 거의 0이고 복원 시 `main`의 접속 host가 바뀌지 않아 **공개된 연결문자열이 안 깨진다**.
-2. **수집 전 지문(fingerprint)** — 읽기 전용으로 테이블별 행 수·PK 집합·핵심 컬럼 채움 여부·회의별 발언 수를 기록.
-3. **증분 수집** — `scripts.ingest`(auto→incremental). 새 법안·표결·회의·발언을 추가/갱신.
-4. **수집 후 지문 + 무손상 diff** — 다음 중 하나라도 있으면 **손상으로 판정**:
-   - 기존 행(PK) 삭제
-   - `votes` 등 append 전용 테이블 행 수 감소
-   - 채워져 있던 컬럼이 NULL로 회귀(예: `cmt_proc_result`)
-   - 부모(법안/회의)가 자식(발의자/링크)을 전부 잃음
-   - 살아있는 회의의 발언이 0으로 비워짐
+2. **수집 전 지문(fingerprint)** — 읽기 전용으로 테이블별 행 수·PK 집합·핵심 컬럼 채움 여부·부모별 자식 행 수를 기록.
+3. **증분 수집** — `scripts.ingest`(auto→incremental). 새 법안·표결·발의자·공포·계보를 추가/갱신.
+4. **수집 후 지문 + 무손상 diff** — 다음 **4가지** 중 하나라도 있으면 **손상으로 판정**
+   (구현: `congress_db/ops/safe_update.py`의 `diff()`):
+   - 기존 행(PK) 삭제 — `bills`·`members`·`committees`·`bill_final_outcomes`·`bill_relations`·`bill_source_aliases`·`bill_lead_proposers`
+   - append 전용 테이블(`votes`) 행 수 감소
+   - 채워져 있던 컬럼이 NULL로 회귀 — `bills`·`members`·`committees`·`bill_final_outcomes`
+     (단 `members.poly_nm`·`is_incumbent`은 정상 생애주기 변동이라 제외)
+   - 부모(법안)가 자식(대표발의자/공동발의자)을 **전부** 잃음
+     — 자식이 *줄어든* 것만으로는 손상이 아니다(원천 변경으로 정상 가능, `NOTE`로만 보고)
 5. **결과 처리**
    - **무손상** → 추가량 리포트 출력 후 백업 브랜치 삭제. 끝.
    - **손상 감지** → `main`을 백업 브랜치로 **자동 복원**(데이터·추가분 모두 수집 직전으로 되돌림) 후 경고. 손상은 남지 않는다. 원인을 보고 다시 시도.

@@ -1,7 +1,15 @@
 # Pre-migration Local Backfill Gate
 
-This is the operating contract for issue #45. Hosted Postgres migration (#12) must wait until
-this gate is complete.
+> **✅ CLOSED — this gate passed on 2026-05-30 and the hosted Postgres migration completed on
+> 2026-06-06.** This document is a historical record, not a step you need to run. It is kept
+> because the run loop, the monitoring signals, and the pass criteria below are still the
+> project's working philosophy for validating a full backfill ("a successful command exit is not
+> enough if row counts, skipped targets, or generated reports disagree with the expected
+> universe"). For current operations use [SAFE-UPDATE-RUNBOOK.md](SAFE-UPDATE-RUNBOOK.md) and
+> [`docs/wiki/05-operations.md`](../wiki/05-operations.md) instead.
+
+This was the operating contract for issue #45. Hosted Postgres migration (#12) had to wait until
+this gate was complete.
 
 > **Historical note (2026-06-28):** The meeting/utterance domain (`meetings`, `meeting_bills`,
 > `utterances`) referenced below was later removed from the project (migration
