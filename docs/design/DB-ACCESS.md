@@ -31,9 +31,9 @@ psql "$OWNER_DATABASE_URL" -c "ALTER ROLE congress_ro PASSWORD '…';"
 
 ## 공개 읽기 접속 (다른 사람에게 공유)
 
-`congress_ro`는 읽기전용(SELECT 12객체 + 검색함수 3개, 쓰기·내부테이블 차단)이고 데이터는 전부 공개 입법 사실이라(개인정보 컬럼은 #015에서 제거), **연결 문자열을 공개 read-key처럼 배포해도 안전하다**. 받는 사람은 어떤 Postgres 클라이언트로든 **로컬에서 하듯 자유 SQL**(JOIN·GROUP BY·CTE·윈도우함수·검색함수·EXPLAIN)을 돌릴 수 있다. no-SDK 목표("직접 SQL로 자유롭게")에 충실한 1차 표면이다.
+`congress_ro`는 읽기전용(SELECT 9객체 = 테이블 7 + 뷰 2, 검색함수 2개, 쓰기·내부테이블 차단)이고 데이터는 전부 공개 입법 사실이라(개인정보 컬럼은 #015에서 제거), **연결 문자열을 공개 read-key처럼 배포해도 안전하다**. 받는 사람은 어떤 Postgres 클라이언트로든 **로컬에서 하듯 자유 SQL**(JOIN·GROUP BY·CTE·윈도우함수·검색함수·EXPLAIN)을 돌릴 수 있다. no-SDK 목표("직접 SQL로 자유롭게")에 충실한 1차 표면이다.
 
-- **연결 문자열(공유용, pooled):** `postgresql://congress_ro:<password>@ep-muddy-unit-ao33i6y0-pooler.c-2.ap-southeast-1.aws.neon.tech/congress?sslmode=require` — 실제 `<password>`는 `.env.local`의 `CONGRESS_RO_URL`에 있다. **저장소가 private이라 여기 평문 커밋해도 외부인은 못 본다** → 공개하려면 별도 공개 채널(공개 gist/웹페이지)로 전체 문자열을 배포하거나, 특정 사용자에게 직접 전달한다.
+- **연결 문자열(공유용, pooled):** `postgresql://congress_ro:<password>@ep-muddy-unit-ao33i6y0-pooler.c-2.ap-southeast-1.aws.neon.tech/congress?sslmode=require` — 실제 `<password>`는 `.env.local`의 `CONGRESS_RO_URL`에 있다. **⚠️ 이 저장소는 현재 GitHub 공개다** — `README.md`·`docs/wiki/`·`.github/workflows/freshness-watchdog.yml`에 비밀번호 포함 전체 문자열이 평문으로 커밋돼 있고, 이는 2026-06-18 공개 읽기 결정에 따른 **의도된 배포**다(별도 채널이 더는 필요 없다). 이 파일에서 `<password>`를 가려 둔 것은 습관일 뿐 보호 장치가 아니다. 따라서 `congress_ro`의 안전성은 "저장소가 비공개라서"가 아니라 **읽기전용 allowlist + PII 제거 + `statement_timeout` 캡**에서 나온다 — 이 세 조건 중 하나라도 깨지면 즉시 비밀번호를 회전해야 한다.
 - **자기설명:** 받는 사람은 레포 없이도 `\d+ <table>`/`\df+`로 함정·어휘 COMMENT를 직접 introspect한다(COMMENT가 DB와 함께 이동). cross-table 레시피만 [DB-QUERY-GUIDE](DB-QUERY-GUIDE.md)에 있어, 필요하면 그 파일만 따로 공유한다.
 - **남용 방어:** 공개 노출 대비로 `congress_ro`에 `statement_timeout=60s`를 걸어 runaway 쿼리를 캡한다(정상 분석 쿼리는 sub-second~수초라 무영향). 부하는 Neon autoscale 비용으로 잡히니 모니터링한다. 비밀번호 교체가 필요하면 `ALTER ROLE congress_ro PASSWORD`로 회전(공개 키라 모든 소비자가 새 문자열로 갱신해야 해 회전 비용 큼).
 

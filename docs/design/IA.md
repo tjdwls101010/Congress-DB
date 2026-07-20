@@ -145,7 +145,7 @@ congress_db/core/endpoints.py ────────→ docs/ops/API-CATALOG.m
 
 PM/운영자가 기억해야 하는 공개 Interface는 단일 수집 명령이다. 이 명령은 내부적으로 unresolved dead letter 재시도, 백필/증분 범위 결정, source별 upsert, readiness 리포트 갱신을 순서대로 조율한다. 개별 `ingest-members`, `ingest-bills` 같은 stage 명령은 개발/진단용 보조 Interface로만 취급한다.
 
-Hosted Postgres 이전에는 [PRE-MIGRATION-BACKFILL-GATE.md](PRE-MIGRATION-BACKFILL-GATE.md)의 운영 gate를 먼저 통과한다. 이 gate는 CLI progress를 보며 100% 로컬 백필을 실제로 돌리고, 느린 stage·retry loop·dead letter·row count gap·검증 실패를 수정한 뒤 idempotency 재실행까지 확인하는 절차다.
+*(완료된 절차 — 기록용)* Hosted Postgres 이전에 [PRE-MIGRATION-BACKFILL-GATE.md](PRE-MIGRATION-BACKFILL-GATE.md)의 운영 gate를 먼저 통과했다(2026-05-30 통과, 2026-06-06 마이그레이션 종료). 이 gate는 CLI progress를 보며 100% 로컬 백필을 실제로 돌리고, 느린 stage·retry loop·dead letter·row count gap·검증 실패를 수정한 뒤 idempotency 재실행까지 확인하는 절차였다. 현재 정기 적재의 안전장치는 [SAFE-UPDATE-RUNBOOK.md](SAFE-UPDATE-RUNBOOK.md)다.
 
 ### O1. 백필 readiness
 
