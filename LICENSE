@@ -19,11 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-이 라이선스는 이 저장소의 **코드**에 적용됩니다.
-
-이 데이터베이스가 담고 있는 국회 데이터의 원천은 열린국회정보 OpenAPI
-(https://open.assembly.go.kr)와 의안정보시스템(https://likms.assembly.go.kr)의
-공개 데이터이며, 원천 데이터 자체의 권리와 이용조건은 각 제공기관을 따릅니다.
