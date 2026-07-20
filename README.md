@@ -109,6 +109,6 @@ make test
 
 원천은 [열린국회정보 OpenAPI](https://open.assembly.go.kr)와 의안정보시스템의 공개 데이터입니다. 데이터는 원천 그대로(raw fidelity) 보존하므로 결측·표기 불일치가 그대로 남아 있습니다.
 
-이 저장소의 **코드**는 [MIT 라이선스](LICENSE)입니다. 원천 데이터 자체의 권리는 별개이며 각 제공기관의 이용조건을 따릅니다.
+이 저장소의 **코드**는 [MIT 라이선스](LICENSE)입니다. MIT는 이 저장소가 저작한 적재·검증 코드에만 적용되며, **이 DB가 담고 있는 국회 데이터 자체의 권리와 이용조건은 별개로 각 제공기관**([열린국회정보 OpenAPI](https://open.assembly.go.kr) · [의안정보시스템](https://likms.assembly.go.kr))**을 따릅니다.**
 
 보안 취약점 제보는 [SECURITY.md](SECURITY.md)를 참고하세요.
